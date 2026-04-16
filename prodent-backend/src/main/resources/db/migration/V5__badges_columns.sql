@@ -1,0 +1,6 @@
+-- V5: Add missing columns to badges table (expected by frontend)
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS name_uz VARCHAR(255);
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS name_en VARCHAR(255);
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS icon VARCHAR(100);
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS color VARCHAR(50);
+ALTER TABLE badges ADD COLUMN IF NOT EXISTS bg_color VARCHAR(50);

@@ -1,0 +1,118 @@
+server:
+  port: 8080
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/plain
+    min-response-size: 1024
+
+spring:
+  application:
+    name: prodent-backend
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:prodent}
+    username: ${DB_USERNAME:prodent}
+    password: ${DB_PASSWORD:prodent}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:20}
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        default_schema: public
+        jdbc:
+          batch_size: 50
+          fetch_size: 100
+        order_inserts: true
+        order_updates: true
+        generate_statistics: false
+        query:
+          plan_cache_max_size: 2048
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  cache:
+    type: redis
+    redis:
+      time-to-live: 600000
+      cache-null-values: false
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:your-256-bit-secret-key-change-in-production-minimum-32-chars}
+    access-token-expiration: 900000      # 15 minutes
+    refresh-token-expiration: 2592000000 # 30 days
+
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:5173,http://localhost:3000}
+
+  rate-limit:
+    otp-max-requests: 3
+    otp-window-minutes: 10
+    login-max-attempts: 5
+    login-lock-minutes: 15
+
+  sms:
+    provider: playmobile
+    api-url: ${SMS_API_URL:https://send.smsxabar.uz/broker-api/send}
+    login: ${SMS_LOGIN:}
+    password: ${SMS_PASSWORD:}
+
+  payment:
+    payme:
+      merchant-id: ${PAYME_MERCHANT_ID:}
+      secret-key: ${PAYME_SECRET_KEY:}
+      endpoint: ${PAYME_ENDPOINT:https://checkout.paycom.uz}
+    click:
+      merchant-id: ${CLICK_MERCHANT_ID:}
+      secret-key: ${CLICK_SECRET_KEY:}
+      service-id: ${CLICK_SERVICE_ID:}
+    uzum:
+      merchant-id: ${UZUM_MERCHANT_ID:}
+      secret-key: ${UZUM_SECRET_KEY:}
+
+  storage:
+    type: ${STORAGE_TYPE:local}
+    local-path: ${STORAGE_PATH:./uploads}
+    max-file-size: 10485760 # 10MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    com.prodent: ${LOG_LEVEL:INFO}
+    org.hibernate.SQL: WARN

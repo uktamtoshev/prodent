@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "frontend",
+      "runtimeExecutable": "/Users/macbookair2020/bin/npx",
+      "runtimeArgs": ["vite"],
+      "port": 5173,
+      "cwd": "prodent-frontend"
+    }
+  ]
+}

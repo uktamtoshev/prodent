@@ -1,0 +1,648 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* PRODENT XMed Style - Light Theme */
+    --background: 180 20% 98%;
+    --foreground: 200 25% 15%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 200 25% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 25% 15%;
+
+    /* Primary: XMed Teal #0D9488 */
+    --primary: 175 82% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Light Teal */
+    --secondary: 175 30% 94%;
+    --secondary-foreground: 175 82% 28%;
+
+    --muted: 180 15% 93%;
+    --muted-foreground: 200 15% 45%;
+
+    /* Accent: Dark Teal (for search box, highlights) */
+    --accent: 180 55% 25%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 180 15% 88%;
+    --input: 180 15% 96%;
+    --ring: 175 82% 32%;
+
+    --radius: 0.75rem;
+
+    /* PRODENT Brand Colors - XMed Style */
+    --teal-primary: 175 82% 32%;
+    --teal-light: 175 60% 45%;
+    --teal-dark: 180 55% 25%;
+    --teal-bg: 180 20% 98%;
+    --cream-white: 60 20% 99%;
+    --mist-gray: 180 15% 93%;
+    --ink-gray: 200 25% 15%;
+    --success-green: 160 84% 39%;
+    --warning-amber: 38 92% 50%;
+
+    /* Mint Sidebar Palette */
+    --sidebar-bg: 150 25% 97%;
+    --sidebar-border: 150 20% 90%;
+    --sidebar-item-hover: 155 30% 94%;
+    --sidebar-item-active: 155 35% 90%;
+    --sidebar-accent: 155 45% 42%;
+    --sidebar-accent-light: 155 40% 85%;
+    --sidebar-text: 150 15% 35%;
+    --sidebar-text-muted: 150 10% 55%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(175 82% 32%) 0%, hsl(175 60% 45%) 100%);
+    --gradient-jade: linear-gradient(135deg, hsl(175 82% 32%) 0%, hsl(180 55% 25%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(38 92% 50%) 0%, hsl(40 80% 60%) 100%);
+    --gradient-sky: linear-gradient(135deg, hsl(175 60% 45%) 0%, hsl(190 70% 50%) 100%);
+    --gradient-hero: linear-gradient(180deg, hsl(180 20% 98%) 0%, hsl(180 15% 96%) 50%, hsl(180 20% 98%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(180 15% 98%) 100%);
+    --gradient-glow: radial-gradient(ellipse at center, hsl(175 82% 32% / 0.1) 0%, transparent 70%);
+    --gradient-mesh: radial-gradient(at 40% 20%, hsl(175 82% 32% / 0.06) 0px, transparent 50%), 
+                     radial-gradient(at 80% 0%, hsl(175 60% 45% / 0.06) 0px, transparent 50%),
+                     radial-gradient(at 0% 50%, hsl(180 55% 25% / 0.04) 0px, transparent 50%);
+
+    /* Shadows */
+    --shadow-card: 0px 4px 16px rgba(13, 148, 136, 0.08);
+    --shadow-soft: 0 2px 12px -3px hsl(175 82% 32% / 0.1);
+    --shadow-medium: 0 8px 24px -4px hsl(175 82% 32% / 0.12);
+    --shadow-strong: 0 16px 40px -8px hsl(175 82% 32% / 0.18);
+    --shadow-glow: 0 0 30px hsl(175 82% 32% / 0.25);
+    --shadow-glass: 0 8px 32px hsl(200 25% 15% / 0.04), inset 0 0 0 1px hsl(0 0% 100% / 0.6);
+
+    /* Animations */
+    --transition-fast: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-smooth: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 400ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .dark {
+    /* PRODENT Dark Theme - Teal Based */
+    --background: 180 25% 7%;
+    --foreground: 180 10% 95%;
+
+    --card: 180 20% 10%;
+    --card-foreground: 180 10% 95%;
+
+    --popover: 180 20% 11%;
+    --popover-foreground: 180 10% 95%;
+
+    /* Primary: Brighter Teal for dark mode */
+    --primary: 175 70% 48%;
+    --primary-foreground: 180 30% 5%;
+
+    /* Secondary */
+    --secondary: 180 25% 15%;
+    --secondary-foreground: 175 60% 55%;
+
+    --muted: 180 20% 18%;
+    --muted-foreground: 180 10% 55%;
+
+    /* Accent - Lighter for better contrast */
+    --accent: 180 30% 20%;
+    --accent-foreground: 180 10% 95%;
+
+    --destructive: 0 60% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 180 20% 18%;
+    --input: 180 20% 14%;
+    --ring: 175 70% 48%;
+
+    /* Dark theme brand colors adjusted for contrast */
+    --success-green: 160 75% 45%;
+    --warning-amber: 38 85% 55%;
+
+    /* Mint Sidebar Palette - Dark */
+    --sidebar-bg: 155 20% 12%;
+    --sidebar-border: 155 15% 18%;
+    --sidebar-item-hover: 155 18% 16%;
+    --sidebar-item-active: 155 25% 20%;
+    --sidebar-accent: 155 50% 55%;
+    --sidebar-accent-light: 155 25% 25%;
+    --sidebar-text: 155 15% 85%;
+    --sidebar-text-muted: 155 10% 55%;
+
+    /* Dark theme gradients */
+    --gradient-hero: linear-gradient(180deg, hsl(180 25% 7%) 0%, hsl(180 22% 9%) 50%, hsl(180 25% 7%) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(180 20% 12%) 0%, hsl(180 20% 10%) 100%);
+    --gradient-mesh: radial-gradient(at 40% 20%, hsl(175 70% 48% / 0.06) 0px, transparent 50%), 
+                     radial-gradient(at 80% 0%, hsl(175 60% 50% / 0.05) 0px, transparent 50%),
+                     radial-gradient(at 0% 50%, hsl(175 70% 48% / 0.04) 0px, transparent 50%);
+    --shadow-glass: 0 8px 32px hsl(0 0% 0% / 0.4), inset 0 0 0 1px hsl(180 20% 25% / 0.1);
+    --shadow-card: 0px 4px 16px rgba(0, 0, 0, 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* Headings use Manrope */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  h1 {
+    @apply text-3xl md:text-4xl lg:text-5xl;
+  }
+
+  h2 {
+    @apply text-2xl md:text-3xl;
+  }
+
+  h3 {
+    @apply text-xl md:text-2xl;
+  }
+
+  h4 {
+    @apply text-lg md:text-xl;
+  }
+
+  /* Arabic mode font */
+  [dir="rtl"], .font-arabic {
+    font-family: 'Tajawal', 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  /* Glass effects */
+  .glass {
+    @apply bg-card/80 backdrop-blur-xl border border-border/50;
+    box-shadow: var(--shadow-glass);
+  }
+
+  .glass-strong {
+    @apply bg-card/90 backdrop-blur-2xl border border-border/60;
+    box-shadow: var(--shadow-glass);
+  }
+
+  /* PRODENT Card Style */
+  .prodent-card {
+    @apply bg-card rounded-[14px] border border-border/50;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Text gradients */
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary to-teal-light bg-clip-text text-transparent;
+  }
+
+  .text-gradient-gold {
+    @apply bg-gradient-to-r from-warning-amber to-warning-amber/70 bg-clip-text text-transparent;
+  }
+
+  /* Glow effects */
+  .glow {
+    box-shadow: var(--shadow-glow);
+  }
+
+  .glow-gold {
+    box-shadow: 0 0 30px hsl(40 50% 58% / 0.25);
+  }
+
+  /* Background patterns */
+  .mesh-bg {
+    background-image: var(--gradient-mesh);
+  }
+
+  /* PRODENT Animations */
+  .prodent-fade-in {
+    animation: prodent-fade-in 150ms ease-out forwards;
+  }
+
+  .prodent-hover {
+    @apply transition-transform duration-150;
+  }
+
+  .prodent-hover:hover {
+    transform: scale(1.03);
+  }
+
+  /* Tab underline animation */
+  .tab-underline {
+    @apply relative;
+  }
+
+  .tab-underline::after {
+    content: '';
+    @apply absolute bottom-0 left-0 w-full h-0.5 bg-primary scale-x-0 origin-left transition-transform duration-200;
+  }
+
+  .tab-underline:hover::after,
+  .tab-underline[data-state="active"]::after {
+    @apply scale-x-100;
+  }
+
+  /* Float animations */
+  .float-animation {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  .float-animation-delayed {
+    animation: float 6s ease-in-out infinite;
+    animation-delay: -3s;
+  }
+
+  /* Pulse glow */
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  /* Shimmer loading */
+  .shimmer {
+    @apply relative overflow-hidden;
+    background: linear-gradient(90deg, transparent, hsl(var(--muted)) 50%, transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Skeleton loading */
+  .skeleton {
+    @apply relative overflow-hidden bg-muted rounded;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.4), transparent);
+    animation: shimmer 1.5s infinite;
+  }
+}
+
+/* Keyframes */
+@keyframes prodent-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px hsl(173 63% 44% / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 40px hsl(173 63% 44% / 0.5);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ==================== TOOTH ANIMATIONS ==================== */
+
+@keyframes tooth-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0) rotate(-10deg);
+  }
+  50% {
+    transform: scale(1.15) rotate(3deg);
+  }
+  70% {
+    transform: scale(0.95) rotate(-1deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes tooth-bounce {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    transform: translateY(-6px) scale(1.02);
+  }
+  50% {
+    transform: translateY(-3px) scale(1.01);
+  }
+}
+
+@keyframes tooth-wiggle {
+  0%, 100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-3deg);
+  }
+  75% {
+    transform: rotate(3deg);
+  }
+}
+
+@keyframes tooth-glow-pulse {
+  0%, 100% {
+    filter: brightness(1) drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    filter: brightness(1.1) drop-shadow(0 0 8px currentColor);
+  }
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+@keyframes crown-shine {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes implant-gleam {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+@keyframes erupting-float {
+  0%, 100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
+}
+
+/* Real teeth animations */
+.real-tooth {
+  animation: tooth-rise 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: inherit;
+  opacity: 0;
+}
+
+@keyframes tooth-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(30px) scale(0.7);
+  }
+  70% {
+    transform: translateY(-4px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.real-tooth:hover svg {
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.2));
+}
+
+.real-tooth svg {
+  transition: filter 0.3s ease;
+}
+
+.tooth-btn:hover {
+  transform: translateY(-4px) scale(1.08);
+  z-index: 10;
+}
+
+.tooth-btn:hover .tooth-shape {
+  animation: tooth-glow-pulse 1.5s ease-in-out infinite;
+}
+
+.tooth-btn:active {
+  transform: translateY(-2px) scale(1.02);
+}
+
+/* Tooth shape transitions */
+.tooth-shape {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Selected tooth */
+.tooth-selected {
+  animation: tooth-bounce 0.6s ease-in-out;
+  transform: scale(1.1);
+}
+
+/* Missing tooth fade */
+.tooth-missing {
+  filter: grayscale(0.5);
+}
+
+/* Erupting tooth */
+.tooth-erupting {
+  animation: erupting-float 2s ease-in-out infinite;
+}
+
+/* Crown tooth with shine */
+.tooth-crown {
+  position: relative;
+  overflow: hidden;
+}
+
+.tooth-crown::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  animation: crown-shine 3s ease-in-out infinite;
+}
+
+/* Implant metallic effect */
+.tooth-implant {
+  position: relative;
+}
+
+.tooth-implant::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.3) 0%, transparent 50%, rgba(0,0,0,0.1) 100%);
+  border-radius: inherit;
+  animation: implant-gleam 2s ease-in-out infinite;
+}
+
+/* Sparkle animation */
+.animate-sparkle {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+/* Problem teeth subtle pulse */
+.tooth-btn:has(.bg-amber-400),
+.tooth-btn:has(.bg-rose-400),
+.tooth-btn:has(.bg-red-400) {
+  animation: tooth-pop-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
+             tooth-wiggle 3s ease-in-out infinite;
+  animation-delay: var(--delay, 0ms), calc(var(--delay, 0ms) + 0.5s);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes blob {
+  0% {
+    transform: translate(0px, 0px) scale(1);
+  }
+  33% {
+    transform: translate(30px, -50px) scale(1.1);
+  }
+  66% {
+    transform: translate(-20px, 20px) scale(0.9);
+  }
+  100% {
+    transform: translate(0px, 0px) scale(1);
+  }
+}
+
+/* ==================== CRM & DASHBOARD TYPOGRAPHY ==================== */
+
+/* CRM container typography to match frontend */
+.crm-container {
+  font-size: 15px;
+}
+
+/* Card titles in CRM should match frontend heading styles */
+.crm-container [data-slot="card-title"],
+.crm-container .card-title {
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Larger sidebar menu items */
+.sidebar-menu-item {
+  @apply text-[15px];
+}
+
+/* Dashboard stat values - larger and bolder */
+.stat-value {
+  @apply text-2xl md:text-3xl font-bold tracking-tight;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+/* Section headers in dashboard */
+.section-header {
+  @apply text-lg md:text-xl font-semibold;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+/* CRM page headers */
+.page-header {
+  @apply text-2xl md:text-3xl font-bold tracking-tight;
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+}
+
+/* Form labels and inputs should be consistent */
+.form-label {
+  @apply text-sm font-medium text-foreground;
+}
+
+/* Table text sizing for CRM */
+.crm-table {
+  @apply text-[14px];
+}
+
+.crm-table th {
+  @apply text-[13px] font-semibold uppercase tracking-wider;
+}
+
+/* Badge sizing consistency */
+.crm-badge {
+  @apply text-xs font-medium px-2.5 py-1;
+}
+
+/* Button text sizing */
+.crm-btn {
+  @apply text-[14px] font-medium;
+}
+
+/* Navigation items hover effect */
+.nav-item-active {
+  @apply font-semibold;
+}
