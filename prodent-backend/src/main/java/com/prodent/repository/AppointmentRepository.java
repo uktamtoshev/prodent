@@ -25,7 +25,11 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
 
     List<Appointment> findByDoctorIdAndAppointmentDateAndStatus(UUID doctorId, LocalDate appointmentDate, Appointment.AppointmentStatus status);
 
+    List<Appointment> findByDoctorIdAndAppointmentDate(UUID doctorId, LocalDate appointmentDate);
+
     long countByClinicIdAndStatus(UUID clinicId, Appointment.AppointmentStatus status);
+
+    boolean existsByDoctorIdAndPatientId(UUID doctorId, UUID patientId);
 
     @Query("SELECT a FROM Appointment a WHERE a.appointmentDate >= CURRENT_DATE " +
            "AND a.status IN (com.prodent.entity.Appointment.AppointmentStatus.PENDING, " +

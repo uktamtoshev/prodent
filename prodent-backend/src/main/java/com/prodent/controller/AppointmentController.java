@@ -3,6 +3,9 @@ package com.prodent.controller;
 import com.prodent.dto.request.CreateAppointmentRequest;
 import com.prodent.dto.response.AppointmentResponse;
 import com.prodent.entity.Appointment;
+import com.prodent.entity.Doctor;
+import com.prodent.exception.EntityNotFoundException;
+import com.prodent.repository.DoctorRepository;
 import com.prodent.service.AppointmentService;
 import com.prodent.util.SecurityUtils;
 import jakarta.validation.Valid;
@@ -33,6 +36,7 @@ import java.util.UUID;
 public class AppointmentController {
 
     private final AppointmentService appointmentService;
+    private final DoctorRepository doctorRepository;
 
     @PostMapping
     public ResponseEntity<AppointmentResponse> createAppointment(@Valid @RequestBody CreateAppointmentRequest request) {
@@ -59,10 +63,10 @@ public class AppointmentController {
     public ResponseEntity<List<AppointmentResponse>> getDoctorAppointments(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         UUID userId = SecurityUtils.getCurrentUserId();
-        // The service expects a doctorId (Doctor entity ID), but we have userId.
-        // In a real scenario, we would resolve the Doctor entity from the userId.
-        // For now, passing userId which the service will handle.
-        List<AppointmentResponse> result = appointmentService.getDoctorAppointments(userId, date);
+        // S-14 fix: resolve Doctor entity from current user's ID
+        Doctor doctor = doctorRepository.findByUserId(userId)
+                .orElseThrow(() -> new EntityNotFoundException("Doctor profile not found for user: " + userId));
+        List<AppointmentResponse> result = appointmentService.getDoctorAppointments(doctor.getId(), date);
         return ResponseEntity.ok(result);
     }
 

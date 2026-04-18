@@ -6,6 +6,7 @@ import com.prodent.entity.Clinic;
 import com.prodent.entity.Doctor;
 import com.prodent.entity.MedicalRecord;
 import com.prodent.exception.EntityNotFoundException;
+import com.prodent.repository.AppointmentRepository;
 import com.prodent.repository.ClinicRepository;
 import com.prodent.repository.DoctorRepository;
 import com.prodent.repository.MedicalRecordRepository;
@@ -28,6 +29,7 @@ public class MedicalRecordService {
     private final DoctorRepository doctorRepository;
     private final ClinicRepository clinicRepository;
     private final UserRepository userRepository;
+    private final AppointmentRepository appointmentRepository;
 
     @Transactional
     public MedicalRecordResponse createRecord(UUID doctorId, CreateMedicalRecordRequest request) {
@@ -57,17 +59,37 @@ public class MedicalRecordService {
 
     @Transactional(readOnly = true)
     public List<MedicalRecordResponse> getPatientRecords(UUID patientId, UUID requesterId) {
-        // Check if requester has access: must be the patient, their doctor, or clinic admin
-        boolean isPatient = patientId.equals(requesterId);
+        // 1. Patient can always see own records
+        if (patientId.equals(requesterId)) {
+            return fetchRecords(patientId);
+        }
 
-        if (!isPatient) {
-            // Check if requester is a doctor who has treated this patient
-            Doctor doctor = doctorRepository.findByUserId(requesterId).orElse(null);
-            if (doctor == null) {
-                throw new AccessDeniedException("You do not have permission to view these records");
+        // 2. Must be a registered doctor
+        Doctor doctor = doctorRepository.findByUserId(requesterId)
+                .orElseThrow(() -> new AccessDeniedException("You do not have permission to view these records"));
+
+        // 3. Doctor must have a treatment relationship with this patient:
+        //    - at least one appointment, OR
+        //    - at least one medical record authored by this doctor
+        boolean hasTreated = appointmentRepository.existsByDoctorIdAndPatientId(doctor.getId(), patientId);
+
+        if (!hasTreated) {
+            boolean hasAuthored = medicalRecordRepository
+                    .findByPatientId(patientId, org.springframework.data.domain.Pageable.unpaged())
+                    .stream()
+                    .anyMatch(r -> r.getDoctorId().equals(doctor.getId()));
+
+            if (!hasAuthored) {
+                log.warn("Doctor {} (user {}) denied access to patient {} records — no treatment history",
+                        doctor.getId(), requesterId, patientId);
+                throw new AccessDeniedException("You can only view records of patients you have treated");
             }
         }
 
+        return fetchRecords(patientId);
+    }
+
+    private List<MedicalRecordResponse> fetchRecords(UUID patientId) {
         return medicalRecordRepository.findByPatientId(patientId, org.springframework.data.domain.Pageable.unpaged())
                 .map(this::mapToResponse)
                 .getContent();

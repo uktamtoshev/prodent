@@ -12,11 +12,13 @@ import com.prodent.exception.EntityNotFoundException;
 import com.prodent.repository.AppointmentRepository;
 import com.prodent.repository.ClinicRepository;
 import com.prodent.repository.DoctorRepository;
+import com.prodent.repository.ServiceRepository;
 import com.prodent.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,7 +38,9 @@ public class AppointmentService {
     private final DoctorRepository doctorRepository;
     private final ClinicRepository clinicRepository;
     private final UserRepository userRepository;
+    private final ServiceRepository serviceRepository;
     private final NotificationService notificationService;
+    private final JdbcTemplate jdbcTemplate;
 
     @Transactional
     public AppointmentResponse createAppointment(UUID patientId, CreateAppointmentRequest request) {
@@ -45,16 +49,30 @@ public class AppointmentService {
         Clinic clinic = clinicRepository.findById(request.clinicId())
                 .orElseThrow(() -> new EntityNotFoundException("Clinic", request.clinicId()));
 
-        LocalTime endTime = request.startTime().plusMinutes(30); // default 30 min
+        // S-15: resolve duration from service or default to 30 min
+        int durationMinutes = 30;
+        if (request.serviceId() != null) {
+            durationMinutes = serviceRepository.findById(request.serviceId())
+                    .map(svc -> svc.getDuration() != null ? svc.getDuration() : 30)
+                    .orElse(30);
+        }
+        LocalTime endTime = request.startTime().plusMinutes(durationMinutes);
 
-        // Validate no time conflicts
+        // S-12: advisory lock on (doctor, date) to prevent race conditions.
+        // hashCode of doctorId+date gives a stable int for pg_advisory_xact_lock.
+        long lockKey = (long) request.doctorId().hashCode() * 31 + request.appointmentDate().hashCode();
+        jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + lockKey + ")");
+
+        // Check conflicts against BOTH pending and confirmed appointments (was only CONFIRMED before)
         List<Appointment> existingAppointments = appointmentRepository
-                .findByDoctorIdAndAppointmentDateAndStatus(
-                        request.doctorId(), request.appointmentDate(), Appointment.AppointmentStatus.CONFIRMED);
+                .findByDoctorIdAndAppointmentDate(request.doctorId(), request.appointmentDate());
 
-        boolean hasConflict = existingAppointments.stream().anyMatch(existing ->
-                request.startTime().isBefore(existing.getEndTime()) &&
-                        endTime.isAfter(existing.getStartTime()));
+        boolean hasConflict = existingAppointments.stream()
+                .filter(a -> a.getStatus() == Appointment.AppointmentStatus.PENDING
+                          || a.getStatus() == Appointment.AppointmentStatus.CONFIRMED)
+                .anyMatch(existing ->
+                        request.startTime().isBefore(existing.getEndTime()) &&
+                                endTime.isAfter(existing.getStartTime()));
 
         if (hasConflict) {
             throw new BadRequestException("Time slot is already booked for this doctor");
@@ -83,7 +101,8 @@ public class AppointmentService {
                 Map.of("appointmentId", appointment.getId().toString())
         );
 
-        log.info("Appointment created: {} for patient: {} with doctor: {}", appointment.getId(), patientId, request.doctorId());
+        log.info("Appointment created: {} for patient: {} with doctor: {} ({}min slot)",
+                appointment.getId(), patientId, request.doctorId(), durationMinutes);
         return mapToResponse(appointment);
     }
 
