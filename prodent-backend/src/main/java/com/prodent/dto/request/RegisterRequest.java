@@ -1,30 +1,26 @@
 package com.prodent.dto.request;
 
+import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+/**
+ * Registration request. At least one of email or phone must be provided
+ * (validated in the controller; cross-field constraint would need a class-level validator).
+ */
 public record RegisterRequest(
-        @NotBlank(message = "Phone is required")
-        @Size(max = 20, message = "Phone must not exceed 20 characters")
+        @Email(message = "Invalid email format")
+        @Size(max = 255, message = "Email must not exceed 255 characters")
+        String email,
+
+        @Pattern(regexp = "^\\+998\\d{9}$", message = "Phone must be in format +998XXXXXXXXX")
         String phone,
 
-        @NotBlank(message = "First name is required")
-        @Size(max = 100, message = "First name must not exceed 100 characters")
-        String firstName,
+        @NotBlank(message = "Password is required")
+        @Size(min = 12, max = 100, message = "Password must be between 12 and 100 characters")
+        String password,
 
-        @NotBlank(message = "Last name is required")
-        @Size(max = 100, message = "Last name must not exceed 100 characters")
-        String lastName,
-
-        @NotBlank(message = "Role is required")
-        String role,
-
-        String language,
-
-        String country
-) {
-    public RegisterRequest {
-        if (language == null || language.isBlank()) language = "ru";
-        if (country == null || country.isBlank()) country = "UZ";
-    }
-}
+        @Size(max = 200, message = "Full name must not exceed 200 characters")
+        String full_name
+) {}

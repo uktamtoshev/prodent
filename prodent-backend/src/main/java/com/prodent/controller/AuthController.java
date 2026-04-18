@@ -1,6 +1,7 @@
 package com.prodent.controller;
 
 import com.prodent.dto.request.LoginRequest;
+import com.prodent.dto.request.RegisterRequest;
 import com.prodent.dto.request.ResetPasswordRequest;
 import com.prodent.dto.request.SendOtpRequest;
 import com.prodent.dto.request.VerifyCodeRequest;
@@ -51,34 +52,31 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<?> register(@RequestBody Map<String, Object> body) {
-        String email = (String) body.get("email");
-        String password = (String) body.get("password");
-        String fullName = (String) body.get("full_name");
-        String phone = (String) body.get("phone");
+    public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest request) {
+        String email = request.email() != null ? request.email().trim() : null;
+        String phone = request.phone() != null ? request.phone().trim() : null;
+        String password = request.password();
+        String fullName = request.full_name();
 
-        if (email == null && phone == null) {
+        // Cross-field: at least one contact method required
+        if ((email == null || email.isBlank()) && (phone == null || phone.isBlank())) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Email or phone is required"));
         }
-        if (password == null || password.length() < 6) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Password must be at least 6 characters"));
-        }
 
-        // Check if user already exists
-        if (email != null && userRepository.findByEmail(email.trim()).isPresent()) {
+        // Check uniqueness
+        if (email != null && !email.isBlank() && userRepository.findByEmail(email).isPresent()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "User with this email already exists"));
         }
-        if (phone != null && userRepository.findByPhone(phone.trim()).isPresent()) {
+        if (phone != null && !phone.isBlank() && userRepository.findByPhone(phone).isPresent()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "User with this phone already exists"));
         }
 
         User user = new User();
-        if (email != null) user.setEmail(email.trim());
-        if (phone != null) user.setPhone(phone.trim());
+        if (email != null && !email.isBlank()) user.setEmail(email);
+        if (phone != null && !phone.isBlank()) user.setPhone(phone);
         user.setPasswordHash(passwordEncoder.encode(password));
 
         if (fullName != null && !fullName.isBlank()) {
@@ -103,9 +101,8 @@ public class AuthController {
         role.setRole(UserRole.AppRole.PATIENT);
         userRoleRepository.save(role);
 
-        // Generate auth response
-        AuthResponse response = authService.login(
-                new LoginRequest(email != null ? email : phone, null, password));
+        // Generate auth response via token generation (not login — avoids rate-limiter)
+        AuthResponse response = authService.generateAuthResponseForUser(saved);
         return ResponseEntity.status(201).body(response);
     }
 
@@ -117,8 +114,9 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Void> logout() {
-        authService.logout(SecurityUtils.getCurrentUserId(), null);
+    public ResponseEntity<Void> logout(@RequestBody(required = false) Map<String, String> body) {
+        String refreshToken = body != null ? body.get("refreshToken") : null;
+        authService.logout(SecurityUtils.getCurrentUserId(), refreshToken);
         return ResponseEntity.noContent().build();
     }
 

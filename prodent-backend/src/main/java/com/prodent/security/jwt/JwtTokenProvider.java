@@ -12,6 +12,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -22,9 +23,24 @@ public class JwtTokenProvider {
     private final AppProperties appProperties;
     private SecretKey key;
 
+    private static final Set<String> KNOWN_DEFAULTS = Set.of(
+            "your-256-bit-secret-key-change-in-production-minimum-32-chars",
+            "your-super-secret-jwt-key-minimum-32-characters-long-change-me"
+    );
+
     @PostConstruct
     public void init() {
-        this.key = Keys.hmacShaKeyFor(appProperties.getJwt().getSecret().getBytes(StandardCharsets.UTF_8));
+        String secret = appProperties.getJwt().getSecret();
+        if (secret == null || secret.isBlank() || KNOWN_DEFAULTS.contains(secret)) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is not configured or uses a known default. "
+                    + "Set a unique secret via the JWT_SECRET environment variable (min 32 chars).");
+        }
+        if (secret.length() < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET is too short (" + secret.length() + " chars). Minimum 32 characters required.");
+        }
+        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
     }
 
     public String generateAccessToken(UUID userId, String email, List<String> roles) {

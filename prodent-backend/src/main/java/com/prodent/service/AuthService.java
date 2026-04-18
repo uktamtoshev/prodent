@@ -197,40 +197,52 @@ public class AuthService {
 
     @Transactional
     public void logout(UUID userId, String refreshToken) {
-        if (refreshToken != null) {
+        if (refreshToken != null && !refreshToken.isBlank()) {
+            // Revoke specific token
             String tokenHash = hashToken(refreshToken);
             refreshTokenRepository.findByTokenHash(tokenHash).ifPresent(token -> {
                 token.setRevokedAt(OffsetDateTime.now());
                 refreshTokenRepository.save(token);
             });
+        } else {
+            // No token provided — revoke ALL active refresh tokens for this user
+            // This ensures logout actually invalidates the session
+            refreshTokenRepository.revokeAllByUserId(userId, OffsetDateTime.now());
         }
+        log.info("User {} logged out (refreshToken {})", userId, refreshToken != null ? "revoked" : "all revoked");
     }
 
     @Transactional
     public void resetPassword(ResetPasswordRequest request) {
         String phone = request.phone().trim();
+        String code = request.code().trim();
 
+        // Find unverified OTP entries for this phone, newest first
         List<PhoneVerification> verifications =
                 phoneVerificationRepository.findByPhoneAndIsVerifiedFalseOrderByCreatedAtDesc(phone);
 
         PhoneVerification verification = verifications.stream()
-                .filter(v -> v.getCode().equals(request.code()) && Boolean.FALSE.equals(v.getIsVerified()))
+                .filter(v -> v.getCode().equals(code))
                 .findFirst()
-                .orElse(null);
+                .orElseThrow(() -> new BadRequestException("Invalid verification code"));
 
-        // Also check recently verified codes
-        if (verification == null) {
-            // Look for a verified code that matches
-            verifications = phoneVerificationRepository.findByPhoneAndIsVerifiedFalseOrderByCreatedAtDesc(phone);
-            // Try to find via raw query or accept the code if it was just verified
+        // Check expiry
+        if (verification.getExpiresAt().isBefore(OffsetDateTime.now())) {
+            throw new BadRequestException("Verification code has expired");
         }
 
-        // Validate the code
-        if (verification != null && !verification.getExpiresAt().isBefore(OffsetDateTime.now())) {
-            verification.setIsVerified(true);
-            phoneVerificationRepository.save(verification);
+        // Check attempts
+        if (verification.getAttempts() >= 5) {
+            throw new BadRequestException("Too many verification attempts");
         }
 
+        verification.setAttempts(verification.getAttempts() + 1);
+
+        // Mark code as used
+        verification.setIsVerified(true);
+        phoneVerificationRepository.save(verification);
+
+        // Now safe to reset password
         User user = userRepository.findByPhone(phone)
                 .orElseThrow(() -> new EntityNotFoundException("User not found with phone: " + phone));
 
@@ -238,6 +250,15 @@ public class AuthService {
         userRepository.save(user);
 
         log.info("Password reset for user: {}", user.getId());
+    }
+
+    /**
+     * Public entry point for registration flow — generates tokens without
+     * going through the login rate-limiter.
+     */
+    @Transactional
+    public AuthResponse generateAuthResponseForUser(User user) {
+        return generateAuthResponse(user);
     }
 
     private AuthResponse generateAuthResponse(User user) {
