@@ -75,6 +75,7 @@ const Footer = () => {
           <div className="flex gap-6">
             <Link to="/privacy" className="hover:text-silk-jade transition-colors duration-150">{t('footer.privacy')}</Link>
             <Link to="/terms" className="hover:text-silk-jade transition-colors duration-150">{t('footer.terms')}</Link>
+            <Link to="/contacts" className="hover:text-silk-jade transition-colors duration-150">{t('footer.contacts')}</Link>
           </div>
         </div>
       </div>

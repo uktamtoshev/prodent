@@ -59,6 +59,9 @@ import PublicBooking from "./pages/PublicBooking";
 import Articles from "./pages/Articles";
 import ArticleDetail from "./pages/ArticleDetail";
 import About from "./pages/About";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Contacts from "./pages/Contacts";
 
 // Clinic Admin Pages
 import ClinicAdminSchedule from "./pages/clinic-admin/ClinicAdminSchedule";
@@ -243,6 +246,11 @@ const App = () => (
             <Route path="/patient/messages" element={<PatientMessages />} />
             <Route path="/patient/files" element={<PatientFiles />} />
             <Route path="/patient/family" element={<PatientFamily />} />
+
+            {/* Legal & Info */}
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/contacts" element={<Contacts />} />
 
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

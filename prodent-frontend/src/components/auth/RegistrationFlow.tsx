@@ -39,6 +39,9 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
   const [additionalContact, setAdditionalContact] = useState("");
   const [maskedContact, setMaskedContact] = useState("");
   
+  // Consent
+  const [consentAccepted, setConsentAccepted] = useState(false);
+
   // Location data
   const [country, setCountry] = useState("Узбекистан");
   const [region, setRegion] = useState("");
@@ -97,6 +100,11 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
 
   const handleSendOtp = async () => {
     if (!validateDetails()) return;
+
+    if (!consentAccepted) {
+      toast.error("Необходимо принять условия использования и политику конфиденциальности");
+      return;
+    }
 
     setLoading(true);
     try {
@@ -528,10 +536,27 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               </div>
             </div>
 
-            <Button 
-              className="w-full h-12 text-base font-semibold rounded-xl bg-gradient-to-r from-primary to-teal-500 hover:from-primary/90 hover:to-teal-500/90 shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30 hover:scale-[1.02] active:scale-[0.98]" 
-              onClick={handleSendOtp} 
-              disabled={loading}
+            {/* Consent checkbox */}
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border/50 bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors">
+              <input
+                type="checkbox"
+                checked={consentAccepted}
+                onChange={(e) => setConsentAccepted(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              />
+              <span className="text-sm text-muted-foreground leading-relaxed">
+                Я принимаю{" "}
+                <a href="/terms" target="_blank" className="text-primary hover:underline">условия использования</a>
+                {" "}и{" "}
+                <a href="/privacy" target="_blank" className="text-primary hover:underline">политику конфиденциальности</a>,
+                а также даю согласие на обработку персональных данных.
+              </span>
+            </label>
+
+            <Button
+              className="w-full h-12 text-base font-semibold rounded-xl bg-gradient-to-r from-primary to-teal-500 hover:from-primary/90 hover:to-teal-500/90 shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30 hover:scale-[1.02] active:scale-[0.98]"
+              onClick={handleSendOtp}
+              disabled={loading || !consentAccepted}
             >
               {loading ? (
                 <>
