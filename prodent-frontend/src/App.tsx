@@ -62,6 +62,7 @@ import About from "./pages/About";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import Contacts from "./pages/Contacts";
+import Pricing from "./pages/Pricing";
 
 // Clinic Admin Pages
 import ClinicAdminSchedule from "./pages/clinic-admin/ClinicAdminSchedule";
@@ -248,6 +249,7 @@ const App = () => (
             <Route path="/patient/family" element={<PatientFamily />} />
 
             {/* Legal & Info */}
+            <Route path="/pricing" element={<Pricing />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/contacts" element={<Contacts />} />

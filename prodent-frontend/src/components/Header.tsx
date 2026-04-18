@@ -67,6 +67,7 @@ const Header = () => {
     { to: "/clinics", label: t('nav.clinics'), icon: Building2 },
     { to: "/articles", label: t('nav.articles'), icon: BookOpen },
     { to: "/promotions", label: t('nav.promotions'), icon: Gift },
+    { to: "/pricing", label: "Тарифы", icon: Gift },
     { to: "/about", label: t('nav.about'), icon: Info },
   ];
 
