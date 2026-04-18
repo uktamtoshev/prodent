@@ -2,6 +2,7 @@ package com.prodent.controller;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.prodent.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -15,6 +16,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -28,26 +30,67 @@ public class DataController {
     private final NamedParameterJdbcTemplate namedJdbcTemplate;
     private final ObjectMapper objectMapper;
 
+    // ── Access tiers for the generic data proxy ──────────────────────────
+    // DENIED tables are never exposed through this controller (use dedicated endpoints).
+    // READ_ONLY tables allow GET but block POST/PATCH/PUT/DELETE.
+    // ALLOWED tables permit all CRUD for authenticated users.
+    //
+    // Sensitive tables removed entirely:
+    //   phone_verifications, email_verifications — contain OTP codes
+    //   audit_logs        — internal, admin-only via AdminController
+    //   user_roles         — privilege escalation risk, managed via AuthService
+    //   virtual_accounts, virtual_account_transactions — money, managed via PaymentService
+    //   payments, invoices, cash_register — financial, managed via PaymentService
+
+    private static final Set<String> READ_ONLY_TABLES = Set.of(
+            "specialties", "subscription_plans", "add_on_services", "add_on_pricing",
+            "badges", "ad_packages", "blog_posts"
+    );
+
     private static final Set<String> ALLOWED_TABLES = Set.of(
-            "profiles", "user_roles", "clinics", "clinic_members", "clinic_settings",
+            "profiles", "clinics", "clinic_members", "clinic_settings",
             "clinic_applications", "doctors", "doctor_clinic_affiliations", "doctor_applications",
-            "doctor_schedules", "doctor_specialties", "specialties", "services", "appointments",
+            "doctor_schedules", "doctor_specialties", "services", "appointments",
             "appointment_services", "appointments_queue", "medical_records", "dental_chart",
-            "treatment_plans", "treatment_plan_items", "virtual_accounts",
-            "virtual_account_transactions", "invoices", "payments", "cash_register",
+            "treatment_plans", "treatment_plan_items",
             "doctor_reviews", "clinic_reviews", "doctor_portfolio", "clinic_portfolio",
-            "notifications", "chat_rooms", "chat_room_members", "messages", "ad_packages",
-            "ad_campaigns", "ad_analytics", "badges", "badge_assignments", "blog_posts",
-            "medical_access", "audit_logs", "clinic_followers", "clinic_posts",
-            "clinic_post_media", "doctor_posts", "inventory_items", "phone_verifications",
-            "email_verifications", "subscription_plans", "add_on_services", "add_on_pricing",
+            "notifications", "chat_rooms", "chat_room_members", "messages",
+            "ad_campaigns", "ad_analytics", "badge_assignments",
+            "medical_access", "clinic_followers", "clinic_posts",
+            "clinic_post_media", "doctor_posts", "inventory_items",
             "add_on_purchases", "clinic_member_permissions", "medical_record_access",
             "doctor_clinic_requests"
     );
 
+    private static boolean isTableReadOnly(String table) {
+        return READ_ONLY_TABLES.contains(table.toLowerCase());
+    }
+
     private static final Pattern COLUMN_PATTERN = Pattern.compile("^[a-zA-Z0-9_]+$");
     private static final Pattern IN_VALUES_PATTERN = Pattern.compile("^\\((.+)\\)$");
     private static final Pattern OR_PATTERN = Pattern.compile("^\\((.+)\\)$");
+
+    // Columns that can NEVER be written through the generic proxy.
+    // These must go through dedicated service endpoints.
+    private static final Set<String> FORBIDDEN_WRITE_COLUMNS = Set.of(
+            "is_verified", "verified", "is_active", "password_hash",
+            "subscription_plan", "subscription_plan_id", "subscription_expires_at",
+            "role", "balance", "rating", "review_count", "reviews_count",
+            "granted_by", "granted_at", "revoked_at"
+    );
+
+    // Tables where reads/writes must be scoped to the current user.
+    // Key = table name, value = column that holds the owner user-id.
+    private static final Map<String, String> OWNER_SCOPED_TABLES = Map.ofEntries(
+            Map.entry("notifications", "user_id"),
+            Map.entry("medical_records", "patient_id"),
+            Map.entry("dental_chart", "patient_id"),
+            Map.entry("treatment_plans", "patient_id"),
+            Map.entry("treatment_plan_items", "treatment_plan_id"), // indirect — handled via join later
+            Map.entry("appointments", "patient_id"),
+            Map.entry("messages", "sender_id"),
+            Map.entry("medical_access", "patient_id")
+    );
 
     // Reserved query param keys that are not filters
     private static final Set<String> RESERVED_PARAMS = Set.of(
@@ -111,8 +154,28 @@ public class DataController {
         boolean hasJoins = !joins.isEmpty();
         FilterResult filterResult = parseFilters(allParams, params, paramIdx, hasJoins ? table : null);
         paramIdx = filterResult.paramIdx;
-        if (!filterResult.conditions.isEmpty()) {
-            sql.append(" WHERE ").append(String.join(" AND ", filterResult.conditions));
+
+        // Owner-scope: if this table is scoped, inject a mandatory filter on current user
+        List<String> allConditions = new ArrayList<>(filterResult.conditions);
+        String ownerCol = OWNER_SCOPED_TABLES.get(table.toLowerCase());
+        if (ownerCol != null) {
+            try {
+                UUID currentUserId = SecurityUtils.getCurrentUserId();
+                String ownerParam = "__owner_id";
+                params.addValue(ownerParam, currentUserId);
+                String colRef = hasJoins
+                        ? sanitizeIdentifier(table) + "." + sanitizeIdentifier(ownerCol)
+                        : sanitizeIdentifier(ownerCol);
+                allConditions.add(colRef + " = :" + ownerParam);
+            } catch (Exception e) {
+                // Not authenticated — block access entirely (should not happen, /data is authenticated)
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(Map.of("error", "Authentication required for this table"));
+            }
+        }
+
+        if (!allConditions.isEmpty()) {
+            sql.append(" WHERE ").append(String.join(" AND ", allConditions));
         }
 
         // Order
@@ -204,7 +267,7 @@ public class DataController {
             @RequestBody Object body,
             HttpServletRequest request) {
 
-        if (!isTableAllowed(table)) {
+        if (!isTableWritable(table)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Table not allowed: " + table));
         }
@@ -244,6 +307,10 @@ public class DataController {
         for (Map.Entry<String, Object> entry : row.entrySet()) {
             String col = toSnakeCase(entry.getKey());
             if (!isValidColumn(col)) continue;
+            if (FORBIDDEN_WRITE_COLUMNS.contains(col)) {
+                log.warn("Blocked write to forbidden column: {}.{}", table, col);
+                continue;
+            }
             columns.add(col);
             params.addValue("v_" + col, convertValue(entry.getValue()));
         }
@@ -274,7 +341,7 @@ public class DataController {
             @RequestBody Map<String, Object> body,
             HttpServletRequest request) {
 
-        if (!isTableAllowed(table)) {
+        if (!isTableWritable(table)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Table not allowed: " + table));
         }
@@ -286,11 +353,15 @@ public class DataController {
         MapSqlParameterSource params = new MapSqlParameterSource();
         int paramIdx = 0;
 
-        // Build SET clause
+        // Build SET clause — block forbidden columns
         List<String> setClauses = new ArrayList<>();
         for (Map.Entry<String, Object> entry : body.entrySet()) {
             String col = toSnakeCase(entry.getKey());
             if (!isValidColumn(col)) continue;
+            if (FORBIDDEN_WRITE_COLUMNS.contains(col)) {
+                log.warn("Blocked update to forbidden column: {}.{}", table, col);
+                continue;
+            }
             String pName = "set_" + col;
             setClauses.add(sanitizeIdentifier(col) + " = :" + pName);
             params.addValue(pName, convertValue(entry.getValue()));
@@ -340,7 +411,7 @@ public class DataController {
             @RequestBody Object body,
             HttpServletRequest request) {
 
-        if (!isTableAllowed(table)) {
+        if (!isTableWritable(table)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Table not allowed: " + table));
         }
@@ -414,7 +485,7 @@ public class DataController {
             @RequestParam Map<String, String> allParams,
             HttpServletRequest request) {
 
-        if (!isTableAllowed(table)) {
+        if (!isTableWritable(table)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(Map.of("error", "Table not allowed: " + table));
         }
@@ -835,6 +906,11 @@ public class DataController {
     // ==================== Utility Methods ====================
 
     private boolean isTableAllowed(String table) {
+        String t = table.toLowerCase();
+        return ALLOWED_TABLES.contains(t) || READ_ONLY_TABLES.contains(t);
+    }
+
+    private boolean isTableWritable(String table) {
         return ALLOWED_TABLES.contains(table.toLowerCase());
     }
 
