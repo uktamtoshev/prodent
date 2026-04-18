@@ -40,6 +40,8 @@ public class AppointmentService {
     private final UserRepository userRepository;
     private final ServiceRepository serviceRepository;
     private final NotificationService notificationService;
+    private final EmailService emailService;
+    private final SmsService smsService;
     private final JdbcTemplate jdbcTemplate;
 
     @Transactional
@@ -100,6 +102,38 @@ public class AppointmentService {
                 "You have a new appointment request for " + request.appointmentDate(),
                 Map.of("appointmentId", appointment.getId().toString())
         );
+
+        // Send confirmation to patient (email + SMS)
+        User patient = userRepository.findById(patientId).orElse(null);
+        if (patient != null) {
+            String doctorName = doctor.getUser().getFullName();
+            String clinicName = clinic.getName();
+            String dateStr = request.appointmentDate().toString();
+            String timeStr = request.startTime().toString();
+
+            // Email confirmation
+            if (patient.getEmail() != null && !Boolean.TRUE.equals(patient.getEmailUnsubscribed())) {
+                emailService.sendAppointmentConfirmation(
+                        patient.getEmail(), patient.getFullName(),
+                        doctorName, clinicName, dateStr, timeStr);
+            }
+
+            // SMS confirmation
+            if (patient.getPhone() != null) {
+                smsService.sendSms(patient.getPhone(),
+                        "PRODENT: Запись подтверждена на " + dateStr + " " + timeStr
+                        + ", " + clinicName + ". Врач: " + doctorName);
+            }
+
+            // In-app notification to patient
+            notificationService.sendNotification(
+                    patientId,
+                    Notification.NotificationType.APPOINTMENT,
+                    "Запись создана",
+                    "Вы записаны на " + dateStr + " в " + timeStr + " к " + doctorName,
+                    Map.of("appointmentId", appointment.getId().toString())
+            );
+        }
 
         log.info("Appointment created: {} for patient: {} with doctor: {} ({}min slot)",
                 appointment.getId(), patientId, request.doctorId(), durationMinutes);

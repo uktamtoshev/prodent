@@ -145,7 +145,7 @@ export function BookingAuth() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                minLength={6}
+                minLength={12}
                 className="bg-slate-700 border-slate-600 text-white"
                 iconClassName="text-slate-400 hover:text-white"
                 placeholder="••••••••"
