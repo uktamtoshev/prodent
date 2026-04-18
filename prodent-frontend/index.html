@@ -17,12 +17,40 @@
     <meta property="og:title" content="PRODENT - Первый премиум портал стоматологов" />
     <meta property="og:description" content="Запись к лучшим стоматологам Узбекистана за 7 секунд. 500+ проверенных врачей." />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+    <meta property="og:image" content="https://prodent.uz/og-image.png" />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
-    
+    <meta name="twitter:site" content="@prodent_uz" />
+    <meta name="twitter:image" content="https://prodent.uz/og-image.png" />
+
+    <!-- Google Tag Manager (loads GA4 via GTM container) -->
+    <script>
+      (function(){
+        var id = '%VITE_GTM_ID%';
+        if (!id || id.indexOf('VITE_') === 0) return;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://www.googletagmanager.com/gtm.js?id=' + id;
+        document.head.appendChild(s);
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({'gtm.start': new Date().getTime(), event: 'gtm.js'});
+      })();
+    </script>
+
+    <!-- Yandex.Metrika -->
+    <script>
+      (function(){
+        var id = '%VITE_YM_ID%';
+        if (!id || id.indexOf('VITE_') === 0) return;
+        (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r)return;}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+        (window,document,"script","https://mc.yandex.ru/metrika/tag.js","ym");
+        ym(Number(id),"init",{clickmap:true,trackLinks:true,accurateTrackBounce:true,webvisor:true});
+      })();
+    </script>
+
     <!-- PRODENT Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

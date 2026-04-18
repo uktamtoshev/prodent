@@ -68,6 +68,16 @@ public class User {
     @Builder.Default
     private Boolean emailUnsubscribed = false;
 
+    // UTM attribution (captured at registration)
+    @Column(name = "utm_source", length = 100)
+    private String utmSource;
+
+    @Column(name = "utm_medium", length = 100)
+    private String utmMedium;
+
+    @Column(name = "utm_campaign", length = 200)
+    private String utmCampaign;
+
     @Column(name = "last_login_at")
     private OffsetDateTime lastLoginAt;
 

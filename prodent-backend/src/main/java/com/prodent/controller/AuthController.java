@@ -94,6 +94,11 @@ public class AuthController {
         user.setLanguage("ru");
         user.setCountry("UZ");
 
+        // UTM attribution
+        if (request.utm_source() != null) user.setUtmSource(request.utm_source());
+        if (request.utm_medium() != null) user.setUtmMedium(request.utm_medium());
+        if (request.utm_campaign() != null) user.setUtmCampaign(request.utm_campaign());
+
         User saved = userRepository.save(user);
 
         // Assign default PATIENT role

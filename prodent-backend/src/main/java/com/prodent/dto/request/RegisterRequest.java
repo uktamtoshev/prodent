@@ -22,5 +22,10 @@ public record RegisterRequest(
         String password,
 
         @Size(max = 200, message = "Full name must not exceed 200 characters")
-        String full_name
+        String full_name,
+
+        // UTM attribution (optional, sent by frontend from sessionStorage)
+        @Size(max = 100) String utm_source,
+        @Size(max = 100) String utm_medium,
+        @Size(max = 200) String utm_campaign
 ) {}
