@@ -27,5 +27,8 @@ public record RegisterRequest(
         // UTM attribution (optional, sent by frontend from sessionStorage)
         @Size(max = 100) String utm_source,
         @Size(max = 100) String utm_medium,
-        @Size(max = 200) String utm_campaign
+        @Size(max = 200) String utm_campaign,
+
+        // Referral code (optional, from ?ref=XXXXXXXX query param)
+        @Size(max = 20) String referral_code
 ) {}

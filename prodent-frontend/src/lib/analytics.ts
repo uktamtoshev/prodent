@@ -116,9 +116,33 @@ export const analytics = {
   },
 };
 
+// ─── Referral code persistence ──────────────────────────────
+
+const REF_STORAGE_KEY = 'prodent_ref';
+
+/**
+ * Capture ?ref= param from URL and persist in sessionStorage.
+ */
+export function captureReferralCode(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const ref = params.get('ref');
+  if (ref) {
+    sessionStorage.setItem(REF_STORAGE_KEY, ref);
+    return ref;
+  }
+  return sessionStorage.getItem(REF_STORAGE_KEY);
+}
+
+/**
+ * Get stored referral code (for sending with registration request).
+ */
+export function getStoredReferralCode(): string | null {
+  return sessionStorage.getItem(REF_STORAGE_KEY);
+}
+
 // ─── Init ───────────────────────────────────────────────────
 
 export function initAnalytics() {
-  // Capture UTM on first load
   captureUtmParams();
+  captureReferralCode();
 }

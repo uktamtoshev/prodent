@@ -26,6 +26,10 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     boolean existsByPhone(String phone);
 
+    Optional<User> findByReferralCode(String referralCode);
+
+    boolean existsByReferralCode(String referralCode);
+
     @Query("SELECT u FROM User u WHERE LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :query, '%'))")
     Page<User> searchByName(@Param("query") String query, Pageable pageable);
 

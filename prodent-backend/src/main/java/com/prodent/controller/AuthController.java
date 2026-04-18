@@ -33,6 +33,7 @@ public class AuthController {
     private final UserRoleRepository userRoleRepository;
     private final PasswordEncoder passwordEncoder;
     private final com.prodent.service.EmailService emailService;
+    private final com.prodent.service.ReferralService referralService;
 
     @PostMapping("/send-otp")
     public ResponseEntity<Map<String, Object>> sendOtp(@Valid @RequestBody SendOtpRequest request) {
@@ -110,6 +111,15 @@ public class AuthController {
         // Send welcome email (async, won't block response)
         if (saved.getEmail() != null) {
             emailService.sendWelcome(saved.getEmail(), saved.getFirstName());
+        }
+
+        // Process referral if code provided
+        if (request.referral_code() != null && !request.referral_code().isBlank()) {
+            try {
+                referralService.processReferral(saved.getId(), request.referral_code());
+            } catch (Exception e) {
+                // Don't fail registration if referral processing fails
+            }
         }
 
         // Generate auth response via token generation (not login — avoids rate-limiter)

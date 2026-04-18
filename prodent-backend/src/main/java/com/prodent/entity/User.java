@@ -68,6 +68,13 @@ public class User {
     @Builder.Default
     private Boolean emailUnsubscribed = false;
 
+    // Referral
+    @Column(name = "referral_code", unique = true, length = 20)
+    private String referralCode;
+
+    @Column(name = "invited_by")
+    private UUID invitedBy;
+
     // UTM attribution (captured at registration)
     @Column(name = "utm_source", length = 100)
     private String utmSource;
