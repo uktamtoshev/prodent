@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,4 +31,8 @@ public interface ClinicRepository extends JpaRepository<Clinic, UUID> {
 
     @Query("SELECT c.country, COUNT(c) FROM Clinic c GROUP BY c.country")
     List<Object[]> countByCountry();
+
+    /** Clinics whose subscription expires between from and to */
+    @Query("SELECT c FROM Clinic c WHERE c.subscriptionExpiresAt BETWEEN :from AND :to")
+    List<Clinic> findWithExpiringSubscription(@Param("from") OffsetDateTime from, @Param("to") OffsetDateTime to);
 }
