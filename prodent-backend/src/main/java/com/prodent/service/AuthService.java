@@ -46,6 +46,7 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final AppProperties appProperties;
     private final RateLimiter rateLimiter;
+    private final SmsService smsService;
 
     @Transactional
     public Map<String, Object> sendOtp(SendOtpRequest request) {
@@ -68,8 +69,9 @@ public class AuthService {
                 .build();
         phoneVerificationRepository.save(verification);
 
-        // TODO: integrate SMS provider to send the code
-        log.info("OTP code generated for phone: {} (code: {} - remove in production)", maskPhone(phone), code);
+        // Send OTP via SMS (or log in dry-run mode)
+        smsService.sendOtp(phone, code);
+        log.info("OTP sent to {}", maskPhone(phone));
 
         Map<String, Object> result = new HashMap<>();
         result.put("maskedPhone", maskPhone(phone));

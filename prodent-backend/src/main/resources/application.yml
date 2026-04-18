@@ -84,6 +84,7 @@ app:
     api-url: ${SMS_API_URL:https://send.smsxabar.uz/broker-api/send}
     login: ${SMS_LOGIN:}
     password: ${SMS_PASSWORD:}
+    dry-run: ${SMS_DRY_RUN:true}  # set to false in production
 
   payment:
     payme:

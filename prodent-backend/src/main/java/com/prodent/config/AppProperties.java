@@ -43,9 +43,12 @@ public class AppProperties {
     @Getter
     @Setter
     public static class Sms {
-        private String provider;
-        private String apiKey;
-        private String apiUrl;
+        private String provider = "playmobile";
+        private String apiUrl = "https://send.smsxabar.uz/broker-api/send";
+        private String login;
+        private String password;
+        /** If true, OTP is logged instead of sent (dev mode). Defaults to false. */
+        private boolean dryRun = false;
     }
 
     @Getter
