@@ -37,6 +37,11 @@ public class VirtualAccount {
     @Builder.Default
     private String currency = "UZS";
 
+    @Version
+    @Column(name = "version")
+    @Builder.Default
+    private Long version = 0L;
+
     @Column(name = "is_active", nullable = false)
     @Builder.Default
     private Boolean isActive = true;

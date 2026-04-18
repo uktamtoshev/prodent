@@ -60,6 +60,8 @@ public class SecurityConfig {
                         .requestMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/ws/**").permitAll()
+                        // Payment callbacks — called by provider servers, secured via signature verification
+                        .requestMatchers(HttpMethod.POST, "/api/v1/payments/callback/**").permitAll()
                         // /data/** and /rpc/** require authentication for ALL methods (S-2 fix)
                         .requestMatchers("/api/v1/data/**").authenticated()
                         .requestMatchers("/api/v1/rpc/**").authenticated()

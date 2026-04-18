@@ -61,24 +61,82 @@ public class PaymentService {
         return result;
     }
 
+    /**
+     * Handle payment provider callback. Called from PaymentController after
+     * signature verification has passed.
+     *
+     * Flow: find pending tx → mark COMPLETED → credit virtual account balance.
+     * Idempotent: if tx is already COMPLETED, returns silently.
+     */
     @Transactional
     public void handleCallback(String provider, Map<String, Object> payload) {
-        String referenceId = (String) payload.get("referenceId");
+        // Extract referenceId — each provider uses a different field name
+        String referenceId = extractReferenceId(provider, payload);
         if (referenceId == null) {
             log.warn("Payment callback missing referenceId for provider: {}", provider);
+            throw new BadRequestException("Missing transaction reference");
+        }
+
+        // 1. Find the pending transaction
+        VirtualAccountTransaction tx = transactionRepository.findByReferenceId(referenceId)
+                .orElseThrow(() -> {
+                    log.warn("Payment callback: no transaction found for referenceId={}", referenceId);
+                    return new BadRequestException("Transaction not found: " + referenceId);
+                });
+
+        // 2. Idempotency: already processed
+        if (tx.getPaymentStatus() == VirtualAccountTransaction.PaymentStatus.COMPLETED) {
+            log.info("Payment callback: tx {} already completed, skipping", referenceId);
             return;
         }
 
-        // Find the pending transaction
-        // Since we don't have findByReferenceId, search through recent transactions
-        // In production, add a repository method for this
-        log.info("Processing payment callback from {}: {}", provider, payload);
+        if (tx.getPaymentStatus() != VirtualAccountTransaction.PaymentStatus.PENDING) {
+            log.warn("Payment callback: tx {} in unexpected status {}", referenceId, tx.getPaymentStatus());
+            return;
+        }
 
-        // TODO: Implement provider-specific callback handling for PayMe, Click, Uzum
-        // 1. Verify signature/hash from provider
-        // 2. Find transaction by referenceId
-        // 3. Update transaction status
-        // 4. Credit the virtual account balance
+        // 3. Credit the virtual account (optimistic lock via @Version)
+        VirtualAccount account = tx.getAccount();
+        BigDecimal newBalance = account.getBalance().add(tx.getAmount());
+        account.setBalance(newBalance);
+        virtualAccountRepository.save(account);
+
+        // 4. Update transaction
+        tx.setPaymentStatus(VirtualAccountTransaction.PaymentStatus.COMPLETED);
+        tx.setBalanceAfter(newBalance);
+        transactionRepository.save(tx);
+
+        log.info("Payment callback: tx {} completed. Provider={}, amount={}, newBalance={}",
+                referenceId, provider, tx.getAmount(), newBalance);
+    }
+
+    private String extractReferenceId(String provider, Map<String, Object> payload) {
+        return switch (provider.toLowerCase()) {
+            case "payme" -> {
+                // PayMe sends params.account.transaction or id field
+                Object params = payload.get("params");
+                if (params instanceof Map<?, ?> p) {
+                    Object account = p.get("account");
+                    if (account instanceof Map<?, ?> acc) {
+                        Object tx = acc.get("transaction");
+                        if (tx != null) yield tx.toString();
+                    }
+                }
+                yield payload.get("referenceId") != null ? payload.get("referenceId").toString() : null;
+            }
+            case "click" -> {
+                Object mt = payload.get("merchant_trans_id");
+                yield mt != null ? mt.toString() : null;
+            }
+            case "uzum" -> {
+                Object ti = payload.get("transactionId");
+                yield ti != null ? ti.toString() : null;
+            }
+            default -> {
+                Object ri = payload.get("referenceId");
+                yield ri != null ? ri.toString() : null;
+            }
+        };
     }
 
     @Transactional(readOnly = true)
