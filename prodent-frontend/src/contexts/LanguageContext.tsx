@@ -79,6 +79,11 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem('language', lang);
   };
 
+  // Keep <html lang="..."> in sync with current language
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
   const t = (key: string): string => {
     const keys = key.split('.');
     let value: any = translations[language];
@@ -434,6 +439,41 @@ const translations: Record<Language, any> = {
       month: 'Месяц',
       year: 'Год',
     },
+    landing: {
+      heroTitle: 'Премиум Портал',
+      heroHighlight: 'Стоматологов Центральной Азии',
+      heroSubtitle: 'Найдите своего стоматолога',
+      heroDescription: '500+ проверенных врачей в одном месте. Онлайн-запись, реальные отзывы и фото работ.',
+      findDoctor: 'Найти врача',
+      viewClinics: 'Смотреть клиники',
+      statDoctors: 'Врачей',
+      statRating: 'Рейтинг',
+      statAppointments: 'Записей',
+      crmBadge: 'Для клиник и врачей',
+      crmTitle: 'Всё в одном месте',
+      crmSubtitle: 'Полноценная CRM-система для управления клиникой, профилем врача и работой с пациентами',
+      doctorProfile: 'Профиль врача',
+      doctorProfileDesc: 'Создайте профессиональный профиль с портфолио работ, сертификатами и отзывами пациентов. Привлекайте новых клиентов через онлайн-записи.',
+      clinicManagement: 'Управление клиникой',
+      clinicManagementDesc: 'Единая платформа для всех процессов: от записи до финансов и аналитики. Контролируйте все аспекты работы клиники.',
+      patientDatabase: 'База пациентов',
+      patientDatabaseDesc: 'Полная история лечения, зубная карта и планы лечения в одном месте. Мгновенный доступ ко всей информации о пациенте.',
+      connectClinic: 'Подключить клинику',
+      howItWorks: 'Как это работает',
+      howItWorksSubtitle: 'Всего 3 простых шага до идеальной улыбки',
+      step1Title: 'Найдите врача',
+      step1Desc: 'Используйте удобные фильтры для поиска идеального специалиста. Выберите специальность, город, рейтинг и ценовой диапазон.',
+      step2Title: 'Изучите профиль',
+      step2Desc: 'Посмотрите полный профиль врача с фотографиями работ, реальными отзывами пациентов и сертификатами.',
+      step3Title: 'Запишитесь онлайн',
+      step3Desc: 'Выберите удобное время и запишитесь к врачу в пару кликов. Получите мгновенное подтверждение записи.',
+      ctaTitle: 'Готовы найти своего врача?',
+      ctaSubtitle: 'Присоединяйтесь к тысячам пациентов, которые уже нашли своего стоматолога',
+      startSearch: 'Начать поиск',
+      login: 'Войти',
+      interfaceTitle: 'Интерфейс системы',
+      interfaceSubtitle: 'Современный и интуитивно понятный интерфейс для эффективной работы',
+    },
   },
   uz: {
     nav: {
@@ -757,6 +797,41 @@ const translations: Record<Language, any> = {
       week: 'Hafta',
       month: 'Oy',
       year: 'Yil',
+    },
+    landing: {
+      heroTitle: 'Premium Portal',
+      heroHighlight: "Markaziy Osiyo Stomatologiyasi",
+      heroSubtitle: "O'z stomatologingizni toping",
+      heroDescription: "500+ tasdiqlangan shifokorlar bir joyda. Onlayn yozilish, haqiqiy sharhlar va ish suratlari.",
+      findDoctor: 'Shifokor topish',
+      viewClinics: 'Klinikalarni ko\'rish',
+      statDoctors: 'Shifokorlar',
+      statRating: 'Reyting',
+      statAppointments: 'Yozilishlar',
+      crmBadge: 'Klinikalar va shifokorlar uchun',
+      crmTitle: 'Hammasi bir joyda',
+      crmSubtitle: "Klinikani boshqarish, shifokor profili va bemorlar bilan ishlash uchun to'liq CRM-tizim",
+      doctorProfile: 'Shifokor profili',
+      doctorProfileDesc: "Portfolio, sertifikatlar va bemor sharhlari bilan professional profil yarating. Onlayn yozilish orqali yangi mijozlarni jalb qiling.",
+      clinicManagement: 'Klinikani boshqarish',
+      clinicManagementDesc: "Yozilishdan moliyagacha barcha jarayonlar uchun yagona platforma. Klinikaning barcha jihatlarini nazorat qiling.",
+      patientDatabase: 'Bemorlar bazasi',
+      patientDatabaseDesc: "To'liq davolash tarixi, tish kartasi va davolash rejalari bir joyda. Bemor haqidagi barcha ma'lumotlarga tezkor kirish.",
+      connectClinic: "Klinikani ulash",
+      howItWorks: 'Qanday ishlaydi',
+      howItWorksSubtitle: "Mukammal tabassumgacha 3 oddiy qadam",
+      step1Title: 'Shifokor toping',
+      step1Desc: "Ideal mutaxassisni topish uchun qulay filtrlardan foydalaning. Mutaxassislik, shahar, reyting va narx oralig'ini tanlang.",
+      step2Title: "Profilni o'rganing",
+      step2Desc: "Shifokorning to'liq profilini ish suratlari, haqiqiy bemor sharhlari va sertifikatlar bilan ko'ring.",
+      step3Title: 'Onlayn yozilin',
+      step3Desc: "Qulay vaqtni tanlang va bir necha marta bosib shifokorga yozilin. Darhol tasdiqlash oling.",
+      ctaTitle: "Shifokoringizni topishga tayyormisiz?",
+      ctaSubtitle: "O'z stomatologini topgan minglab bemorlarga qo'shiling",
+      startSearch: "Qidiruvni boshlash",
+      login: 'Kirish',
+      interfaceTitle: 'Tizim interfeysi',
+      interfaceSubtitle: "Samarali ishlash uchun zamonaviy va qulay interfeys",
     },
   },
   en: {

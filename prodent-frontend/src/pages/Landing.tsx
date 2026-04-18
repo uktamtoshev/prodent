@@ -26,8 +26,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/useProfile";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 
 const Landing = () => {
+  const { t } = useLanguage();
   const { user, signOut, loading } = useAuth();
   const { isDoctor, isClinicAdmin, isClinicManager, isAssistant, isAccountant, isSuperAdmin, doctorId } = useUserRole();
   const [clinicId, setClinicId] = useState<string | null>(null);
@@ -193,7 +196,7 @@ const Landing = () => {
                   ) : (
                     <Link to="/auth">
                       <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
-                        Войти
+                        {t('landing.login')}
                       </Button>
                     </Link>
                   )}
@@ -222,15 +225,15 @@ const Landing = () => {
             <div className="text-center lg:text-left order-2 lg:order-1">
               {/* Main Heading */}
               <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-heading font-bold mb-4 leading-tight">
-                Премиум Портал
-                <span className="block text-primary">Стоматологов Центральной Азии</span>
+                {t('landing.heroTitle')}
+                <span className="block text-primary">{t('landing.heroHighlight')}</span>
               </h1>
               <p className="text-xl md:text-2xl font-medium text-foreground/80 mb-6">
-                Найдите своего стоматолога
+                {t('landing.heroSubtitle')}
               </p>
 
               <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-xl mx-auto lg:mx-0">
-                500+ проверенных врачей в одном месте. Онлайн-запись, реальные отзывы и фото работ.
+                {t('landing.heroDescription')}
               </p>
 
               {/* CTA Buttons */}
@@ -239,14 +242,14 @@ const Landing = () => {
                   <Button size="lg" className="group relative w-full sm:w-auto h-14 px-8 text-base rounded-full bg-gradient-to-r from-primary via-primary to-primary/80 text-primary-foreground overflow-hidden shadow-xl shadow-primary/30 hover:shadow-2xl hover:shadow-primary/40 transition-all duration-300 hover:-translate-y-0.5">
                     <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
                     <Search className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
-                    Найти врача
+                    {t('landing.findDoctor')}
                     <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                   </Button>
                 </Link>
                 <Link to="/clinics">
                   <Button size="lg" variant="outline" className="group relative w-full sm:w-auto h-14 px-8 text-base rounded-full border-2 border-primary/50 text-primary hover:border-primary hover:bg-primary/5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5">
                     <Building2 className="w-5 h-5 mr-2 group-hover:scale-110 transition-transform" />
-                    Смотреть клиники
+                    {t('landing.viewClinics')}
                     <ChevronRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
                   </Button>
                 </Link>
@@ -256,15 +259,15 @@ const Landing = () => {
               <div className="grid grid-cols-3 gap-4 md:gap-8 max-w-md mx-auto lg:mx-0">
                 <div className="text-center lg:text-left">
                   <div className="text-3xl md:text-4xl font-bold text-foreground">500+</div>
-                  <div className="text-sm text-muted-foreground">Врачей</div>
+                  <div className="text-sm text-muted-foreground">{t('landing.statDoctors')}</div>
                 </div>
                 <div className="text-center border-x border-border px-4">
                   <div className="text-3xl md:text-4xl font-bold text-foreground">4.9</div>
-                  <div className="text-sm text-muted-foreground">Рейтинг</div>
+                  <div className="text-sm text-muted-foreground">{t('landing.statRating')}</div>
                 </div>
                 <div className="text-center lg:text-left">
                   <div className="text-3xl md:text-4xl font-bold text-foreground">10K+</div>
-                  <div className="text-sm text-muted-foreground">Записей</div>
+                  <div className="text-sm text-muted-foreground">{t('landing.statAppointments')}</div>
                 </div>
               </div>
             </div>
@@ -298,13 +301,13 @@ const Landing = () => {
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
             <span className="inline-block px-4 py-1.5 rounded-full bg-primary/10 text-primary text-sm font-medium mb-4 animate-fade-in">
-              Для клиник и врачей
+              {t('landing.crmBadge')}
             </span>
             <h2 className="text-3xl md:text-5xl font-heading font-bold mb-4 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-              Всё в одном месте
+              {t('landing.crmTitle')}
             </h2>
             <p className="text-muted-foreground max-w-2xl mx-auto text-lg animate-fade-in" style={{ animationDelay: '0.2s' }}>
-              Полноценная CRM-система для управления клиникой, профилем врача и работой с пациентами
+              {t('landing.crmSubtitle')}
             </p>
           </div>
 
@@ -452,7 +455,7 @@ const Landing = () => {
               <Button size="lg" className="group relative h-16 px-12 text-lg rounded-full bg-gradient-to-r from-primary via-primary to-primary/80 text-primary-foreground overflow-hidden shadow-2xl shadow-primary/30 hover:shadow-3xl hover:shadow-primary/40 transition-all duration-300 hover:-translate-y-1">
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" />
                 <Sparkles className="w-6 h-6 mr-3 group-hover:rotate-12 transition-transform" />
-                Подключить клинику
+                {t('landing.connectClinic')}
                 <ArrowRight className="w-6 h-6 ml-3 group-hover:translate-x-1 transition-transform" />
               </Button>
             </Link>
@@ -553,7 +556,7 @@ const Landing = () => {
           <div className="text-center mt-12">
             <Link to="/auth">
               <Button size="lg" className="h-14 px-8 text-base rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30">
-                Подключить клинику
+                {t('landing.connectClinic')}
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </Link>
@@ -574,10 +577,10 @@ const Landing = () => {
               Простой старт
             </span>
             <h2 className="text-3xl md:text-5xl font-heading font-bold mb-4">
-              Как это работает
+              {t('landing.howItWorks')}
             </h2>
             <p className="text-muted-foreground max-w-xl mx-auto text-lg">
-              Всего 3 простых шага до идеальной улыбки
+              {t('landing.howItWorksSubtitle')}
             </p>
           </div>
 
@@ -730,14 +733,14 @@ const Landing = () => {
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl md:text-4xl font-heading font-bold mb-6">
-              Готовы найти своего врача?
+              {t('landing.ctaTitle')}
             </h2>
             <p className="text-lg opacity-90 mb-8">
-              Присоединяйтесь к тысячам пациентов, которые уже нашли своего стоматолога
+              {t('landing.ctaSubtitle')}
             </p>
             <Link to="/search">
               <Button size="lg" variant="secondary" className="h-14 px-8 text-base rounded-full">
-                Начать поиск
+                {t('landing.startSearch')}
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </Link>
