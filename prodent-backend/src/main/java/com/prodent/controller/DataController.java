@@ -38,13 +38,13 @@ public class DataController {
     // Sensitive tables removed entirely:
     //   phone_verifications, email_verifications — contain OTP codes
     //   audit_logs        — internal, admin-only via AdminController
-    //   user_roles         — privilege escalation risk, managed via AuthService
+    //   user_roles         — moved to READ_ONLY (frontend needs to fetch roles)
     //   virtual_accounts, virtual_account_transactions — money, managed via PaymentService
     //   payments, invoices, cash_register — financial, managed via PaymentService
 
     private static final Set<String> READ_ONLY_TABLES = Set.of(
             "specialties", "subscription_plans", "add_on_services", "add_on_pricing",
-            "badges", "ad_packages", "blog_posts"
+            "badges", "ad_packages", "blog_posts", "user_roles"
     );
 
     private static final Set<String> ALLOWED_TABLES = Set.of(

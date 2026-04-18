@@ -27,11 +27,12 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
       setLoading(true);
 
       try {
+        // Check for super_admin role (DB stores UPPER_CASE from Java enum)
         const { data, error } = await supabase
           .from('user_roles')
           .select('role')
           .eq('user_id', user.id)
-          .eq('role', 'super_admin')
+          .or('role.eq.SUPER_ADMIN,role.eq.super_admin')
           .maybeSingle();
 
         if (error) {

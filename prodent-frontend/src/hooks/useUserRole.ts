@@ -93,11 +93,13 @@ export function useUserRole(): UseUserRoleResult {
       .eq('user_id', user!.id);
 
     if (userRoles && userRoles.length > 0) {
+      // Normalize: DB stores UPPER_CASE (Java enum), frontend uses lower_case
+      const roles = userRoles.map(r => (r.role || '').toLowerCase());
       // Priority: super_admin > admin > moderator > doctor > other roles
-      const hasSuperAdmin = userRoles.some(r => r.role === 'super_admin');
-      const hasAdmin = userRoles.some(r => r.role === 'admin');
-      const hasModerator = userRoles.some(r => r.role === 'moderator');
-      const hasDoctor = userRoles.some(r => r.role === 'doctor');
+      const hasSuperAdmin = roles.includes('super_admin');
+      const hasAdmin = roles.includes('admin');
+      const hasModerator = roles.includes('moderator');
+      const hasDoctor = roles.includes('doctor');
       
       if (hasSuperAdmin) {
         setRole('super_admin');
@@ -127,8 +129,8 @@ export function useUserRole(): UseUserRoleResult {
         return;
       }
       
-      // Use first available role
-      setRole(userRoles[0].role as AppRole);
+      // Use first available role (normalized to lowercase)
+      setRole(roles[0] as AppRole);
       await fetchDoctorAffiliations();
       setLoading(false);
       return;
