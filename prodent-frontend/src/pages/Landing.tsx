@@ -1,5 +1,9 @@
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import Features from "@/components/Features";
+import TopDoctors from "@/components/TopDoctors";
+import Promotions from "@/components/Promotions";
+import Footer from "@/components/Footer";
 import { Search, Shield, Star, Clock, ArrowRight, User, LogOut, Building2, Users, CalendarDays, FileText, Wallet, LayoutDashboard, Stethoscope, Sparkles, CheckCircle2, ChevronRight, Zap } from "lucide-react";
 import prodentLogo from "@/assets/prodent-logo.png";
 import heroDoctor from "@/assets/hero-doctor.png";
@@ -572,6 +576,15 @@ const Landing = () => {
         </div>
       </section>
 
+      {/* Features — why PRODENT */}
+      <Features />
+
+      {/* Top Doctors carousel */}
+      <TopDoctors />
+
+      {/* Promotions from clinics */}
+      <Promotions />
+
       {/* How it works */}
       <section className="py-24 relative overflow-hidden bg-muted/30">
         {/* Background decorations */}
@@ -756,25 +769,7 @@ const Landing = () => {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-12 border-t border-border">
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <img src={prodentLogo} alt="PRODENT" className="h-12 object-contain" />
-            </div>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
-              <Link to="/search" className="hover:text-foreground transition-colors">Найти врача</Link>
-              <Link to="/clinics" className="hover:text-foreground transition-colors">Клиники</Link>
-              <Link to="/articles" className="hover:text-foreground transition-colors">Статьи</Link>
-              <Link to="/promotions" className="hover:text-foreground transition-colors">Акции</Link>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              © 2024 PRODENT
-            </p>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 };

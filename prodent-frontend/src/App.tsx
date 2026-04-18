@@ -133,8 +133,8 @@ const App = () => (
             <AdminProvider>
               <Routes>
             <Route path="/" element={<Landing />} />
+            <Route path="/home" element={<Navigate to="/" replace />} />
             <Route path="/search" element={<Search />} />
-            <Route path="/home" element={<Index />} />
             <Route path="/clinics" element={<Clinics />} />
             <Route path="/clinic/:id" element={<ClinicProfile />} />
             <Route path="/promotions" element={<Promotions />} />
