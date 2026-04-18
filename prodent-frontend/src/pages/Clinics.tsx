@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { PageMeta } from "@/components/PageMeta";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -136,8 +137,13 @@ const Clinics = () => {
 
   return (
     <div className="min-h-screen bg-gradient-hero">
+      <PageMeta
+        title="Стоматологические клиники — PRODENT"
+        description="Лучшие стоматологические клиники Узбекистана. Рейтинги, отзывы, адреса и онлайн-запись."
+        canonical="https://prodent.uz/clinics"
+      />
       <Header />
-      
+
       <main className="pt-24 pb-12">
         <div className="container mx-auto px-4">
           <div className="mb-8">

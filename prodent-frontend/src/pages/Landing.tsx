@@ -28,6 +28,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useProfile } from "@/hooks/useProfile";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { PageMeta } from "@/components/PageMeta";
+import { WebSiteSchema } from "@/components/StructuredData";
 
 const Landing = () => {
   const { t } = useLanguage();
@@ -62,6 +64,12 @@ const Landing = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <PageMeta
+        title="PRODENT — Премиум портал стоматологов Центральной Азии"
+        description="Найдите лучшего стоматолога за 7 секунд. 500+ проверенных врачей в Узбекистане. Онлайн-запись, реальные отзывы и фото работ."
+        canonical="https://prodent.uz/"
+      />
+      <WebSiteSchema />
       {/* Minimal Header */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/40">
         <div className="container mx-auto px-4">

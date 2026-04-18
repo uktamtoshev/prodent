@@ -59,6 +59,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/public/**").permitAll()
                         .requestMatchers("/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
+                        .requestMatchers("/sitemap.xml").permitAll()
                         .requestMatchers("/ws/**").permitAll()
                         // Payment callbacks — called by provider servers, secured via signature verification
                         .requestMatchers(HttpMethod.POST, "/api/v1/payments/callback/**").permitAll()

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { PageMeta } from "@/components/PageMeta";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -208,8 +209,13 @@ const Search = () => {
 
   return (
     <div className="min-h-screen bg-gradient-hero">
+      <PageMeta
+        title="Найти стоматолога — PRODENT"
+        description="Поиск стоматолога по специализации, городу и рейтингу. 500+ проверенных врачей в Узбекистане."
+        canonical="https://prodent.uz/search"
+      />
       <Header />
-      
+
       <main className="pt-24 pb-12">
         <div className="container mx-auto px-4">
           <div className="mb-8">
