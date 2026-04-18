@@ -64,6 +64,24 @@ spring:
       max-file-size: 10MB
       max-request-size: 20MB
 
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enabled: true
+
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    cache: true
+
 app:
   jwt:
     secret: ${JWT_SECRET:your-256-bit-secret-key-change-in-production-minimum-32-chars}
@@ -85,6 +103,12 @@ app:
     login: ${SMS_LOGIN:}
     password: ${SMS_PASSWORD:}
     dry-run: ${SMS_DRY_RUN:true}  # set to false in production
+
+  email:
+    from-address: ${EMAIL_FROM:noreply@prodent.uz}
+    from-name: PRODENT
+    base-url: ${APP_BASE_URL:https://prodent.uz}
+    dry-run: ${EMAIL_DRY_RUN:true}  # set to false when SMTP is configured
 
   payment:
     payme:

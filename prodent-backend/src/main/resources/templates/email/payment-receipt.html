@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;font-family:'Helvetica Neue',Arial,sans-serif;background:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;">
+  <tr><td style="padding:32px 24px;text-align:center;background:#0d9488;">
+    <h1 style="color:#ffffff;margin:0;font-size:24px;">PRODENT</h1>
+  </td></tr>
+  <tr><td style="padding:32px 24px;">
+    <h2 style="color:#1a1a1a;margin:0 0 16px;">Чек оплаты</h2>
+    <p style="color:#555;font-size:16px;line-height:1.6;" th:text="${patientName} + ', ваш платёж успешно обработан.'">Patient, ваш платёж обработан.</p>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin:16px 0;">
+      <p style="margin:0;color:#166534;font-size:20px;font-weight:700;" th:text="${amount} + ' UZS'">100 000 UZS</p>
+      <p style="margin:4px 0 0;color:#555;font-size:14px;" th:text="${description}">Пополнение баланса</p>
+    </div>
+    <div style="text-align:center;margin:24px 0;">
+      <a th:href="${baseUrl} + '/patient/billing'" style="display:inline-block;padding:14px 32px;background:#0d9488;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
+        История платежей
+      </a>
+    </div>
+  </td></tr>
+  <tr><td style="padding:16px 24px;text-align:center;background:#f9f9f9;color:#999;font-size:12px;">
+    <p>&copy; 2024 PRODENT. <a th:href="${unsubscribeUrl}" style="color:#999;">Настройки уведомлений</a></p>
+  </td></tr>
+</table>
+</body>
+</html>

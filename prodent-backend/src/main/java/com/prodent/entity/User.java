@@ -64,6 +64,10 @@ public class User {
     @Builder.Default
     private String country = "UZ";
 
+    @Column(name = "email_unsubscribed", nullable = false)
+    @Builder.Default
+    private Boolean emailUnsubscribed = false;
+
     @Column(name = "last_login_at")
     private OffsetDateTime lastLoginAt;
 

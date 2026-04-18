@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;font-family:'Helvetica Neue',Arial,sans-serif;background:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;">
+  <tr><td style="padding:32px 24px;text-align:center;background:#0d9488;">
+    <h1 style="color:#ffffff;margin:0;font-size:24px;">PRODENT</h1>
+  </td></tr>
+  <tr><td style="padding:32px 24px;">
+    <h2 style="color:#1a1a1a;margin:0 0 16px;">3 совета для начала</h2>
+    <p style="color:#555;font-size:16px;line-height:1.6;">
+      <span th:text="${userName}">User</span>, вот что поможет вам получить максимум от PRODENT:
+    </p>
+    <ol style="color:#555;font-size:16px;line-height:2;">
+      <li><b>Заполните профиль</b> — добавьте фото и контакты для удобства врачей</li>
+      <li><b>Найдите врача</b> — используйте фильтры по специализации и рейтингу</li>
+      <li><b>Запишитесь онлайн</b> — выберите удобное время в пару кликов</li>
+    </ol>
+    <div style="text-align:center;margin:24px 0;">
+      <a th:href="${baseUrl} + '/search'" style="display:inline-block;padding:14px 32px;background:#0d9488;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">
+        Начать поиск
+      </a>
+    </div>
+  </td></tr>
+  <tr><td style="padding:16px 24px;text-align:center;background:#f9f9f9;color:#999;font-size:12px;">
+    <p>&copy; 2024 PRODENT. <a th:href="${unsubscribeUrl}" style="color:#999;">Отписаться</a></p>
+  </td></tr>
+</table>
+</body>
+</html>

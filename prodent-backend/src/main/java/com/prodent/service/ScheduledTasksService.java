@@ -4,9 +4,11 @@ import com.prodent.entity.Appointment;
 import com.prodent.entity.Clinic;
 import com.prodent.entity.Doctor;
 import com.prodent.entity.Notification;
+import com.prodent.entity.User;
 import com.prodent.repository.AppointmentRepository;
 import com.prodent.repository.ClinicRepository;
 import com.prodent.repository.DoctorRepository;
+import com.prodent.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -31,8 +33,10 @@ public class ScheduledTasksService {
     private final AppointmentRepository appointmentRepository;
     private final DoctorRepository doctorRepository;
     private final ClinicRepository clinicRepository;
+    private final UserRepository userRepository;
     private final NotificationService notificationService;
     private final SmsService smsService;
+    private final EmailService emailService;
 
     // ─── 1. Appointment reminders — runs every hour ─────────────
 
@@ -170,6 +174,43 @@ public class ScheduledTasksService {
 
         if (totalSent > 0) {
             log.info("[Scheduler] Sent {} subscription dunning notifications", totalSent);
+        }
+    }
+
+    // ─── 4. Onboarding email drip — runs daily at 10:00 ────────
+
+    @Scheduled(cron = "0 0 10 * * *") // daily at 10:00
+    public void sendOnboardingDripEmails() {
+        int sent = 0;
+
+        // Day-3 emails: users registered exactly 3 days ago
+        OffsetDateTime day3From = OffsetDateTime.now().minusDays(3).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        OffsetDateTime day3To = day3From.plusDays(1);
+        List<User> day3Users = userRepository.findNewUsersWithEmail(day3From, day3To);
+        for (User user : day3Users) {
+            try {
+                emailService.sendOnboardingDay3(user.getEmail(), user.getFirstName());
+                sent++;
+            } catch (Exception e) {
+                log.error("Failed day-3 drip for user {}: {}", user.getId(), e.getMessage());
+            }
+        }
+
+        // Day-7 emails: users registered exactly 7 days ago
+        OffsetDateTime day7From = OffsetDateTime.now().minusDays(7).withHour(0).withMinute(0).withSecond(0).withNano(0);
+        OffsetDateTime day7To = day7From.plusDays(1);
+        List<User> day7Users = userRepository.findNewUsersWithEmail(day7From, day7To);
+        for (User user : day7Users) {
+            try {
+                emailService.sendOnboardingDay7(user.getEmail(), user.getFirstName());
+                sent++;
+            } catch (Exception e) {
+                log.error("Failed day-7 drip for user {}: {}", user.getId(), e.getMessage());
+            }
+        }
+
+        if (sent > 0) {
+            log.info("[Scheduler] Sent {} onboarding drip emails", sent);
         }
     }
 }

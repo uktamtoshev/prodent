@@ -15,6 +15,7 @@ public class AppProperties {
     private Cors cors = new Cors();
     private RateLimit rateLimit = new RateLimit();
     private Sms sms = new Sms();
+    private Email email = new Email();
     private Payment payment = new Payment();
 
     @Getter
@@ -49,6 +50,16 @@ public class AppProperties {
         private String password;
         /** If true, OTP is logged instead of sent (dev mode). Defaults to false. */
         private boolean dryRun = false;
+    }
+
+    @Getter
+    @Setter
+    public static class Email {
+        private String fromAddress = "noreply@prodent.uz";
+        private String fromName = "PRODENT";
+        private String baseUrl = "https://prodent.uz";
+        /** If true, emails are logged instead of sent (dev mode). */
+        private boolean dryRun = true;
     }
 
     @Getter

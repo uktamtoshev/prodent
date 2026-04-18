@@ -8,6 +8,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -26,4 +28,9 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     @Query("SELECT u FROM User u WHERE LOWER(CONCAT(u.firstName, ' ', u.lastName)) LIKE LOWER(CONCAT('%', :query, '%'))")
     Page<User> searchByName(@Param("query") String query, Pageable pageable);
+
+    /** Users registered between from and to, with email, not unsubscribed — for drip campaigns */
+    @Query("SELECT u FROM User u WHERE u.createdAt BETWEEN :from AND :to " +
+           "AND u.email IS NOT NULL AND u.emailUnsubscribed = false")
+    List<User> findNewUsersWithEmail(@Param("from") OffsetDateTime from, @Param("to") OffsetDateTime to);
 }
