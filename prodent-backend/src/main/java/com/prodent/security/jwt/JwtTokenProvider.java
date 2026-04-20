@@ -61,7 +61,11 @@ public class JwtTokenProvider {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + appProperties.getJwt().getRefreshTokenExpiration());
 
+        // jti makes every refresh token unique even if generated in the same millisecond.
+        // Without it, two calls in rapid succession (e.g., test + CI) produce identical JWTs,
+        // causing duplicate-hash constraint violations on refresh_tokens.token_hash.
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userId.toString())
                 .issuedAt(now)
                 .expiration(expiry)
