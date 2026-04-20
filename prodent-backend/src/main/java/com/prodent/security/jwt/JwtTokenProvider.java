@@ -48,6 +48,7 @@ public class JwtTokenProvider {
         Date expiry = new Date(now.getTime() + appProperties.getJwt().getAccessTokenExpiration());
 
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
                 .subject(userId.toString())
                 .claim("email", email)
                 .claim("roles", roles)
