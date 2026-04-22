@@ -16,6 +16,14 @@ LOG_DIR="$PROJECT_DIR/.logs"
 
 export PATH="$NODE_BIN:$PGSQL_BIN:$REDIS_BIN:$MAVEN_BIN:$PATH"
 
+# Load local .env if present (JWT_SECRET, DB creds, etc.)
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$PROJECT_DIR/.env"
+  set +a
+fi
+
 # Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -76,9 +84,9 @@ else
   BACKEND_PID=$!
   echo $BACKEND_PID > "$LOG_DIR/backend.pid"
 
-  # Wait up to 60 seconds for backend to start
+  # Wait up to 120 seconds for backend to start
   echo -n "       Waiting..."
-  for i in $(seq 1 60); do
+  for i in $(seq 1 120); do
     if port_in_use 8080; then
       echo ""
       echo -e "       ${GREEN}Started on :8080 (PID $BACKEND_PID)${NC}"
