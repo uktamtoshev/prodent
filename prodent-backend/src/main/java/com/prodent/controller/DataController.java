@@ -59,7 +59,7 @@ public class DataController {
             "medical_access", "clinic_followers", "clinic_posts",
             "clinic_post_media", "doctor_posts", "inventory_items",
             "add_on_purchases", "clinic_member_permissions", "medical_record_access",
-            "doctor_clinic_requests"
+            "doctor_clinic_requests", "promotions", "promotion_clicks"
     );
 
     private static boolean isTableReadOnly(String table) {

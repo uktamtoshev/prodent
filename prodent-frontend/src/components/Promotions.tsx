@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tag, Calendar, ArrowRight, MapPin, User } from "lucide-react";
+import { Tag, Calendar, ArrowRight, MapPin, User, Star } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,6 +29,7 @@ const Promotions = () => {
   const { data: promotions = [], isLoading } = useQuery({
     queryKey: ['promotions-home'],
     queryFn: async () => {
+      const nowIso = new Date().toISOString();
       const { data, error } = await supabase
         .from('promotions')
         .select(`
@@ -40,9 +41,13 @@ const Promotions = () => {
           )
         `)
         .eq('active', true)
+        .or(`status.eq.ACTIVE,status.is.null`)
+        .gte('valid_until', nowIso)
+        .order('is_featured', { ascending: false })
+        .order('priority', { ascending: false })
         .order('discount', { ascending: false })
-        .limit(6);
-      
+        .limit(12);
+
       if (error) throw error;
       return data || [];
     }
@@ -51,10 +56,33 @@ const Promotions = () => {
   const filteredPromotions =
     selectedCategory === "all"
       ? promotions
-      : promotions.filter((promo) => promo.category === selectedCategory);
+      : promotions.filter((promo: any) => promo.category === selectedCategory);
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('ru-RU').format(price) + ' ' + t('search.sum');
+  // Fire-and-forget impression beacon for the visible promotions
+  useEffect(() => {
+    if (!filteredPromotions || filteredPromotions.length === 0) return;
+    const ids = filteredPromotions.map((p: any) => p.id).filter(Boolean);
+    ids.forEach((id) => {
+      fetch(`/api/v1/public/promotions/${id}/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ eventType: 'IMPRESSION' }),
+      }).catch(() => { /* ignore */ });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredPromotions.length]);
+
+  const trackClick = (id: string) => {
+    fetch(`/api/v1/public/promotions/${id}/track`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventType: 'CLICK' }),
+    }).catch(() => { /* ignore */ });
+  };
+
+  const formatPrice = (price: number, currency = 'UZS') => {
+    if (!price) return '';
+    return new Intl.NumberFormat('ru-RU').format(price) + ' ' + (currency === 'UZS' ? t('search.sum') : currency);
   };
 
   const formatDate = (dateString: string) => {
@@ -107,27 +135,40 @@ const Promotions = () => {
               </Card>
             ))
           ) : filteredPromotions.length > 0 ? (
-            filteredPromotions.map((promo, index) => (
-            <Card 
+            filteredPromotions.map((promo: any, index: number) => (
+            <Card
               key={promo.id}
               className="group overflow-hidden border-2 hover:border-primary/50 transition-all duration-300 hover:shadow-strong hover:-translate-y-1 cursor-pointer animate-scale-in"
               style={{ animationDelay: `${index * 0.05}s` }}
             >
               <CardContent className="p-0">
                 <div className="relative h-48 overflow-hidden">
-                  <img 
-                    src={promo.image_url || '/promotions/cleaning.jpg'} 
+                  <img
+                    src={promo.image_url || '/promotions/cleaning.jpg'}
                     alt={promo.title}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                   />
-                  <Badge className="absolute top-4 right-4 bg-destructive text-white border-0 text-lg font-bold">
-                    -{promo.discount}%
-                  </Badge>
-                  <div className="absolute top-4 left-4">
+                  {promo.is_featured && (
+                    <Badge className="absolute top-4 left-4 bg-yellow-500 text-black border-0 text-xs font-bold flex items-center gap-1">
+                      <Star className="w-3 h-3" />
+                      {t('promotions.featured') || 'TOP'}
+                    </Badge>
+                  )}
+                  {promo.discount > 0 && (
+                    <Badge className="absolute top-4 right-4 bg-destructive text-white border-0 text-lg font-bold">
+                      -{promo.discount}%
+                    </Badge>
+                  )}
+                  <div className="absolute bottom-4 left-4 flex items-center gap-2">
                     <Badge variant="secondary" className="bg-background/90 backdrop-blur-sm">
                       <Tag className="w-3 h-3 mr-1" />
                       {promo.category}
                     </Badge>
+                    {promo.badge_label && (
+                      <Badge className="bg-primary text-white border-0">
+                        {promo.badge_label}
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -139,14 +180,22 @@ const Promotions = () => {
                     {promo.description}
                   </p>
 
-                  <div className="mb-4">
-                    <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-2xl font-bold text-primary">{formatPrice(promo.price)}</span>
-                      <span className="text-sm text-muted-foreground line-through">{formatPrice(promo.old_price)}</span>
+                  {promo.price > 0 && (
+                    <div className="mb-4">
+                      <div className="flex items-baseline gap-2 mb-1">
+                        <span className="text-2xl font-bold text-primary">
+                          {formatPrice(promo.price, promo.currency)}
+                        </span>
+                        {promo.old_price > 0 && (
+                          <span className="text-sm text-muted-foreground line-through">
+                            {formatPrice(promo.old_price, promo.currency)}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="mb-3 text-sm">
+                  <div className="mb-3 text-sm space-y-1">
                     {promo.clinics && (
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <MapPin className="w-4 h-4" />
@@ -166,9 +215,9 @@ const Promotions = () => {
                     <span>{t('promotions.validUntil')} {formatDate(promo.valid_until)}</span>
                   </div>
 
-                  <Link to="/search">
+                  <Link to="/search" onClick={() => trackClick(promo.id)}>
                     <Button className="w-full group/btn">
-                      {t('promotions.book')}
+                      {promo.cta_label || t('promotions.book')}
                       <ArrowRight className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 transition-transform" />
                     </Button>
                   </Link>
