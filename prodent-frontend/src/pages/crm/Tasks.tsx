@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CRMLayout } from "@/components/crm/CRMLayout";
 import { PermissionGate } from "@/components/crm/PermissionGate";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";

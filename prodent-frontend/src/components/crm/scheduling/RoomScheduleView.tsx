@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { format, startOfDay, addHours, setHours, setMinutes } from "date-fns";
 import { ru } from "date-fns/locale";
 import { DndContext, DragEndEvent, DragOverlay, pointerWithin } from "@dnd-kit/core";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";

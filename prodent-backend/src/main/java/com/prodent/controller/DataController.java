@@ -44,7 +44,9 @@ public class DataController {
 
     private static final Set<String> READ_ONLY_TABLES = Set.of(
             "specialties", "subscription_plans", "add_on_services", "add_on_pricing",
-            "badges", "ad_packages", "blog_posts", "user_roles"
+            "badges", "ad_packages", "blog_posts", "user_roles",
+            // V11 — read-only aggregation views
+            "v_debtors", "v_clinic_kpi_daily", "v_doctor_performance"
     );
 
     private static final Set<String> ALLOWED_TABLES = Set.of(
@@ -59,7 +61,12 @@ public class DataController {
             "medical_access", "clinic_followers", "clinic_posts",
             "clinic_post_media", "doctor_posts", "inventory_items",
             "add_on_purchases", "clinic_member_permissions", "medical_record_access",
-            "doctor_clinic_requests"
+            "doctor_clinic_requests",
+            // V11 — role cabinet tables
+            "laboratory_orders", "medical_media",
+            "rooms", "materials", "materials_stock", "materials_usage", "assistant_assignments",
+            "salaries", "salary_payouts", "clinic_expenses",
+            "manager_targets"
     );
 
     private static boolean isTableReadOnly(String table) {

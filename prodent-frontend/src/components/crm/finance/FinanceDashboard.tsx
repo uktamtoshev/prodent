@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { format, subDays, subMonths, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";

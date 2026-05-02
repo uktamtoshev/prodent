@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { toast } from "sonner";
 import { Plus, Edit2, Trash2, Truck, Phone, Mail, Globe } from "lucide-react";

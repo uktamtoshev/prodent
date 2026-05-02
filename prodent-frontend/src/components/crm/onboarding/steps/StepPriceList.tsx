@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useClinic } from "@/contexts/ClinicContext";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, ListChecks, Check, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";

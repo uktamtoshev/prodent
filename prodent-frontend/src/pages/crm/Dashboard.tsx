@@ -1,7 +1,7 @@
 import { CRMLayout } from "@/components/crm/CRMLayout";
 import { Users, DollarSign, UserPlus, TrendingUp, Plus, Calendar } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { GuestAppointmentModal } from "@/components/crm/appointments/GuestAppointmentModal";

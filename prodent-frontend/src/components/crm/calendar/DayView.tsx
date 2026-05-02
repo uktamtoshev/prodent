@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { format, addHours, startOfDay, setHours, setMinutes } from "date-fns";
 import { ru } from "date-fns/locale";
 import { DndContext, DragEndEvent, DragOverlay, pointerWithin } from "@dnd-kit/core";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";

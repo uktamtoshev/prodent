@@ -1,5 +1,5 @@
 import { useClinic } from '@/contexts/ClinicContext';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 import { useQuery, UseQueryOptions } from '@tanstack/react-query';
 
 /**

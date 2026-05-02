@@ -8,7 +8,7 @@ import { AddOnServicesList } from '@/components/billing/AddOnServicesList';
 import { AppointmentLimitBanner } from '@/components/billing/AppointmentLimitBanner';
 import { PlanStatusBadge } from '@/components/billing/PlanStatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 import { useSubscribeToPlan, useAppointmentLimit, usePlanFeatures } from '@/hooks/useSubscriptionPlan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';

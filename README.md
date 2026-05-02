@@ -19,9 +19,14 @@ PRODENT/
 ├── prodent-backend/       # Spring Boot API
 ├── prodent-frontend/      # React SPA (canonical)
 ├── docker-compose.yml     # Postgres + Redis + backend + frontend
-├── start.sh / stop.sh     # One-click local dev
-└── archive/               # Legacy code, gitignored (Supabase project, old frontend)
+└── start.sh / stop.sh     # One-click local dev
 ```
+
+> **Note on data layer:** The frontend talks to Spring through a custom REST
+> proxy at `prodent-frontend/src/integrations/api/client.ts` that mimics the
+> Supabase JS SDK shape (`from('table').select(...)` etc.) — translating each
+> call to `/api/v1/data/{table}` on `DataController`. There is **no runtime
+> dependency** on `@supabase/supabase-js`; the wrapper is self-contained.
 
 ## Quick start
 

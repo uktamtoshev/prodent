@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Star, MapPin, Award, ArrowRight, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 
 const TopDoctors = () => {

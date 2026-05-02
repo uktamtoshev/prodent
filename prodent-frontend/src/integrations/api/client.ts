@@ -1,8 +1,20 @@
-// Custom Supabase-compatible REST API proxy for Java backend
+// PRODENT data-access client.
+//
+// REST proxy for the Spring Boot API (`/api/v1/*`) that mimics a small subset
+// of the Supabase JS SDK shape so the existing query code stays declarative
+// (`api.from('appointments').select('*').eq('clinic_id', x)`).
+//
+// There is NO runtime dependency on `@supabase/supabase-js`. Do not add one —
+// it is enforced by an ESLint rule (see `eslint.config.js`).
+//
+// Canonical export is `api`. The `supabase` symbol is kept as a backward-
+// compatible alias for legacy call-sites; new code should import `api`.
 import type { Database } from './types';
 
-// ─── Supabase-compatible type definitions ──────────────────────────────────
-// These replace @supabase/supabase-js User and Session types
+// ─── Auth-related type shims ───────────────────────────────────────────────
+// Replicate the shape of @supabase/supabase-js User/Session without depending
+// on it. The fields are intentionally permissive — JWT payload from Spring
+// is decoded into `User` via `userFromToken`.
 
 export interface User {
   id: string;
@@ -966,7 +978,8 @@ const storage = {
 
 // ─── Main export ─────────────────────────────────────────────────────────────
 
-export const supabase = {
+/** PRODENT data-access client (canonical name). */
+export const api = {
   auth,
   functions,
   storage,
@@ -997,3 +1010,11 @@ export const supabase = {
     return Array.from(activeChannels.values());
   },
 };
+
+/**
+ * Backward-compatible alias for legacy call-sites that still import
+ * `{ supabase }` from this module. New code should import `{ api }`.
+ *
+ * @deprecated Use `api` instead.
+ */
+export const supabase = api;

@@ -24,7 +24,7 @@ import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import prodentLogo from "@/assets/prodent-logo.png";
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useProfile } from "@/hooks/useProfile";
 
 const Header = () => {

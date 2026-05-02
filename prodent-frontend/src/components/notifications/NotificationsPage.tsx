@@ -18,7 +18,7 @@ import { formatDistanceToNow, format, isToday, isYesterday, isThisWeek, isThisMo
 import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 
 const typeIcons: Record<string, any> = {

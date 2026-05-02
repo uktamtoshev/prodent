@@ -14,7 +14,7 @@ import {
 import { AddOnServiceCard } from './AddOnServiceCard';
 import { AddOnPurchaseDialog } from './AddOnPurchaseDialog';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 import * as LucideIcons from 'lucide-react';
 
 interface AddOnServicesListProps {

@@ -115,3 +115,62 @@ Run before each release. Mark [x] when passed, [!] when blocked, [-] when N/A.
 - [ ] Actuator health at /actuator/health → 200
 - [ ] 404 page renders correctly
 - [ ] Dark/light theme toggle works
+
+## Role Cabinets (V11 — added 2026-05)
+
+> Migration `V11__role_cabinets_extension.sql` MUST be applied before running these.
+
+### CLINIC_ADMIN cabinet (`/clinic-admin/*`)
+- [ ] Login as CLINIC_ADMIN → sidebar visible, /clinic-admin/schedule loads
+- [ ] Schedule page: filter by doctor/status/date works, today's appointments visible
+- [ ] Appointments page: confirm + cancel actions update status, pagination works
+- [ ] Patients page: distinct patients only, search by name finds patient
+- [ ] Payments page: KPI cards match data, CSV export downloads valid file
+- [ ] Promotions page: create new ad_campaign visible after refresh
+- [ ] Settings page: edit clinic name → reflected in /clinics public page
+- [ ] Notifications page: mark-as-read decrements unread count
+
+### DOCTOR cabinet new pages
+- [ ] DoctorCalendar: navigate by week, status filter, today highlighted
+- [ ] DoctorLaboratory: create order → appears in NEW; status transitions work
+- [ ] DoctorTreatmentPlans: create plan → status changes (PLANNED → ACTIVE → COMPLETED)
+- [ ] DoctorMedia: upload media (URL) → visible in gallery; tooth_number filter ok
+- [ ] DoctorMedia delete → record gone from `medical_media`
+
+### ASSISTANT cabinet (`/assistant/*`)
+- [ ] Login as ASSISTANT → /assistant/schedule loads, others denied for wrong role
+- [ ] Schedule: own assignments only (no other assistants visible)
+- [ ] Appointments: today's appointments for assigned doctors only
+- [ ] Materials: write-off form decrements `materials_stock.quantity`
+- [ ] Materials: low-stock badge appears when qty < min_qty
+- [ ] Rooms: only FREE↔CLEANING transitions enabled for assistant role
+
+### ACCOUNTANT cabinet (`/accountant/*`)
+- [ ] Invoices: filter by status DRAFT/UNPAID/PAID/OVERDUE; mark-paid sets paid_at
+- [ ] Payments: method filter works; CSV export valid UTF-8
+- [ ] Salaries: create scheme (FIXED/PERCENT_REVENUE/HYBRID/PER_SERVICE) saves correctly
+- [ ] Salaries: payout flow PENDING → APPROVED → PAID, paid_by recorded
+- [ ] Reports: KPI cards match v_clinic_kpi_daily; expense pie chart displays
+- [ ] Debtors view shows only invoices past due_date
+
+### MANAGER cabinet (`/manager/*`)
+- [ ] Dashboard: KPI tiles populated from v_clinic_kpi_daily
+- [ ] Analytics: date-range picker, period comparison computes delta correctly
+- [ ] KPI: create target → progress bar uses actual_value computed from queries
+- [ ] Staff: top-3 podium correct order by revenue, no-show% accurate
+
+### MODERATOR cabinet (RBAC)
+- [ ] MODERATOR can verify clinic via PUT /api/v1/moderator/clinics/{id}/verify
+- [ ] MODERATOR can verify doctor via PUT /api/v1/moderator/doctors/{id}/verify
+- [ ] MODERATOR can read audit logs
+- [ ] MODERATOR cannot access /admin/users (assign-role) → 403
+- [ ] MODERATOR cannot access /admin/stats → 403
+- [ ] ADMIN/SUPER_ADMIN still works on /moderator/* endpoints
+
+### Cross-cutting
+- [ ] All 9 enum roles can be assigned via /admin/users/{id}/roles
+- [ ] DataController whitelist includes laboratory_orders, medical_media, rooms,
+      materials, materials_stock, materials_usage, assistant_assignments,
+      salaries, salary_payouts, clinic_expenses, manager_targets
+- [ ] DataController READ-ONLY enforces no-write on v_debtors, v_clinic_kpi_daily, v_doctor_performance
+- [ ] Notifications generated when materials_stock.quantity < min_quantity (if hook present)

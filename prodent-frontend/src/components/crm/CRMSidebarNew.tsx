@@ -35,7 +35,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useClinic } from "@/contexts/ClinicContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProfile } from "@/hooks/useProfile";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { cn } from "@/lib/utils";
 import prodentLogo from "@/assets/prodent-logo.png";
 import { ClinicSwitcher } from "./ClinicSwitcher";

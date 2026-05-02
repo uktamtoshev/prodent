@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { ArrowLeft, Calendar, Clock, Share2, BookOpen, ChevronRight, User, Heart } from "lucide-react";

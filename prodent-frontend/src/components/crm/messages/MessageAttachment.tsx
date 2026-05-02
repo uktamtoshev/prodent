@@ -10,7 +10,7 @@ import {
   Camera,
   Folder
 } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 import { useToast } from '@/hooks/use-toast';
 import {
   Popover,

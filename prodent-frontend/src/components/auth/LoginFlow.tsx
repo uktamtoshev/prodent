@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, CheckCircle2, Phone, Mail } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { PhoneInput } from "./PhoneInput";
 import { OtpInput } from "./OtpInput";
 import { OtpTimer } from "./OtpTimer";

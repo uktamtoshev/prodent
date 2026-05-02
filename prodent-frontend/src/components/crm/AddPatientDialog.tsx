@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, UserCheck, Building2, Search, ArrowLeft, Send } from "lucide-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";

@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { PatientSidebar } from "./PatientSidebar";
 import { Loader2, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";

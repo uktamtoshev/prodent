@@ -11,7 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Search as SearchIcon, MapPin, Star, SlidersHorizontal, Video, AlertCircle, Map, Crown } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DoctorsMapDialog } from "@/components/search/DoctorsMapDialog";

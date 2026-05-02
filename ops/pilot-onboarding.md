@@ -50,6 +50,10 @@ Target: 3–5 clinics in Tashkent for closed pilot (2–4 weeks).
 - [ ] Each doctor registers (role=doctor) and completes profile
 - [ ] PRODENT team verifies doctors
 - [ ] Set up doctor schedules (CRM → Schedule)
+- [ ] (Optional) Invite ASSISTANT staff — they get `/assistant/*` cabinet
+- [ ] (Optional) Invite ACCOUNTANT — they get `/accountant/*` cabinet
+- [ ] (Optional) Invite CLINIC_MANAGER — they get `/manager/*` cabinet
+- [ ] Verify each non-DOCTOR role lands on their own sidebar after login
 
 ### Step 3: Services (Day 1)
 - [ ] Add services with prices (CRM → Services)

@@ -8,8 +8,8 @@ import { StepPriceList } from "./steps/StepPriceList";
 import { StepSchedule } from "./steps/StepSchedule";
 import { StepFirstAppointment } from "./steps/StepFirstAppointment";
 import { StepComplete } from "./steps/StepComplete";
-import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
+import { supabase } from "@/integrations/api/client";
+import type { Json } from "@/integrations/api/types";
 
 const STEPS = [
   { id: "clinic", title: "Клиника", icon: Building2, description: "Основные данные" },

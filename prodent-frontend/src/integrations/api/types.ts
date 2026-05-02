@@ -6,12 +6,11 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+// Database row shapes for Postgres tables — kept in sync with Flyway
+// migrations under `prodent-backend/src/main/resources/db/migration/`.
+// Originally bootstrapped from Supabase CLI; now maintained manually as
+// part of each schema migration.
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.1"
-  }
   public: {
     Tables: {
       ad_analytics: {

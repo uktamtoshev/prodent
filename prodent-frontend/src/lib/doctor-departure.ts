@@ -11,7 +11,7 @@
  *   - Patients can be re-added to doctor's new clinic later
  */
 
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 
 export interface DoctorDepartureResult {
   success: boolean;

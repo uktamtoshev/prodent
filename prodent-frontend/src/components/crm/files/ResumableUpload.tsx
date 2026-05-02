@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import * as tus from 'tus-js-client';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 import { toast } from 'sonner';
 import { Upload, X, Pause, Play, FileImage, FileText, Box, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 

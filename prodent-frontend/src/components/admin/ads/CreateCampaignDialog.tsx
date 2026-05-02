@@ -12,7 +12,7 @@ import { format, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useAdPackages, useCreateCampaign } from '@/hooks/useAdCampaigns';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from '@/integrations/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface Props {

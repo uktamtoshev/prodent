@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ZoomIn, ZoomOut, RotateCw, Save, Download, Box, Maximize2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { toast } from "sonner";
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
 import { STLViewer, STLViewerDialog } from "./STLViewer";

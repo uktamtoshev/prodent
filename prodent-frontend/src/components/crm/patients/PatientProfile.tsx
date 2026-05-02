@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/integrations/api/client";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { User, Phone, Mail, Calendar, MapPin, Edit2, Save, X } from "lucide-react";
