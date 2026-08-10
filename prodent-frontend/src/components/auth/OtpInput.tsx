@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, KeyboardEvent, ClipboardEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface OtpInputProps {
   value: string;
@@ -11,6 +12,7 @@ interface OtpInputProps {
 }
 
 export function OtpInput({ value, onChange, length = 6, error, disabled }: OtpInputProps) {
+  const { t } = useLanguage();
   const [otp, setOtp] = useState<string[]>(Array(length).fill(""));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -96,14 +98,15 @@ export function OtpInput({ value, onChange, length = 6, error, disabled }: OtpIn
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <Label className="text-base font-medium">Введите код подтверждения</Label>
-        <p className="text-sm text-muted-foreground mt-1">6-значный код из SMS</p>
+        <Label className="text-base font-medium">{t("auth.enterOtpTitle")}</Label>
+        <p className="text-sm text-muted-foreground mt-1">{t("auth.otpSubtitle")}</p>
       </div>
       <div className="flex justify-center gap-3">
         {otp.map((digit, index) => (
           <Input
             key={index}
             ref={(el) => (inputRefs.current[index] = el)}
+            data-testid={`auth-otp-${index}`}
             type="text"
             inputMode="numeric"
             maxLength={1}

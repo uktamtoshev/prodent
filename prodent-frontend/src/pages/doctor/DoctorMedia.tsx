@@ -1,12 +1,14 @@
 import { DoctorLayout } from '@/components/doctor/DoctorLayout';
 import { DoctorPortfolio } from '@/components/doctor/profile/DoctorPortfolio';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export default function DoctorMedia() {
   const { user } = useAuth();
+  const { t } = useLanguage();
 
   // Get doctor ID for current user
   const { data: doctorData, isLoading } = useQuery({
@@ -43,8 +45,8 @@ export default function DoctorMedia() {
   if (!doctorData?.id) {
     return (
       <DoctorLayout>
-        <div className="p-6">
-          <p className="text-muted-foreground">Профиль врача не найден</p>
+        <div className="p-card-x">
+          <p className="text-muted-foreground">{t("doctorMedia.profileNotFound")}</p>
         </div>
       </DoctorLayout>
     );
@@ -52,7 +54,7 @@ export default function DoctorMedia() {
 
   return (
     <DoctorLayout>
-      <div className="p-6">
+      <div className="p-card-x">
         <DoctorPortfolio doctorId={doctorData.id} isOwner={true} />
       </div>
     </DoctorLayout>

@@ -12,8 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ArticleDialogProps {
   open: boolean;
@@ -24,16 +26,18 @@ interface ArticleDialogProps {
     slug: string;
     excerpt: string | null;
     content: string | null;
-    cover_image: string | null;
-    published: boolean | null;
-    meta_title: string | null;
-    meta_description: string | null;
-    meta_keywords: string[] | null;
+    cover_url: string | null;
+    is_published: boolean | null;
+    seo_title: string | null;
+    seo_description: string | null;
+    tags: string[] | null;
+    language?: string | null;
   } | null;
 }
 
 export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProps) {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const isEditing = !!article;
 
   const [formData, setFormData] = useState({
@@ -41,11 +45,12 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
     slug: "",
     excerpt: "",
     content: "",
-    cover_image: "",
-    published: false,
-    meta_title: "",
-    meta_description: "",
-    meta_keywords: "",
+    cover_url: "",
+    is_published: false,
+    seo_title: "",
+    seo_description: "",
+    tags: "",
+    language: "ru",
   });
 
   useEffect(() => {
@@ -55,11 +60,12 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
         slug: article.slug || "",
         excerpt: article.excerpt || "",
         content: article.content || "",
-        cover_image: article.cover_image || "",
-        published: article.published || false,
-        meta_title: article.meta_title || "",
-        meta_description: article.meta_description || "",
-        meta_keywords: article.meta_keywords?.join(", ") || "",
+        cover_url: article.cover_url || "",
+        is_published: article.is_published || false,
+        seo_title: article.seo_title || "",
+        seo_description: article.seo_description || "",
+        tags: article.tags?.join(", ") || "",
+        language: article.language || "ru",
       });
     } else {
       setFormData({
@@ -67,11 +73,12 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
         slug: "",
         excerpt: "",
         content: "",
-        cover_image: "",
-        published: false,
-        meta_title: "",
-        meta_description: "",
-        meta_keywords: "",
+        cover_url: "",
+        is_published: false,
+        seo_title: "",
+        seo_description: "",
+        tags: "",
+        language: "ru",
       });
     }
   }, [article, open]);
@@ -103,7 +110,7 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const keywords = data.meta_keywords
+      const tags = data.tags
         .split(",")
         .map((k) => k.trim())
         .filter(Boolean);
@@ -113,29 +120,29 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
         slug: data.slug,
         excerpt: data.excerpt || null,
         content: data.content || null,
-        cover_image: data.cover_image || null,
-        published: data.published,
-        published_at: data.published ? new Date().toISOString() : null,
-        meta_title: data.meta_title || null,
-        meta_description: data.meta_description || null,
-        meta_keywords: keywords.length > 0 ? keywords : null,
+        cover_url: data.cover_url || null,
+        is_published: data.is_published,
+        seo_title: data.seo_title || null,
+        seo_description: data.seo_description || null,
+        tags: tags.length > 0 ? tags : null,
+        language: data.language,
       });
 
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["blog-posts"] });
-      toast.success("Статья создана");
+      toast.success(t("adminArticleDialog.created"));
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error("Ошибка: " + error.message);
+      toast.error(t("adminArticleDialog.errorPrefix") + error.message);
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      const keywords = data.meta_keywords
+      const tags = data.tags
         .split(",")
         .map((k) => k.trim())
         .filter(Boolean);
@@ -147,12 +154,12 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
           slug: data.slug,
           excerpt: data.excerpt || null,
           content: data.content || null,
-          cover_image: data.cover_image || null,
-          published: data.published,
-          published_at: data.published ? new Date().toISOString() : null,
-          meta_title: data.meta_title || null,
-          meta_description: data.meta_description || null,
-          meta_keywords: keywords.length > 0 ? keywords : null,
+          cover_url: data.cover_url || null,
+          is_published: data.is_published,
+          seo_title: data.seo_title || null,
+          seo_description: data.seo_description || null,
+          tags: tags.length > 0 ? tags : null,
+          language: data.language,
         })
         .eq("id", article!.id);
 
@@ -160,18 +167,18 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["blog-posts"] });
-      toast.success("Статья обновлена");
+      toast.success(t("adminArticleDialog.updated"));
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error("Ошибка: " + error.message);
+      toast.error(t("adminArticleDialog.errorPrefix") + error.message);
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title || !formData.slug) {
-      toast.error("Заполните заголовок и slug");
+      toast.error(t("adminArticleDialog.fillRequired"));
       return;
     }
 
@@ -189,108 +196,127 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isEditing ? "Редактировать статью" : "Создать статью"}
+            {isEditing ? t("adminArticleDialog.titleEdit") : t("adminArticleDialog.titleCreate")}
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="title">Заголовок *</Label>
+              <Label htmlFor="title">{t("adminArticleDialog.labelTitle")} *</Label>
               <Input
                 id="title"
                 value={formData.title}
                 onChange={(e) => handleTitleChange(e.target.value)}
-                placeholder="Название статьи"
+                placeholder={t("adminArticleDialog.placeholderTitle")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="slug">Slug (URL) *</Label>
+              <Label htmlFor="slug">{t("adminArticleDialog.labelSlug")} *</Label>
               <Input
                 id="slug"
                 value={formData.slug}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, slug: e.target.value }))
                 }
-                placeholder="url-statyi"
+                placeholder={t("adminArticleDialog.placeholderSlug")}
               />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="excerpt">Краткое описание</Label>
+            <Label htmlFor="excerpt">{t("adminArticleDialog.labelExcerpt")}</Label>
             <Textarea
               id="excerpt"
               value={formData.excerpt}
               onChange={(e) =>
                 setFormData((prev) => ({ ...prev, excerpt: e.target.value }))
               }
-              placeholder="Краткое описание для превью"
+              placeholder={t("adminArticleDialog.placeholderExcerpt")}
               rows={2}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="content">Содержание (HTML)</Label>
+            <Label htmlFor="content">{t("adminArticleDialog.labelContent")}</Label>
             <Textarea
               id="content"
               value={formData.content}
               onChange={(e) =>
                 setFormData((prev) => ({ ...prev, content: e.target.value }))
               }
-              placeholder="<h2>Заголовок</h2><p>Текст статьи...</p>"
+              placeholder={t("adminArticleDialog.placeholderContent")}
               rows={12}
               className="font-mono text-sm"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="cover_image">URL обложки</Label>
+            <Label htmlFor="cover_image">{t("adminArticleDialog.labelCover")}</Label>
             <Input
               id="cover_image"
-              value={formData.cover_image}
+              value={formData.cover_url}
               onChange={(e) =>
-                setFormData((prev) => ({ ...prev, cover_image: e.target.value }))
+                setFormData((prev) => ({ ...prev, cover_url: e.target.value }))
               }
               placeholder="https://example.com/image.jpg"
             />
           </div>
 
+          <div className="space-y-2 max-w-xs">
+            <Label htmlFor="language">{t("adminArticleDialog.labelLanguage")}</Label>
+            <Select
+              value={formData.language}
+              onValueChange={(value) =>
+                setFormData((prev) => ({ ...prev, language: value }))
+              }
+            >
+              <SelectTrigger id="language">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ru">Русский</SelectItem>
+                <SelectItem value="uz">O‘zbekcha</SelectItem>
+                <SelectItem value="en">English</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="border-t pt-4">
-            <h3 className="font-medium mb-4">SEO настройки</h3>
+            <h3 className="font-medium mb-4">{t("adminArticleDialog.seoTitle")}</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="meta_title">Meta Title</Label>
+                <Label htmlFor="meta_title">{t("adminArticleDialog.labelMetaTitle")}</Label>
                 <Input
                   id="meta_title"
-                  value={formData.meta_title}
+                  value={formData.seo_title}
                   onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, meta_title: e.target.value }))
+                    setFormData((prev) => ({ ...prev, seo_title: e.target.value }))
                   }
-                  placeholder="SEO заголовок"
+                  placeholder={t("adminArticleDialog.placeholderMetaTitle")}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="meta_keywords">Ключевые слова</Label>
+                <Label htmlFor="meta_keywords">{t("adminArticleDialog.labelKeywords")}</Label>
                 <Input
                   id="meta_keywords"
-                  value={formData.meta_keywords}
+                  value={formData.tags}
                   onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, meta_keywords: e.target.value }))
+                    setFormData((prev) => ({ ...prev, tags: e.target.value }))
                   }
-                  placeholder="ключ1, ключ2, ключ3"
+                  placeholder={t("adminArticleDialog.placeholderKeywords")}
                 />
               </div>
             </div>
             <div className="space-y-2 mt-4">
-              <Label htmlFor="meta_description">Meta Description</Label>
+              <Label htmlFor="meta_description">{t("adminArticleDialog.labelMetaDesc")}</Label>
               <Textarea
                 id="meta_description"
-                value={formData.meta_description}
+                value={formData.seo_description}
                 onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, meta_description: e.target.value }))
+                  setFormData((prev) => ({ ...prev, seo_description: e.target.value }))
                 }
-                placeholder="Описание для поисковых систем (до 160 символов)"
+                placeholder={t("adminArticleDialog.placeholderMetaDesc")}
                 rows={2}
               />
             </div>
@@ -300,12 +326,12 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
             <div className="flex items-center gap-3">
               <Switch
                 id="published"
-                checked={formData.published}
+                checked={formData.is_published}
                 onCheckedChange={(checked) =>
-                  setFormData((prev) => ({ ...prev, published: checked }))
+                  setFormData((prev) => ({ ...prev, is_published: checked }))
                 }
               />
-              <Label htmlFor="published">Опубликовать</Label>
+              <Label htmlFor="published">{t("adminArticleDialog.labelPublish")}</Label>
             </div>
 
             <div className="flex gap-3">
@@ -314,11 +340,11 @@ export function ArticleDialog({ open, onOpenChange, article }: ArticleDialogProp
                 variant="outline"
                 onClick={() => onOpenChange(false)}
               >
-                Отмена
+                {t("admin.cancel")}
               </Button>
               <Button type="submit" disabled={isLoading}>
                 {isLoading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                {isEditing ? "Сохранить" : "Создать"}
+                {isEditing ? t("adminArticleDialog.btnSave") : t("adminArticleDialog.btnCreate")}
               </Button>
             </div>
           </div>

@@ -11,8 +11,18 @@ import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Calculator, Check, DollarSign, Users } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+import type { Database } from "@/integrations/supabase/types";
+
+type DoctorSalary = Database["public"]["Tables"]["doctor_salaries"]["Row"];
+type ProfileSummary = { full_name: string | null };
+type DoctorProfile = ProfileSummary | ProfileSummary[] | null;
+
+const getProfileName = (profile: DoctorProfile | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
 
 export function SalariesList() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
@@ -45,7 +55,7 @@ export function SalariesList() {
     queryFn: async () => {
       const { data } = await supabase
         .from("appointments")
-        .select("doctor_id, price")
+        .select("doctor_id, total_price")
         .eq("clinic_id", currentClinic?.id)
         .eq("status", "completed")
         .gte("appointment_date", periodStart.toISOString())
@@ -53,7 +63,7 @@ export function SalariesList() {
 
       const revenueMap: Record<string, number> = {};
       data?.forEach((apt) => {
-        revenueMap[apt.doctor_id] = (revenueMap[apt.doctor_id] || 0) + (apt.price || 0);
+        revenueMap[apt.doctor_id] = (revenueMap[apt.doctor_id] || 0) + (apt.total_price || 0);
       });
       return revenueMap;
     },
@@ -71,7 +81,7 @@ export function SalariesList() {
         .eq("period_start", format(periodStart, "yyyy-MM-dd"))
         .eq("period_end", format(periodEnd, "yyyy-MM-dd"));
 
-      const map: Record<string, any> = {};
+      const map: Record<string, DoctorSalary> = {};
       data?.forEach((s) => {
         map[s.doctor_id] = s;
       });
@@ -107,10 +117,10 @@ export function SalariesList() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["doctor-salaries"] });
-      toast.success("Зарплата рассчитана");
+      toast.success(t('crmSalaries.salaryCalculated'));
     },
     onError: () => {
-      toast.error("Ошибка расчёта");
+      toast.error(t('crmSalaries.calcError'));
     },
   });
 
@@ -124,7 +134,7 @@ export function SalariesList() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["doctor-salaries"] });
-      toast.success("Зарплата утверждена");
+      toast.success(t('crmSalaries.salaryApproved'));
     },
   });
 
@@ -138,7 +148,7 @@ export function SalariesList() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["doctor-salaries"] });
-      toast.success("Зарплата выплачена");
+      toast.success(t('crmSalaries.salaryPaid'));
     },
   });
 
@@ -151,12 +161,24 @@ export function SalariesList() {
   });
 
   const isLoading = loadingDoctors || loadingAppts;
+  const salaryRows = doctors?.map((doctor) => {
+    const revenue = appointmentsByDoctor?.[doctor.id] || 0;
+    const salary = existingSalaries?.[doctor.id];
+    const calculatedSalary = Math.round(revenue * ((doctor.salary_percent || 30) / 100));
+    return { doctor, revenue, salary, calculatedSalary };
+  }) || [];
+  const totalRevenue = salaryRows.reduce((sum, row) => sum + row.revenue, 0);
+  const totalToPay = salaryRows.reduce(
+    (sum, row) => sum + (row.salary?.final_salary || row.calculatedSalary),
+    0,
+  );
+  const paidCount = salaryRows.filter((row) => row.salary?.status === "paid").length;
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; className: string }> = {
-      pending: { label: "Ожидает", className: "bg-amber-500/20 text-amber-400 border-amber-500/50" },
-      approved: { label: "Утверждено", className: "bg-blue-500/20 text-blue-400 border-blue-500/50" },
-      paid: { label: "Выплачено", className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" },
+      pending: { label: t('crmSalaries.pending'), className: "bg-status-warning/20 text-status-warning border-status-warning/50" },
+      approved: { label: t('crmSalaries.approved'), className: "bg-status-info/20 text-status-info border-status-info/50" },
+      paid: { label: t('crmSalaries.paid'), className: "bg-status-success/20 text-status-success border-status-success/50" },
     };
     return variants[status] || variants.pending;
   };
@@ -167,7 +189,7 @@ export function SalariesList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Select value={selectedMonth} onValueChange={setSelectedMonth}>
           <SelectTrigger className="w-[200px] bg-background border-border">
             <SelectValue />
@@ -182,31 +204,72 @@ export function SalariesList() {
         </Select>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card className="bg-card/80 border-border/50">
+          <CardContent className="px-card-x pb-card-x pt-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15">
+                <DollarSign className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{t('crmSalaries.revenue')}</p>
+                <p className="text-xl font-bold text-foreground">{totalRevenue.toLocaleString()} UZS</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/80 border-border/50">
+          <CardContent className="px-card-x pb-card-x pt-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-status-success/15">
+                <Calculator className="h-5 w-5 text-status-success" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{t('crmSalaries.toPay')}</p>
+                <p className="text-xl font-bold text-status-success">{totalToPay.toLocaleString()} UZS</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-card/80 border-border/50">
+          <CardContent className="px-card-x pb-card-x pt-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-status-info/15">
+                <Check className="h-5 w-5 text-status-info" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">{t('crmSalaries.paid')}</p>
+                <p className="text-xl font-bold text-foreground">{paidCount} / {salaryRows.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="bg-card/80 border-border/50">
         <CardHeader>
-          <CardTitle className="text-foreground flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <Users className="w-5 h-5" />
-            Зарплаты штатных врачей за {format(periodStart, "LLLL yyyy", { locale: ru })}
+            {t('crmSalaries.staffSalariesFor')} {format(periodStart, "LLLL yyyy", { locale: ru })}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {doctors && doctors.length > 0 ? (
             <div className="space-y-4">
-              {doctors.map((doctor) => {
-                const revenue = appointmentsByDoctor?.[doctor.id] || 0;
-                const salary = existingSalaries?.[doctor.id];
-                const calculatedSalary = Math.round(revenue * ((doctor.salary_percent || 30) / 100));
+              {salaryRows.map(({ doctor, revenue, salary, calculatedSalary }) => {
                 const statusBadge = salary ? getStatusBadge(salary.status) : null;
 
                 return (
-                  <div key={doctor.id} className="p-4 bg-muted/30 rounded-lg">
-                    <div className="flex items-start justify-between">
+                  <div key={doctor.id} className="p-4 bg-muted/30 rounded-2xl">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="font-medium text-foreground">
-                          {(doctor.profiles as any)?.full_name || "Врач"}
+                          {getProfileName(doctor.profiles) || t('crmSalaries.doctorFallback')}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                          Ставка: {doctor.salary_percent || 30}% от выручки
+                          {t('crmSalaries.rate')}: {doctor.salary_percent || 30}{t('crmSalaries.rateOfRevenue')}
                         </p>
                       </div>
                       {statusBadge && (
@@ -216,28 +279,28 @@ export function SalariesList() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 mt-4">
-                      <div className="p-3 bg-background/50 rounded">
-                        <p className="text-xs text-muted-foreground">Выручка</p>
+                    <div className="grid grid-cols-1 gap-3 mt-4 md:grid-cols-3">
+                      <div className="p-3 bg-background/50 rounded-xl">
+                        <p className="text-xs text-muted-foreground">{t('crmSalaries.revenue')}</p>
                         <p className="text-lg font-bold text-foreground">
                           {revenue.toLocaleString()} UZS
                         </p>
                       </div>
-                      <div className="p-3 bg-background/50 rounded">
-                        <p className="text-xs text-muted-foreground">Расчётная ЗП</p>
+                      <div className="p-3 bg-background/50 rounded-xl">
+                        <p className="text-xs text-muted-foreground">{t('crmSalaries.calculatedSalary')}</p>
                         <p className="text-lg font-bold text-primary">
                           {(salary?.calculated_salary || calculatedSalary).toLocaleString()} UZS
                         </p>
                       </div>
-                      <div className="p-3 bg-background/50 rounded">
-                        <p className="text-xs text-muted-foreground">К выплате</p>
-                        <p className="text-lg font-bold text-emerald-400">
+                      <div className="p-3 bg-background/50 rounded-xl">
+                        <p className="text-xs text-muted-foreground">{t('crmSalaries.toPay')}</p>
+                        <p className="text-lg font-bold text-status-success">
                           {(salary?.final_salary || calculatedSalary).toLocaleString()} UZS
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex gap-2 mt-4">
+                    <div className="flex flex-wrap gap-2 mt-4">
                       {!salary && (
                         <Button
                           size="sm"
@@ -246,7 +309,7 @@ export function SalariesList() {
                           disabled={calculateSalaryMutation.isPending}
                         >
                           <Calculator className="w-4 h-4 mr-1" />
-                          Рассчитать
+                          {t('crmSalaries.calculate')}
                         </Button>
                       )}
                       {salary?.status === "pending" && (
@@ -256,7 +319,7 @@ export function SalariesList() {
                           onClick={() => approveSalaryMutation.mutate(salary.id)}
                         >
                           <Check className="w-4 h-4 mr-1" />
-                          Утвердить
+                          {t('crmSalaries.approve')}
                         </Button>
                       )}
                       {salary?.status === "approved" && (
@@ -265,7 +328,7 @@ export function SalariesList() {
                           onClick={() => paySalaryMutation.mutate(salary.id)}
                         >
                           <DollarSign className="w-4 h-4 mr-1" />
-                          Выплатить
+                          {t('crmSalaries.pay')}
                         </Button>
                       )}
                     </div>
@@ -276,8 +339,8 @@ export function SalariesList() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Штатных врачей нет</p>
-              <p className="text-sm mt-1">Добавьте врачей с типом "Штатный врач"</p>
+              <p>{t('crmSalaries.noStaffDoctors')}</p>
+              <p className="text-sm mt-1">{t('crmSalaries.addStaffDoctorsHint')}</p>
             </div>
           )}
         </CardContent>

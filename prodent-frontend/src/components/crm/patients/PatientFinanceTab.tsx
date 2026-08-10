@@ -7,30 +7,46 @@ import {
   Wallet, AlertTriangle, TrendingUp, Receipt, 
   CreditCard, ArrowUpRight, ArrowDownRight, Clock 
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useClinic } from "@/contexts/ClinicContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useMemo } from "react";
 
 interface PatientFinanceTabProps {
   patientId: string;
 }
 
-const PAYMENT_METHODS: Record<string, string> = {
-  cash: "Наличные", card: "Карта", transfer: "Перевод",
-  uzum: "Uzum", payme: "Payme", click: "Click",
-};
+type ProfileSummary = { full_name: string | null };
+type LinkedDoctor =
+  | { profiles: ProfileSummary | ProfileSummary[] | null }
+  | { profiles: ProfileSummary | ProfileSummary[] | null }[]
+  | null;
 
-const STATUS_MAP: Record<string, { label: string; className: string }> = {
-  new: { label: "Новый", className: "bg-blue-500/10 text-blue-500 border-blue-500/20" },
-  pending: { label: "Ожидает", className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" },
-  paid: { label: "Оплачен", className: "bg-green-500/10 text-green-500 border-green-500/20" },
-  completed: { label: "Завершён", className: "bg-green-500/10 text-green-500 border-green-500/20" },
-  cancelled: { label: "Отменён", className: "bg-red-500/10 text-red-500 border-red-500/20" },
-  partial: { label: "Частично", className: "bg-orange-500/10 text-orange-500 border-orange-500/20" },
-};
+const getProfileName = (profile: ProfileSummary | ProfileSummary[] | null | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const getLinkedDoctorName = (doctor: LinkedDoctor | undefined) =>
+  getProfileName(Array.isArray(doctor) ? doctor[0]?.profiles : doctor?.profiles);
 
 export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
+
+  const PAYMENT_METHODS = useMemo<Record<string, string>>(() => ({
+    cash: t('crmPatientFinance.cash'), card: t('crmPatientFinance.card'), transfer: t('crmPatientFinance.transfer'),
+    uzum: "Uzum", payme: "Payme", click: "Click",
+  }), [t]);
+
+  const STATUS_MAP = useMemo<Record<string, { label: string; className: string }>>(() => ({
+    new: { label: t('crmPatientFinance.stNew'), className: "bg-status-neutral/10 text-status-neutral border-status-neutral/20" },
+    pending: { label: t('crmPatientFinance.stPending'), className: "bg-status-warning/10 text-status-warning border-status-warning/20" },
+    paid: { label: t('crmPatientFinance.stPaid'), className: "bg-status-success/10 text-status-success border-status-success/20" },
+    completed: { label: t('crmPatientFinance.stCompleted'), className: "bg-status-success/10 text-status-success border-status-success/20" },
+    cancelled: { label: t('crmPatientFinance.stCancelled'), className: "bg-status-danger/10 text-status-danger border-status-danger/20" },
+    partial: { label: t('crmPatientFinance.stPartial'), className: "bg-status-info/10 text-status-info border-status-info/20" },
+  }), [t]);
 
   const { data: balance } = useQuery({
     queryKey: ["patient-balance", patientId, currentClinic?.id],
@@ -89,19 +105,19 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
     <div className="space-y-6">
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard icon={Wallet} label="Баланс" value={bal} color={bal < 0 ? "red" : "primary"} suffix="UZS" />
-        <KpiCard icon={TrendingUp} label="Всего начислено" value={totalInvoiced} color="blue" suffix="UZS" />
-        <KpiCard icon={ArrowUpRight} label="Оплачено" value={totalPaid} color="green" suffix="UZS" />
-        <KpiCard icon={AlertTriangle} label="Задолженность" value={totalDebt} color={totalDebt > 0 ? "red" : "green"} suffix="UZS" />
+        <KpiCard icon={Wallet} label={t('crmPatientFinance.balance')} value={bal} color={bal < 0 ? "red" : "primary"} suffix="UZS" />
+        <KpiCard icon={TrendingUp} label={t('crmPatientFinance.totalInvoiced')} value={totalInvoiced} color="blue" suffix="UZS" />
+        <KpiCard icon={ArrowUpRight} label={t('crmPatientFinance.totalPaid')} value={totalPaid} color="green" suffix="UZS" />
+        <KpiCard icon={AlertTriangle} label={t('crmPatientFinance.totalDebt')} value={totalDebt} color={totalDebt > 0 ? "red" : "green"} suffix="UZS" />
       </div>
 
       {/* Debts */}
       {unpaidInvoices.length > 0 && (
-        <Card className="border-red-500/30 bg-red-500/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-red-500 text-base">
+        <Card className="border-status-danger/30 bg-status-danger/5">
+          <CardHeader className="border-b border-border/50 px-card-x py-card-y">
+            <CardTitle className="flex items-center gap-2 text-status-danger text-base">
               <AlertTriangle className="w-5 h-5" />
-              Неоплаченные счета ({unpaidInvoices.length})
+              {t('crmPatientFinance.unpaidInvoices')} ({unpaidInvoices.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -116,7 +132,7 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
                       {format(new Date(inv.created_at), "d MMM yyyy", { locale: ru })}
                     </p>
                   </div>
-                  <span className="font-bold text-red-500">{inv.final_amount?.toLocaleString()} UZS</span>
+                  <span className="font-bold text-status-danger">{inv.final_amount?.toLocaleString()} UZS</span>
                 </div>
               );
             })}
@@ -126,9 +142,9 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
 
       {/* Recent Invoices */}
       <Card className="border-border/50 bg-card/80">
-        <CardHeader className="pb-3">
+        <CardHeader className="border-b border-border/50 px-card-x py-card-y">
           <CardTitle className="flex items-center gap-2 text-foreground text-base">
-            <Receipt className="w-5 h-5" /> Счета
+            <Receipt className="w-5 h-5" /> {t('crmPatientFinance.invoices')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -138,7 +154,7 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
             <div className="space-y-2">
               {invoices.map(inv => {
                 const st = STATUS_MAP[inv.status || "new"] || STATUS_MAP.pending;
-                const doc = inv.doctors as any;
+                const doctorName = getLinkedDoctorName(inv.doctors);
                 return (
                   <div key={inv.id} className="p-3 bg-muted/50 rounded-lg border border-border/50">
                     <div className="flex items-start justify-between">
@@ -149,7 +165,7 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {format(new Date(inv.created_at), "d MMM yyyy, HH:mm", { locale: ru })}
-                          {doc?.profiles?.full_name && ` • ${doc.profiles.full_name}`}
+                          {doctorName && ` • ${doctorName}`}
                         </p>
                       </div>
                       <div className="text-right">
@@ -160,8 +176,8 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
                       </div>
                     </div>
                     {inv.paid_at && (
-                      <p className="text-xs text-green-500 mt-1">
-                        Оплачен {format(new Date(inv.paid_at), "d MMM", { locale: ru })}
+                      <p className="text-xs text-status-success mt-1">
+                        {t('crmPatientFinance.paidOn')} {format(new Date(inv.paid_at), "d MMM", { locale: ru })}
                         {inv.payment_method && ` • ${PAYMENT_METHODS[inv.payment_method] || inv.payment_method}`}
                       </p>
                     )}
@@ -170,16 +186,16 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
               })}
             </div>
           ) : (
-            <EmptyState icon={Receipt} text="Счетов нет" />
+            <EmptyState icon={Receipt} text={t('crmPatientFinance.noInvoices')} />
           )}
         </CardContent>
       </Card>
 
       {/* Payments */}
       <Card className="border-border/50 bg-card/80">
-        <CardHeader className="pb-3">
+        <CardHeader className="border-b border-border/50 px-card-x py-card-y">
           <CardTitle className="flex items-center gap-2 text-foreground text-base">
-            <CreditCard className="w-5 h-5" /> Платежи
+            <CreditCard className="w-5 h-5" /> {t('crmPatientFinance.payments')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -193,8 +209,8 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
                 return (
                   <div key={p.id} className="p-3 bg-muted/50 rounded-lg border border-border/50 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`p-1.5 rounded-lg ${done ? 'bg-green-500/10' : 'bg-yellow-500/10'}`}>
-                        {done ? <ArrowUpRight className="w-4 h-4 text-green-500" /> : <Clock className="w-4 h-4 text-yellow-500" />}
+                      <div className={`p-1.5 rounded-lg ${done ? 'bg-status-success/10' : 'bg-status-warning/10'}`}>
+                        {done ? <ArrowUpRight className="w-4 h-4 text-status-success" /> : <Clock className="w-4 h-4 text-status-warning" />}
                       </div>
                       <div>
                         <p className="font-medium text-foreground text-sm">{p.amount?.toLocaleString()} {p.currency || "UZS"}</p>
@@ -212,7 +228,7 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
               })}
             </div>
           ) : (
-            <EmptyState icon={CreditCard} text="Платежей нет" />
+            <EmptyState icon={CreditCard} text={t('crmPatientFinance.noPayments')} />
           )}
         </CardContent>
       </Card>
@@ -220,19 +236,19 @@ export function PatientFinanceTab({ patientId }: PatientFinanceTabProps) {
   );
 }
 
-function KpiCard({ icon: Icon, label, value, color, suffix }: { icon: any; label: string; value: number; color: string; suffix: string }) {
+function KpiCard({ icon: Icon, label, value, color, suffix }: { icon: LucideIcon; label: string; value: number; color: string; suffix: string }) {
   const colorMap: Record<string, string> = {
     primary: "text-primary bg-primary/10",
-    blue: "text-blue-500 bg-blue-500/10",
-    green: "text-green-500 bg-green-500/10",
-    red: "text-red-500 bg-red-500/10",
+    blue: "text-status-info bg-status-info/10",
+    green: "text-status-success bg-status-success/10",
+    red: "text-status-danger bg-status-danger/10",
   };
   const cls = colorMap[color] || colorMap.primary;
   const textCls = cls.split(" ")[0];
 
   return (
     <Card className="border-border/50 bg-card/80">
-      <CardContent className="p-4">
+      <CardContent className="p-card-x">
         <div className="flex items-center gap-3">
           <div className={`p-2 rounded-lg ${cls}`}>
             <Icon className={`w-5 h-5`} />
@@ -247,7 +263,7 @@ function KpiCard({ icon: Icon, label, value, color, suffix }: { icon: any; label
   );
 }
 
-function EmptyState({ icon: Icon, text }: { icon: any; text: string }) {
+function EmptyState({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
   return (
     <div className="text-center py-8 text-muted-foreground">
       <Icon className="w-10 h-10 mx-auto mb-3 opacity-50" />

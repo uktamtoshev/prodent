@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface SubscriptionPlan {
   id: 'free' | 'basic' | 'premium' | 'top';
@@ -17,72 +18,6 @@ interface SubscriptionPlan {
   popular?: boolean;
   color: string;
 }
-
-const subscriptionPlans: SubscriptionPlan[] = [
-  {
-    id: 'free',
-    name: 'Бесплатный',
-    price: 0,
-    currency: 'UZS',
-    period: 'месяц',
-    icon: <Star className="w-6 h-6" />,
-    features: [
-      'Базовый профиль',
-      'До 5 записей в месяц',
-      'Стандартная поддержка',
-    ],
-    color: 'border-border',
-  },
-  {
-    id: 'basic',
-    name: 'Базовый',
-    price: 200000,
-    currency: 'UZS',
-    period: 'месяц',
-    icon: <Zap className="w-6 h-6" />,
-    features: [
-      'Расширенный профиль',
-      'Неограниченные записи',
-      'Статистика посещений',
-      'Приоритетная поддержка',
-    ],
-    color: 'border-blue-500',
-  },
-  {
-    id: 'premium',
-    name: 'Премиум',
-    price: 500000,
-    currency: 'UZS',
-    period: 'месяц',
-    icon: <Crown className="w-6 h-6" />,
-    features: [
-      'Всё из Базового',
-      'Продвижение в поиске',
-      'Аналитика профиля',
-      'Верифицированный бейдж',
-      'CRM интеграции',
-    ],
-    popular: true,
-    color: 'border-primary',
-  },
-  {
-    id: 'top',
-    name: 'ТОП',
-    price: 1000000,
-    currency: 'UZS',
-    period: 'месяц',
-    icon: <Sparkles className="w-6 h-6" />,
-    features: [
-      'Всё из Премиум',
-      'ТОП позиция в поиске',
-      'Персональный менеджер',
-      'Эксклюзивные рекламы',
-      'API доступ',
-      'Белый лейбл',
-    ],
-    color: 'border-amber-500',
-  },
-];
 
 interface SubscriptionPlansProps {
   currentPlan: 'free' | 'basic' | 'premium' | 'top' | null;
@@ -99,8 +34,75 @@ export function SubscriptionPlans({
   onSubscribe,
   isLoading,
 }: SubscriptionPlansProps) {
+  const { t } = useLanguage();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
+  const subscriptionPlans: SubscriptionPlan[] = [
+    {
+      id: 'free',
+      name: t('billingDialogs.planFree'),
+      price: 0,
+      currency: 'UZS',
+      period: t('billingDialogs.perMonth'),
+      icon: <Star className="w-6 h-6" />,
+      features: [
+        t('billingDialogs.planFreeFeature1'),
+        t('billingDialogs.planFreeFeature2'),
+        t('billingDialogs.planFreeFeature3'),
+      ],
+      color: 'border-border',
+    },
+    {
+      id: 'basic',
+      name: t('billingDialogs.planBasic'),
+      price: 200000,
+      currency: 'UZS',
+      period: t('billingDialogs.perMonth'),
+      icon: <Zap className="w-6 h-6" />,
+      features: [
+        t('billingDialogs.planBasicFeature1'),
+        t('billingDialogs.planBasicFeature2'),
+        t('billingDialogs.planBasicFeature3'),
+        t('billingDialogs.planBasicFeature4'),
+      ],
+      color: 'border-blue-500',
+    },
+    {
+      id: 'premium',
+      name: t('billingDialogs.planPremium'),
+      price: 500000,
+      currency: 'UZS',
+      period: t('billingDialogs.perMonth'),
+      icon: <Crown className="w-6 h-6" />,
+      features: [
+        t('billingDialogs.planPremiumFeature1'),
+        t('billingDialogs.planPremiumFeature2'),
+        t('billingDialogs.planPremiumFeature3'),
+        t('billingDialogs.planPremiumFeature4'),
+        t('billingDialogs.planPremiumFeature5'),
+      ],
+      popular: true,
+      color: 'border-primary',
+    },
+    {
+      id: 'top',
+      name: t('billingDialogs.planTop'),
+      price: 1000000,
+      currency: 'UZS',
+      period: t('billingDialogs.perMonth'),
+      icon: <Sparkles className="w-6 h-6" />,
+      features: [
+        t('billingDialogs.planTopFeature1'),
+        t('billingDialogs.planTopFeature2'),
+        t('billingDialogs.planTopFeature3'),
+        t('billingDialogs.planTopFeature4'),
+        t('billingDialogs.planTopFeature5'),
+        t('billingDialogs.planTopFeature6'),
+      ],
+      color: 'border-amber-500',
+    },
+  ];
 
   const formatAmount = (value: number) => {
     return new Intl.NumberFormat('ru-RU').format(value);
@@ -109,7 +111,7 @@ export function SubscriptionPlans({
   const handleSelectPlan = (plan: SubscriptionPlan) => {
     if (plan.id === currentPlan) return;
     if (plan.price > balance) {
-      toast.error('Недостаточно средств на балансе. Пополните счёт.');
+      toast.error(t('billingDialogs.insufficientFunds'));
       return;
     }
     setSelectedPlan(plan);
@@ -139,12 +141,12 @@ export function SubscriptionPlans({
             >
               {plan.popular && (
                 <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary">
-                  Популярный
+                  {t('billingDialogs.popularBadge')}
                 </Badge>
               )}
               {isCurrent && (
                 <Badge className="absolute -top-3 right-4 bg-green-500">
-                  Текущий план
+                  {t('billingDialogs.currentPlanBadge')}
                 </Badge>
               )}
               <CardHeader className="text-center pb-2">
@@ -159,7 +161,7 @@ export function SubscriptionPlans({
                 <CardTitle className="text-lg">{plan.name}</CardTitle>
                 <CardDescription>
                   <span className="text-2xl font-bold text-foreground">
-                    {plan.price === 0 ? 'Бесплатно' : formatAmount(plan.price)}
+                    {plan.price === 0 ? t('billingDialogs.free') : formatAmount(plan.price)}
                   </span>
                   {plan.price > 0 && (
                     <span className="text-sm text-muted-foreground"> / {plan.period}</span>
@@ -181,9 +183,9 @@ export function SubscriptionPlans({
                   disabled={isCurrent || isLoading || (!canAfford && plan.price > 0)}
                   onClick={() => handleSelectPlan(plan)}
                 >
-                  {isCurrent ? 'Текущий план' : 
-                   !canAfford && plan.price > 0 ? 'Недостаточно средств' :
-                   plan.price === 0 ? 'Выбрать' : 'Подписаться'}
+                  {isCurrent ? t('billingDialogs.currentPlanBtn') :
+                   !canAfford && plan.price > 0 ? t('billingDialogs.insufficientFundsBtn') :
+                   plan.price === 0 ? t('billingDialogs.chooseBtn') : t('billingDialogs.subscribeBtn')}
                 </Button>
               </CardContent>
             </Card>
@@ -194,25 +196,25 @@ export function SubscriptionPlans({
       <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Подтверждение подписки</DialogTitle>
+            <DialogTitle>{t('billingDialogs.confirmSubscriptionTitle')}</DialogTitle>
             <DialogDescription>
-              Вы выбрали план "{selectedPlan?.name}"
+              {t('billingDialogs.youSelectedPlan')} "{selectedPlan?.name}"
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="p-4 rounded-lg bg-muted">
               <div className="flex justify-between mb-2">
-                <span>Стоимость:</span>
+                <span>{t('billingDialogs.cost')}</span>
                 <span className="font-bold">
-                  {formatAmount(selectedPlan?.price || 0)} UZS / месяц
+                  {formatAmount(selectedPlan?.price || 0)} UZS / {t('billingDialogs.perMonth')}
                 </span>
               </div>
               <div className="flex justify-between mb-2">
-                <span>Текущий баланс:</span>
+                <span>{t('billingDialogs.currentBalance')}</span>
                 <span className="font-bold text-green-600">{formatAmount(balance)} UZS</span>
               </div>
               <div className="flex justify-between pt-2 border-t">
-                <span>После оплаты:</span>
+                <span>{t('billingDialogs.afterPayment')}</span>
                 <span className="font-bold">
                   {formatAmount(balance - (selectedPlan?.price || 0))} UZS
                 </span>
@@ -220,10 +222,10 @@ export function SubscriptionPlans({
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setIsConfirmOpen(false)}>
-                Отмена
+                {t('common.cancel')}
               </Button>
               <Button className="flex-1" onClick={handleConfirm} disabled={isLoading}>
-                Подтвердить
+                {t('billingDialogs.confirmBtn')}
               </Button>
             </div>
           </div>

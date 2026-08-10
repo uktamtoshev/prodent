@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -7,7 +7,6 @@ import { ru } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { toast } from "sonner";
-import { useCreateAppointmentAccess } from "@/hooks/useMedicalAccess";
 import {
   Dialog,
   DialogContent,
@@ -41,14 +40,18 @@ import {
 } from "@/components/ui/popover";
 import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { createAppointment } from "@/lib/appointment-api";
+import { listPublicClinicServices } from "@/lib/clinic-service-management-api";
 
+// Validation messages are translated when the form is rendered.
 const appointmentSchema = z.object({
-  patient_id: z.string().min(1, "Выберите пациента"),
-  doctor_id: z.string().min(1, "Выберите врача"),
+  patient_id: z.string().min(1, "Patient required"),
+  doctor_id: z.string().min(1, "Doctor required"),
   service_id: z.string().optional(),
-  date: z.date({ required_error: "Выберите дату" }),
-  start_time: z.string().min(1, "Укажите время начала"),
-  end_time: z.string().min(1, "Укажите время окончания"),
+  date: z.date({ required_error: "Date required" }),
+  start_time: z.string().min(1, "Start time required"),
+  end_time: z.string().min(1, "End time required"),
   notes: z.string().optional(),
 });
 
@@ -85,13 +88,13 @@ export const QuickAppointmentDialog = ({
   onOpenChange,
   selectedDate,
 }: QuickAppointmentDialogProps) => {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const createAppointmentAccess = useCreateAppointmentAccess();
 
   const form = useForm<AppointmentForm>({
     resolver: zodResolver(appointmentSchema),
@@ -102,15 +105,7 @@ export const QuickAppointmentDialog = ({
     },
   });
 
-  useEffect(() => {
-    if (open && currentClinic) {
-      loadPatients();
-      loadDoctors();
-      loadServices();
-    }
-  }, [open, currentClinic]);
-
-  const loadPatients = async () => {
+  const loadPatients = useCallback(async () => {
     try {
       if (!currentClinic?.id) return;
       
@@ -138,11 +133,11 @@ export const QuickAppointmentDialog = ({
       setPatients(data || []);
     } catch (error) {
       console.error("Error loading patients:", error);
-      toast.error("Ошибка загрузки пациентов");
+      toast.error(t('crmQuickAppointment.loadPatientsError'));
     }
-  };
+  }, [currentClinic?.id, t]);
 
-  const loadDoctors = async () => {
+  const loadDoctors = useCallback(async () => {
     try {
       if (!currentClinic?.id) return;
       
@@ -193,28 +188,36 @@ export const QuickAppointmentDialog = ({
       setDoctors(allDoctors);
     } catch (error) {
       console.error("Error loading doctors:", error);
-      toast.error("Ошибка загрузки врачей");
+      toast.error(t('crmQuickAppointment.loadDoctorsError'));
     }
-  };
+  }, [currentClinic?.id, t]);
 
-  const loadServices = async () => {
+  const loadServices = useCallback(async () => {
     try {
       if (!currentClinic?.id) return;
-      
-      const { data, error } = await supabase
-        .from("services")
-        .select("id, name, price, duration_minutes")
-        .eq("clinic_id", currentClinic.id)
-        .eq("is_active", true)
-        .order("name");
 
-      if (error) throw error;
-      setServices(data || []);
+      const rows = await listPublicClinicServices(currentClinic.id);
+      setServices(rows
+        .map((service) => ({
+          id: service.id,
+          name: service.nameRu,
+          price: service.price,
+          duration_minutes: service.duration,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name, "ru")));
     } catch (error) {
       console.error("Error loading services:", error);
-      toast.error("Ошибка загрузки услуг");
+      toast.error(t('crmQuickAppointment.loadServicesError'));
     }
-  };
+  }, [currentClinic?.id, t]);
+
+  useEffect(() => {
+    if (open && currentClinic) {
+      loadPatients();
+      loadDoctors();
+      loadServices();
+    }
+  }, [open, currentClinic, loadPatients, loadDoctors, loadServices]);
 
   const checkTimeConflict = async (doctorId: string, date: Date, startTime: string, endTime: string) => {
     const appointmentDate = new Date(date);
@@ -251,7 +254,7 @@ export const QuickAppointmentDialog = ({
       );
 
       if (hasConflict) {
-        toast.error("Врач занят в это время. Выберите другое время.");
+        toast.error(t('crmQuickAppointment.doctorBusy'));
         return;
       }
 
@@ -259,52 +262,35 @@ export const QuickAppointmentDialog = ({
       const [hour, minute] = values.start_time.split(":").map(Number);
       appointmentDate.setHours(hour, minute, 0, 0);
 
-      const { data: appointmentData, error: appointmentError } = await supabase
-        .from("appointments")
-        .insert({
-          clinic_id: currentClinic!.id,
-          patient_id: values.patient_id,
-          doctor_id: values.doctor_id,
-          appointment_date: appointmentDate.toISOString(),
-          service: values.service_id
-            ? services.find((s) => s.id === values.service_id)?.name || "Консультация"
-            : "Консультация",
-          notes: values.notes,
-          status: "pending",
-        })
-        .select()
-        .single();
-
-      if (appointmentError) throw appointmentError;
-
-      // Create auto medical access for appointment
-      const selectedService = services.find(s => s.id === values.service_id);
-      const durationMinutes = selectedService?.duration_minutes || 60;
-      const appointmentEnd = new Date(appointmentDate.getTime() + durationMinutes * 60 * 1000);
-      
-      await createAppointmentAccess.mutateAsync({
+      const serviceName = values.service_id
+        ? services.find((s) => s.id === values.service_id)?.name || t('crmQuickAppointment.consultation')
+        : t('crmQuickAppointment.consultation');
+      const appointmentData = await createAppointment({
         patientId: values.patient_id,
         doctorId: values.doctor_id,
         clinicId: currentClinic!.id,
-        appointmentStart: appointmentDate,
-        appointmentEnd: appointmentEnd
+        serviceId: values.service_id || undefined,
+        serviceName,
+        appointmentDate: format(values.date, "yyyy-MM-dd"),
+        startTime: values.start_time,
+        notes: values.notes?.trim() || undefined,
       });
 
       // Create notification for patient
       await supabase.from("notifications").insert({
         user_id: values.patient_id,
         type: "internal",
-        title: "Новая запись",
-        message: `У вас новая запись на ${format(appointmentDate, "d MMMM yyyy в HH:mm", { locale: ru })}`,
+        title: t('crmQuickAppointment.newAppointment'),
+        message: `${t('crmQuickAppointment.appointmentMessage')} ${format(appointmentDate, `d MMMM yyyy '${t('crmQuickAppointment.atTime')}' HH:mm`, { locale: ru })}`,
         metadata: { appointment_id: appointmentData.id },
       });
 
-      toast.success("Запись создана успешно");
+      toast.success(t('crmQuickAppointment.appointmentCreated'));
       form.reset();
       onOpenChange(false);
     } catch (error) {
       console.error("Error creating appointment:", error);
-      toast.error("Ошибка создания записи");
+      toast.error(t('crmQuickAppointment.appointmentError'));
     } finally {
       setLoading(false);
     }
@@ -320,9 +306,9 @@ export const QuickAppointmentDialog = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Создать запись</DialogTitle>
+          <DialogTitle>{t('crmQuickAppointment.title')}</DialogTitle>
           <DialogDescription>
-            Заполните данные для создания новой записи на приём
+            {t('crmQuickAppointment.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -333,17 +319,17 @@ export const QuickAppointmentDialog = ({
               name="patient_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Пациент</FormLabel>
+                  <FormLabel>{t('crmQuickAppointment.patient')}</FormLabel>
                   <FormControl>
                     <div className="space-y-2">
                       <Input
-                        placeholder="Поиск по имени или телефону..."
+                        placeholder={t('crmQuickAppointment.searchByNameOrPhone')}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
                       <Select onValueChange={field.onChange} value={field.value}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Выберите пациента" />
+                          <SelectValue placeholder={t('crmQuickAppointment.selectPatient')} />
                         </SelectTrigger>
                         <SelectContent>
                           {filteredPatients.map((patient) => (
@@ -365,11 +351,11 @@ export const QuickAppointmentDialog = ({
               name="doctor_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Врач</FormLabel>
+                  <FormLabel>{t('crmQuickAppointment.doctor')}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Выберите врача" />
+                        <SelectValue placeholder={t('crmQuickAppointment.selectDoctor')} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -390,17 +376,17 @@ export const QuickAppointmentDialog = ({
               name="service_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Услуга (опционально)</FormLabel>
+                  <FormLabel>{t('crmQuickAppointment.serviceOptional')}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Выберите услугу" />
+                        <SelectValue placeholder={t('crmQuickAppointment.selectService')} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
                       {services.map((service) => (
                         <SelectItem key={service.id} value={service.id}>
-                          {service.name} - {service.price} UZS ({service.duration_minutes} мин)
+                          {service.name} - {service.price} UZS ({service.duration_minutes} {t('crmQuickAppointment.minShort')})
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -415,7 +401,7 @@ export const QuickAppointmentDialog = ({
               name="date"
               render={({ field }) => (
                 <FormItem className="flex flex-col">
-                  <FormLabel>Дата</FormLabel>
+                  <FormLabel>{t('crmQuickAppointment.date')}</FormLabel>
                   <Popover>
                     <PopoverTrigger asChild>
                       <FormControl>
@@ -429,7 +415,7 @@ export const QuickAppointmentDialog = ({
                           {field.value ? (
                             format(field.value, "PPP", { locale: ru })
                           ) : (
-                            <span>Выберите дату</span>
+                            <span>{t('crmQuickAppointment.selectDate')}</span>
                           )}
                           <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                         </Button>
@@ -457,7 +443,7 @@ export const QuickAppointmentDialog = ({
                 name="start_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Время начала</FormLabel>
+                    <FormLabel>{t('crmQuickAppointment.startTime')}</FormLabel>
                     <FormControl>
                       <Input type="time" {...field} />
                     </FormControl>
@@ -471,7 +457,7 @@ export const QuickAppointmentDialog = ({
                 name="end_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Время окончания</FormLabel>
+                    <FormLabel>{t('crmQuickAppointment.endTime')}</FormLabel>
                     <FormControl>
                       <Input type="time" {...field} />
                     </FormControl>
@@ -486,7 +472,7 @@ export const QuickAppointmentDialog = ({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Комментарий (опционально)</FormLabel>
+                  <FormLabel>{t('crmQuickAppointment.commentOptional')}</FormLabel>
                   <FormControl>
                     <Textarea {...field} rows={3} />
                   </FormControl>
@@ -501,10 +487,10 @@ export const QuickAppointmentDialog = ({
                 variant="outline"
                 onClick={() => onOpenChange(false)}
               >
-                Отмена
+                {t('crmQuickAppointment.cancel')}
               </Button>
               <Button type="submit" disabled={loading}>
-                {loading ? "Создание..." : "Создать запись"}
+                {loading ? t('crmQuickAppointment.creating') : t('crmQuickAppointment.create')}
               </Button>
             </div>
           </form>

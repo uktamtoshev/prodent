@@ -6,12 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
-import { 
-  Loader2, 
-  Filter, 
-  X, 
-  Star, 
-  Briefcase, 
+import {
+  Loader2,
+  Filter,
+  Star,
+  Briefcase,
   User,
   ChevronDown,
   ChevronUp,
@@ -29,9 +28,14 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import { useLanguage } from '@/contexts/LanguageContext';
+
+type LeafletDefaultIconPrototype = L.Icon.Default & {
+  _getIconUrl?: unknown;
+};
 
 // Fix for default marker icons in Leaflet with Vite
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as LeafletDefaultIconPrototype)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
@@ -55,19 +59,6 @@ interface DoctorsMapDialogProps {
   onOpenChange: (open: boolean) => void;
   doctors: Doctor[];
 }
-
-// Specialty options for filter
-const specialtyOptions = [
-  { value: 'all', label: 'Все специальности' },
-  { value: 'Имплантолог', label: 'Имплантолог' },
-  { value: 'Терапевт', label: 'Терапевт' },
-  { value: 'Хирург', label: 'Хирург' },
-  { value: 'Ортодонт', label: 'Ортодонт' },
-  { value: 'Ортопед', label: 'Ортопед' },
-  { value: 'Пародонтолог', label: 'Пародонтолог' },
-  { value: 'Эндодонтист', label: 'Эндодонтист' },
-  { value: 'Детский стоматолог', label: 'Детский стоматолог' },
-];
 
 // Custom marker icon
 const createCustomIcon = (color: string = '#0D9488') => {
@@ -101,12 +92,26 @@ const createCustomIcon = (color: string = '#0D9488') => {
 };
 
 export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDialogProps) {
+  const { t } = useLanguage();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const [isMapReady, setIsMapReady] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(true);
-  
+
+  // Specialty options for filter (canonical Russian values stored in DB; UI labels localized)
+  const specialtyOptions = useMemo(() => [
+    { value: 'all', label: t('searchMaps.allSpecialties') },
+    { value: 'Имплантолог', label: t('searchMaps.specImplantologist') },
+    { value: 'Терапевт', label: t('searchMaps.specTherapist') },
+    { value: 'Хирург', label: t('searchMaps.specSurgeon') },
+    { value: 'Ортодонт', label: t('searchMaps.specOrthodontist') },
+    { value: 'Ортопед', label: t('searchMaps.specProsthodontist') },
+    { value: 'Пародонтолог', label: t('searchMaps.specPeriodontist') },
+    { value: 'Эндодонтист', label: t('searchMaps.specEndodontist') },
+    { value: 'Детский стоматолог', label: t('searchMaps.specPediatric') },
+  ], [t]);
+
   // Filter states
   const [experienceRange, setExperienceRange] = useState<[number, number]>([0, 30]);
   const [minRating, setMinRating] = useState<number>(0);
@@ -128,25 +133,25 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
       if (doctor.experience_years < experienceRange[0] || doctor.experience_years > experienceRange[1]) {
         return false;
       }
-      
+
       // Rating filter
       if (minRating > 0 && (doctor.rating || 0) < minRating) {
         return false;
       }
-      
+
       // Specialty filter
       if (specialty !== 'all' && !doctor.specialty.toLowerCase().includes(specialty.toLowerCase())) {
         return false;
       }
-      
+
       // Gender filter (infer from name - approximate)
       if (gender !== 'all') {
-        const name = (doctor.profiles as any)?.full_name || '';
+        const name = doctor.profiles?.full_name || '';
         const isLikelyFemale = name.endsWith('а') || name.endsWith('я');
         if (gender === 'male' && isLikelyFemale) return false;
         if (gender === 'female' && !isLikelyFemale) return false;
       }
-      
+
       return true;
     });
   }, [doctors, experienceRange, minRating, specialty, gender]);
@@ -154,28 +159,28 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
   // Update markers when filters change
   useEffect(() => {
     if (!mapInstanceRef.current || !isMapReady) return;
-    
+
     const map = mapInstanceRef.current;
-    
+
     // Remove existing markers
     markersRef.current.forEach(marker => marker.remove());
     markersRef.current = [];
-    
+
     const bounds: L.LatLngTuple[] = [];
     const customIcon = createCustomIcon();
 
     filteredDoctors.forEach((doctor) => {
       const lat = doctor.latitude ?? doctor.clinics?.latitude;
       const lng = doctor.longitude ?? doctor.clinics?.longitude;
-      
+
       if (lat && lng) {
         bounds.push([lat, lng]);
-        
-        const profile = doctor.profiles as any;
-        const clinic = doctor.clinics as any;
-        const name = profile?.full_name || `Доктор ${doctor.specialty}`;
+
+        const profile = doctor.profiles;
+        const clinic = doctor.clinics;
+        const name = profile?.full_name || `${t('searchMaps.doctorPrefix')} ${doctor.specialty}`;
         const avatar = profile?.avatar_url || 'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=100&h=100&fit=crop';
-        
+
         const popupContent = `
           <div style="min-width: 200px; font-family: system-ui, sans-serif;">
             <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
@@ -188,10 +193,10 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
             <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 6px;">
               <span style="color: #f59e0b;">★</span>
               <span style="font-size: 13px; font-weight: 500;">${doctor.rating || 5.0}</span>
-              <span style="color: #888; font-size: 12px;">• ${doctor.experience_years} лет опыта</span>
+              <span style="color: #888; font-size: 12px;">• ${doctor.experience_years} ${t('searchMaps.yearsExp')}</span>
             </div>
             <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
-              ${clinic?.city || 'Ташкент'}${clinic?.district ? ', ' + clinic.district : ''}
+              ${clinic?.city || t('searchMaps.cityFallback')}${clinic?.district ? ', ' + clinic.district : ''}
             </div>
             <div style="display: flex; justify-content: flex-end; padding-top: 8px; border-top: 1px solid #eee;">
               <a href="/doctor/${doctor.id}" style="
@@ -202,15 +207,15 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                 font-size: 12px;
                 text-decoration: none;
                 font-weight: 500;
-              ">Подробнее</a>
+              ">${t('searchMaps.moreInfo')}</a>
             </div>
           </div>
         `;
-        
+
         const marker = L.marker([lat, lng], { icon: customIcon })
           .addTo(map)
           .bindPopup(popupContent, { maxWidth: 280 });
-        
+
         markersRef.current.push(marker);
       }
     });
@@ -223,7 +228,7 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
         map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
       }
     }
-  }, [filteredDoctors, isMapReady]);
+  }, [filteredDoctors, isMapReady, t]);
 
   useEffect(() => {
     if (!open) {
@@ -245,13 +250,13 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
       try {
         // Default center - Tashkent
         const defaultCenter: [number, number] = [41.2995, 69.2401];
-        
+
         const map = L.map(mapRef.current, {
           center: defaultCenter,
           zoom: 12,
           zoomControl: true,
         });
-        
+
         mapInstanceRef.current = map;
 
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -285,7 +290,7 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
     };
   }, []);
 
-  const doctorsWithLocation = filteredDoctors.filter(d => 
+  const doctorsWithLocation = filteredDoctors.filter(d =>
     (d.latitude && d.longitude) || (d.clinics?.latitude && d.clinics?.longitude)
   );
 
@@ -297,14 +302,14 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
         <DialogHeader className="p-4 pb-3 border-b flex-shrink-0">
           <DialogTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
-              Врачи на карте
+              {t('searchMaps.doctorsOnMap')}
               <Badge variant="secondary" className="font-normal">
-                {doctorsWithLocation.length} из {doctors.filter(d => (d.latitude && d.longitude) || (d.clinics?.latitude && d.clinics?.longitude)).length}
+                {doctorsWithLocation.length} {t('searchMaps.ofTotal')} {doctors.filter(d => (d.latitude && d.longitude) || (d.clinics?.latitude && d.clinics?.longitude)).length}
               </Badge>
             </span>
           </DialogTitle>
         </DialogHeader>
-        
+
         <div className="flex-1 flex min-h-0">
           {/* Filters Sidebar */}
           <div className="w-72 border-r bg-muted/30 flex-shrink-0 overflow-y-auto">
@@ -313,7 +318,7 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                 <Button variant="ghost" className="w-full justify-between px-4 py-3 rounded-none border-b">
                   <span className="flex items-center gap-2 font-medium">
                     <Filter className="w-4 h-4" />
-                    Фильтры
+                    {t('searchMaps.filtersLabel')}
                     {hasActiveFilters && (
                       <Badge variant="default" className="h-5 px-1.5 text-xs">
                         !
@@ -323,14 +328,14 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                   {filtersOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </Button>
               </CollapsibleTrigger>
-              
+
               <CollapsibleContent>
                 <div className="p-4 space-y-6">
                   {/* Experience Range */}
                   <div className="space-y-3">
                     <Label className="flex items-center gap-2 text-sm font-medium">
                       <Briefcase className="w-4 h-4 text-muted-foreground" />
-                      Стаж работы
+                      {t('searchMaps.experienceLabel')}
                     </Label>
                     <div className="px-1">
                       <Slider
@@ -343,8 +348,8 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                       />
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{experienceRange[0]} лет</span>
-                      <span>{experienceRange[1]}+ лет</span>
+                      <span>{experienceRange[0]} {t('searchMaps.yearsShort')}</span>
+                      <span>{experienceRange[1]}+ {t('searchMaps.yearsShort')}</span>
                     </div>
                   </div>
 
@@ -352,7 +357,7 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                   <div className="space-y-3">
                     <Label className="flex items-center gap-2 text-sm font-medium">
                       <Star className="w-4 h-4 text-muted-foreground" />
-                      Минимальный рейтинг
+                      {t('searchMaps.minRatingLabel')}
                     </Label>
                     <div className="flex gap-1">
                       {[0, 3, 4, 4.5, 5].map((rating) => (
@@ -363,7 +368,7 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                           onClick={() => setMinRating(rating)}
                           className="flex-1 px-2"
                         >
-                          {rating === 0 ? 'Все' : (
+                          {rating === 0 ? t('searchMaps.allRatings') : (
                             <span className="flex items-center gap-1">
                               {rating}
                               <Star className="w-3 h-3 fill-current" />
@@ -378,11 +383,11 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                   <div className="space-y-3">
                     <Label className="flex items-center gap-2 text-sm font-medium">
                       <Briefcase className="w-4 h-4 text-muted-foreground" />
-                      Специализация
+                      {t('searchMaps.specialtyLabel')}
                     </Label>
                     <Select value={specialty} onValueChange={setSpecialty}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Выберите специальность" />
+                        <SelectValue placeholder={t('searchMaps.chooseSpecialty')} />
                       </SelectTrigger>
                       <SelectContent>
                         {specialtyOptions.map((option) => (
@@ -398,13 +403,13 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                   <div className="space-y-3">
                     <Label className="flex items-center gap-2 text-sm font-medium">
                       <User className="w-4 h-4 text-muted-foreground" />
-                      Пол врача
+                      {t('searchMaps.doctorGenderLabel')}
                     </Label>
                     <div className="flex gap-2">
                       {[
-                        { value: 'all', label: 'Все' },
-                        { value: 'male', label: 'Мужской' },
-                        { value: 'female', label: 'Женский' },
+                        { value: 'all', label: t('searchMaps.genderAll') },
+                        { value: 'male', label: t('searchMaps.genderMale') },
+                        { value: 'female', label: t('searchMaps.genderFemale') },
                       ].map((option) => (
                         <Button
                           key={option.value}
@@ -428,7 +433,7 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                       className="w-full gap-2 text-muted-foreground hover:text-foreground"
                     >
                       <RotateCcw className="w-4 h-4" />
-                      Сбросить фильтры
+                      {t('searchMaps.resetFiltersBtn')}
                     </Button>
                   )}
                 </div>
@@ -439,11 +444,11 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
             <div className="p-4 border-t bg-background">
               <div className="text-sm">
                 <span className="font-semibold text-foreground">{doctorsWithLocation.length}</span>
-                <span className="text-muted-foreground"> врачей найдено</span>
+                <span className="text-muted-foreground"> {t('searchMaps.doctorsFound')}</span>
               </div>
               {doctorsWithLocation.length === 0 && hasActiveFilters && (
                 <p className="text-xs text-muted-foreground mt-2">
-                  Попробуйте изменить фильтры для получения результатов
+                  {t('searchMaps.tryChangingFilters')}
                 </p>
               )}
             </div>
@@ -456,8 +461,8 @@ export function DoctorsMapDialog({ open, onOpenChange, doctors }: DoctorsMapDial
                 <Loader2 className="w-8 h-8 animate-spin text-primary" />
               </div>
             )}
-            <div 
-              ref={mapRef} 
+            <div
+              ref={mapRef}
               className="absolute inset-0 w-full h-full"
               style={{ zIndex: 0 }}
             />

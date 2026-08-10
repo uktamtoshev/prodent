@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Clock, AlertCircle, RefreshCw } from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -22,6 +21,7 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { format, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useAddOnPricing, useCanPurchaseAddOn, type AddOnService } from '@/hooks/useAddOnServices';
+import { resolveBillingIcon } from './billingIconMap';
 
 interface AddOnPurchaseDialogProps {
   open: boolean;
@@ -44,7 +44,7 @@ export function AddOnPurchaseDialog({
   entityType,
   entityId,
 }: AddOnPurchaseDialogProps) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { data: pricing, isLoading: pricingLoading } = useAddOnPricing(service?.id || null);
   const { data: canPurchaseInfo, isLoading: checkLoading } = useCanPurchaseAddOn(
     service?.id || null,
@@ -64,7 +64,6 @@ export function AddOnPurchaseDialog({
 
   const getName = () => {
     if (language === 'uz' && service.name_uz) return service.name_uz;
-    if (language === 'en' && service.name_en) return service.name_en;
     return service.name;
   };
 
@@ -73,15 +72,15 @@ export function AddOnPurchaseDialog({
   };
 
   const renderIcon = () => {
-    const IconComponent = (LucideIcons as any)[service.icon] || LucideIcons.Award;
+    const IconComponent = resolveBillingIcon(service.icon);
     return <IconComponent className="w-5 h-5" style={{ color: service.color }} />;
   };
 
   const getDurationLabel = (days: number) => {
-    if (days === 7) return '7 дней';
-    if (days === 30) return '30 дней';
-    if (days === 90) return '90 дней';
-    return `${days} дней`;
+    if (days === 7) return t('billingDialogs.duration7Days');
+    if (days === 30) return t('billingDialogs.duration30Days');
+    if (days === 90) return t('billingDialogs.duration90Days');
+    return t('billingDialogs.durationDaysPlaceholder').replace('{n}', String(days));
   };
 
   const getSelectedPrice = () => {
@@ -98,7 +97,7 @@ export function AddOnPurchaseDialog({
   // Calculate new end date (either from now or from existing end date if extending)
   const getNewEndDate = () => {
     if (!selectedDuration) return null;
-    
+
     if (isExtension && existingEndDate) {
       return addDays(new Date(existingEndDate), selectedDuration);
     }
@@ -123,12 +122,12 @@ export function AddOnPurchaseDialog({
             >
               {renderIcon()}
             </div>
-            {isExtension ? 'Продлить' : 'Купить'} "{getName()}"
+            {isExtension ? t('billingDialogs.extend') : t('billingDialogs.buy')} "{getName()}"
           </DialogTitle>
           <DialogDescription>
-            {isExtension 
-              ? 'Продлите услугу, выбрав дополнительный период' 
-              : 'Выберите длительность услуги'
+            {isExtension
+              ? t('billingDialogs.extendDesc')
+              : t('billingDialogs.buyDesc')
             }
           </DialogDescription>
         </DialogHeader>
@@ -139,8 +138,7 @@ export function AddOnPurchaseDialog({
             <Alert>
               <RefreshCw className="h-4 w-4" />
               <AlertDescription>
-                Услуга активна до {format(new Date(existingEndDate), 'd MMMM yyyy', { locale: ru })}.
-                Выбранный период будет добавлен к текущему сроку.
+                {t('billingDialogs.activeUntil').replace('{date}', format(new Date(existingEndDate), 'd MMMM yyyy', { locale: ru }))}
               </AlertDescription>
             </Alert>
           )}
@@ -163,7 +161,7 @@ export function AddOnPurchaseDialog({
               onValueChange={(v) => setSelectedDuration(Number(v))}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Выберите период" />
+                <SelectValue placeholder={t('billingDialogs.choosePeriod')} />
               </SelectTrigger>
               <SelectContent>
                 {pricing.map((option) => (
@@ -180,7 +178,7 @@ export function AddOnPurchaseDialog({
             </Select>
           ) : canPurchase ? (
             <p className="text-muted-foreground text-center py-4">
-              Нет доступных вариантов
+              {t('billingDialogs.noOptions')}
             </p>
           ) : null}
 
@@ -188,14 +186,14 @@ export function AddOnPurchaseDialog({
             <div className="p-4 rounded-lg bg-muted space-y-2">
               {isExtension && existingEndDate && (
                 <div className="flex justify-between text-sm">
-                  <span>Текущий срок</span>
+                  <span>{t('billingDialogs.currentTerm')}</span>
                   <span className="text-muted-foreground">
-                    до {format(new Date(existingEndDate), 'd MMM yyyy', { locale: ru })}
+                    {t('billingDialogs.until')} {format(new Date(existingEndDate), 'd MMM yyyy', { locale: ru })}
                   </span>
                 </div>
               )}
               <div className="flex justify-between text-sm">
-                <span>{isExtension ? 'Добавляется' : 'Период'}</span>
+                <span>{isExtension ? t('billingDialogs.adding') : t('billingDialogs.newPeriod')}</span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   + {getDurationLabel(selectedDuration)}
@@ -203,7 +201,7 @@ export function AddOnPurchaseDialog({
               </div>
               {newEndDate && (
                 <div className="flex justify-between text-sm font-medium">
-                  <span>Новый срок до</span>
+                  <span>{t('billingDialogs.newTermUntil')}</span>
                   <span className="text-primary">
                     {format(newEndDate, 'd MMMM yyyy', { locale: ru })}
                   </span>
@@ -211,11 +209,11 @@ export function AddOnPurchaseDialog({
               )}
               <div className="border-t pt-2 mt-2" />
               <div className="flex justify-between font-medium">
-                <span>Стоимость</span>
+                <span>{t('billingDialogs.costLabel')}</span>
                 <span className="text-primary">{formatAmount(getSelectedPrice())} UZS</span>
               </div>
               <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Ваш баланс</span>
+                <span>{t('billingDialogs.yourBalance')}</span>
                 <span>{formatAmount(balance)} UZS</span>
               </div>
             </div>
@@ -223,20 +221,20 @@ export function AddOnPurchaseDialog({
 
           {selectedDuration && canPurchase && !canAfford && (
             <p className="text-sm text-destructive">
-              Недостаточно средств. Пополните баланс.
+              {t('billingDialogs.insufficientReplenish')}
             </p>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Отмена
+            {t('common.cancel')}
           </Button>
           <Button
             onClick={handleConfirm}
             disabled={isLoading || !selectedDuration || !canAfford || !canPurchase}
           >
-            {isLoading ? (isExtension ? 'Продление...' : 'Покупка...') : (isExtension ? 'Продлить' : 'Купить')}
+            {isLoading ? (isExtension ? t('billingDialogs.extending') : t('billingDialogs.purchasing')) : (isExtension ? t('billingDialogs.extend') : t('billingDialogs.buy'))}
           </Button>
         </DialogFooter>
       </DialogContent>

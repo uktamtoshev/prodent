@@ -28,12 +28,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import type { ClinicProfileData } from './types';
 
 interface ClinicTimelineProps {
   clinicId: string;
-  clinic: any;
+  clinic: ClinicProfileData;
   isOwner: boolean;
 }
+
+interface TimelineProfile { id: string; full_name: string | null; avatar_url: string | null }
+interface TimelineMedia { id: string; post_id: string; media_type: string; media_url: string; sort_order?: number | null }
+interface TimelineLike { post_id: string; user_id: string }
+interface TimelineComment { id: string; post_id: string; user_id: string; content: string; created_at: string; user?: TimelineProfile }
+interface RawTimelinePost { id: string; content: string | null; created_at: string }
+interface TimelinePost extends RawTimelinePost { media: TimelineMedia[]; likes: TimelineLike[]; comments: TimelineComment[] }
 
 const MAX_CONTENT_LENGTH = 280;
 
@@ -45,23 +53,52 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
   const [newPostContent, setNewPostContent] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [expandedContent, setExpandedContent] = useState<Set<string>>(new Set());
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
+  const [commentContent, setCommentContent] = useState<Record<string, string>>({});
 
-  const { data: posts, isLoading } = useQuery({
+  const { data: posts, isLoading, isError, refetch } = useQuery({
     queryKey: ['clinic-posts', clinicId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // NOTE: the data-shim cannot resolve has-many embeds (media/likes/comments
+      // join the wrong direction → 500), so we fetch flat and merge client-side.
+      const { data: rawPosts, error } = await supabase
         .from('clinic_posts')
-        .select(`
-          *,
-          media:clinic_post_media(*)
-        `)
+        .select('*')
         .eq('clinic_id', clinicId)
         .eq('is_published', true)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
-      return data;
+      const typedPosts = (rawPosts || []) as RawTimelinePost[];
+      const ids = typedPosts.map((post) => post.id);
+      if (!ids.length) return [];
+
+      const [{ data: media }, { data: likes }, { data: comments }] = await Promise.all([
+        supabase.from('clinic_post_media').select('*').in('post_id', ids),
+        supabase.from('clinic_post_likes').select('post_id, user_id').in('post_id', ids),
+        supabase.from('clinic_post_comments').select('id, post_id, user_id, content, created_at').in('post_id', ids).order('created_at', { ascending: true }),
+      ]);
+
+      const commenterIds = [...new Set((comments || []).map((c) => c.user_id))];
+      const { data: profs } = commenterIds.length
+        ? await supabase.from('profiles').select('id, full_name, avatar_url').in('id', commenterIds)
+        : { data: [] as TimelineProfile[] };
+      const profileById = new Map(((profs || []) as TimelineProfile[]).map((profile) => [profile.id, profile]));
+
+      const typedMedia = (media || []) as TimelineMedia[];
+      const typedLikes = (likes || []) as TimelineLike[];
+      const typedComments = (comments || []) as TimelineComment[];
+
+      return typedPosts.map((post): TimelinePost => ({
+        ...post,
+        media: typedMedia.filter((item) => item.post_id === post.id).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+        likes: typedLikes.filter((like) => like.post_id === post.id),
+        comments: typedComments.filter((comment) => comment.post_id === post.id).map((comment) => ({ ...comment, user: profileById.get(comment.user_id) })),
+      }));
     },
+    enabled: !!clinicId,
+    // Fail fast instead of the default 3 exponential retries, which left the
+    // tab on "Загрузка..." for ~7s and then a blank area with no error shown.
+    retry: 1,
   });
 
   const createPost = useMutation({
@@ -70,6 +107,7 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
         .from('clinic_posts')
         .insert({
           clinic_id: clinicId,
+          author_id: user?.id,
           content: newPostContent,
           post_type: selectedFiles.length > 0 ? 'media' : 'text',
         })
@@ -95,9 +133,9 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
 
         await supabase.from('clinic_post_media').insert({
           post_id: post.id,
-          type: file.type.startsWith('video/') ? 'video' : 'image',
-          url: publicUrl.publicUrl,
-          order_index: i,
+          media_type: file.type.startsWith('video/') ? 'video' : 'image',
+          media_url: publicUrl.publicUrl,
+          sort_order: i,
         });
       }
 
@@ -110,8 +148,8 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
       setSelectedFiles([]);
       setShowCreateForm(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Ошибка', description: error instanceof Error ? error.message : 'Неизвестная ошибка', variant: 'destructive' });
     },
   });
 
@@ -126,6 +164,40 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
     onSuccess: () => {
       toast({ title: 'Пост удален' });
       queryClient.invalidateQueries({ queryKey: ['clinic-posts'] });
+    },
+  });
+
+  const toggleLike = useMutation({
+    mutationFn: async (postId: string) => {
+      const { data: existing } = await supabase
+        .from('clinic_post_likes')
+        .select('id')
+        .eq('post_id', postId)
+        .eq('user_id', user?.id)
+        .maybeSingle();
+      if (existing) {
+        await supabase.from('clinic_post_likes').delete().eq('id', existing.id);
+      } else {
+        await supabase.from('clinic_post_likes').insert({ post_id: postId, user_id: user?.id });
+      }
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['clinic-posts', clinicId] }),
+  });
+
+  const addComment = useMutation({
+    mutationFn: async (postId: string) => {
+      const content = commentContent[postId];
+      if (!content?.trim()) return;
+      const { error } = await supabase.from('clinic_post_comments').insert({
+        post_id: postId,
+        user_id: user?.id,
+        content: content.trim(),
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_, postId) => {
+      setCommentContent((prev) => ({ ...prev, [postId]: '' }));
+      queryClient.invalidateQueries({ queryKey: ['clinic-posts', clinicId] });
     },
   });
 
@@ -253,7 +325,16 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
           <div className="w-10 h-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
           <p className="text-muted-foreground text-sm">Загрузка...</p>
         </div>
-      ) : posts?.length === 0 ? (
+      ) : isError ? (
+        <Card className="shadow-sm">
+          <CardContent className="py-16 text-center">
+            <p className="text-muted-foreground text-sm mb-3">Не удалось загрузить публикации</p>
+            <button onClick={() => refetch()} className="text-sm font-medium text-primary hover:underline">
+              Повторить
+            </button>
+          </CardContent>
+        </Card>
+      ) : (posts?.length ?? 0) === 0 ? (
         <Card className="shadow-sm">
           <CardContent className="py-16 text-center">
             <div className="w-16 h-16 rounded-full bg-muted mx-auto mb-4 flex items-center justify-center">
@@ -269,8 +350,11 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
           </CardContent>
         </Card>
       ) : (
-        posts?.map((post: any) => {
+        posts?.map((post) => {
           const hasMedia = post.media && post.media.length > 0;
+          const isLiked = post.likes?.some((like) => like.user_id === user?.id);
+          const likesCount = post.likes?.length || 0;
+          const commentsCount = post.comments?.length || 0;
 
           return (
             <Card key={post.id} className="shadow-sm border-border/50 overflow-hidden">
@@ -343,7 +427,7 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
                 return (
                   <div className="relative">
                     <div className={`${mediaToShow.length === 1 ? '' : 'grid gap-0.5'} ${mediaToShow.length === 2 ? 'grid-cols-2' : ''} ${mediaToShow.length >= 3 ? 'grid-cols-2' : ''}`}>
-                      {mediaToShow.map((media: any, idx: number) => (
+                      {mediaToShow.map((media, idx) => (
                         <div 
                           key={media.id} 
                           className={`relative bg-muted ${
@@ -352,10 +436,10 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
                             'aspect-square'
                           }`}
                         >
-                          {media.type === 'video' ? (
-                            <video src={media.url} controls className="w-full h-full object-cover" />
+                          {media.media_type === 'video' ? (
+                            <video src={media.media_url} controls className="w-full h-full object-cover" />
                           ) : (
-                            <img src={media.url} alt="" className="w-full h-full object-cover" />
+                            <img src={media.media_url} alt="" className="w-full h-full object-cover" />
                           )}
                         </div>
                       ))}
@@ -389,20 +473,30 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
               )}
 
               {/* Reactions Summary */}
-              {(post.likes_count > 0 || post.comments_count > 0) && (
+              {(likesCount > 0 || commentsCount > 0) && (
                 <div className="px-4 py-2 flex items-center justify-between text-[13px] text-muted-foreground">
                   <div className="flex items-center gap-1.5">
-                    {post.likes_count > 0 && (
+                    {likesCount > 0 && (
                       <>
                         <div className="flex items-center justify-center w-[18px] h-[18px] rounded-full bg-primary">
                           <ThumbsUp className="w-3 h-3 text-white" />
                         </div>
-                        <span>{post.likes_count}</span>
+                        <span>{likesCount}</span>
                       </>
                     )}
                   </div>
-                  {post.comments_count > 0 && (
-                    <span>{post.comments_count} комментари{post.comments_count === 1 ? 'й' : post.comments_count < 5 ? 'я' : 'ев'}</span>
+                  {commentsCount > 0 && (
+                    <button
+                      onClick={() => setExpandedComments((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(post.id)) next.delete(post.id);
+                        else next.add(post.id);
+                        return next;
+                      })}
+                      className="hover:underline"
+                    >
+                      {commentsCount} комментари{commentsCount === 1 ? 'й' : commentsCount < 5 ? 'я' : 'ев'}
+                    </button>
                   )}
                 </div>
               )}
@@ -413,14 +507,22 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="flex-1 gap-2 h-10 text-[15px] font-semibold text-muted-foreground hover:bg-muted/50"
+                    disabled={!user}
+                    onClick={() => user && toggleLike.mutate(post.id)}
+                    className={`flex-1 gap-2 h-10 text-[15px] font-semibold ${isLiked ? 'text-primary' : 'text-muted-foreground'} hover:bg-muted/50`}
                   >
-                    <ThumbsUp className="w-5 h-5" />
+                    <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
                     Нравится
                   </Button>
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => setExpandedComments((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(post.id)) next.delete(post.id);
+                      else next.add(post.id);
+                      return next;
+                    })}
                     className="flex-1 gap-2 h-10 text-[15px] font-semibold text-muted-foreground hover:bg-muted/50"
                   >
                     <MessageCircle className="w-5 h-5" />
@@ -430,12 +532,76 @@ export function ClinicTimeline({ clinicId, clinic, isOwner }: ClinicTimelineProp
                     variant="ghost"
                     size="sm"
                     className="flex-1 gap-2 h-10 text-[15px] font-semibold text-muted-foreground hover:bg-muted/50"
+                    onClick={async () => {
+                      const url = `${window.location.origin}/clinic/${clinicId}`;
+                      try {
+                        if (navigator.share) {
+                          await navigator.share({ url, title: clinic?.name });
+                        } else {
+                          await navigator.clipboard.writeText(url);
+                          toast({ title: 'Ссылка скопирована' });
+                        }
+                      } catch {
+                        /* user cancelled share — ignore */
+                      }
+                    }}
                   >
                     <Share2 className="w-5 h-5" />
                     Поделиться
                   </Button>
                 </div>
               </div>
+
+              {/* Comments Section */}
+              {expandedComments.has(post.id) && (
+                <div className="px-4 py-3 border-t border-border bg-muted/20">
+                  {user && (
+                    <div className="flex gap-2 mb-3">
+                      <Avatar className="w-8 h-8"><AvatarFallback>U</AvatarFallback></Avatar>
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          placeholder="Написать комментарий…"
+                          value={commentContent[post.id] || ''}
+                          onChange={(e) => setCommentContent((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                          onKeyDown={(e) => { if (e.key === 'Enter' && commentContent[post.id]?.trim()) addComment.mutate(post.id); }}
+                          className="w-full px-3 py-2 pr-10 bg-muted rounded-full text-[15px] placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 rounded-full"
+                          onClick={() => {
+                            if (commentContent[post.id]?.trim()) addComment.mutate(post.id);
+                          }}
+                          disabled={!commentContent[post.id]?.trim()}
+                        >
+                          <Send className="w-4 h-4 text-primary" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {post.comments?.map((comment) => (
+                      <div key={comment.id} className="flex gap-2">
+                        <Avatar className="w-8 h-8">
+                          <AvatarImage src={comment.user?.avatar_url} />
+                          <AvatarFallback className="text-xs">{comment.user?.full_name?.charAt(0) || 'U'}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="bg-muted rounded-2xl px-3 py-2">
+                            <p className="text-[13px] font-semibold">{comment.user?.full_name || 'Пользователь'}</p>
+                            <p className="text-[15px]">{comment.content}</p>
+                          </div>
+                          <div className="mt-1 ml-3 text-[12px] text-muted-foreground">
+                            {formatDistanceToNow(new Date(comment.created_at), { addSuffix: false, locale: ru })}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Card>
           );
         })

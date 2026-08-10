@@ -1,12 +1,10 @@
-import { ClinicAdminLayout } from '@/components/clinic-admin/ClinicAdminLayout';
+import { ClinicAdminLayout } from "@/components/clinic-admin/ClinicAdminLayout";
+import { FinanceOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function ClinicAdminPayments() {
   return (
     <ClinicAdminLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Касса и оплаты</h1>
-        <p className="text-muted-foreground">Управление платежами и кассой</p>
-      </div>
+      <FinanceOperations title="Касса и оплаты" kind="payments" />
     </ClinicAdminLayout>
   );
 }

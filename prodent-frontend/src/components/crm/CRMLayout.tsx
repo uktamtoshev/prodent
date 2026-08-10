@@ -1,106 +1,103 @@
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
+import { useUserRole } from "@/hooks/useUserRole";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { CRMSidebarNew } from "./CRMSidebarNew";
-import { Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { RoleCabinetShell } from "@/components/shared/RoleCabinetShell";
+import { CabinetShellProvider } from "@/components/shared/CabinetShellContext";
+import { CabinetTopBar } from "@/components/shared/CabinetTopBar";
+import { CabinetCommandPalette } from "@/components/shared/CabinetCommandPalette";
+import { PermissionState } from "@/components/system/StatePanel";
 
 interface CRMLayoutProps {
   children: ReactNode;
 }
 
+// Roles allowed inside the CRM area.
+const ALLOWED_ROLES = new Set([
+  "super_admin",
+  "admin",
+  "doctor",
+  "clinic_admin",
+  "clinic_manager",
+  "assistant",
+  "accountant",
+]);
+
 export function CRMLayout({ children }: CRMLayoutProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [isChecking, setIsChecking] = useState(true);
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const { t } = useLanguage();
+  const { user, loading: authLoading } = useAuth();
+  // useUserRole is cached via React Query (staleTime: Infinity), so this is
+  // a O(1) cache hit on every navigation — no extra round trip per click.
+  const { role, loading: roleLoading } = useUserRole();
+
+  const stillLoading = authLoading || roleLoading;
+  const isAuthorized = !!user && !!role && ALLOWED_ROLES.has(role);
 
   useEffect(() => {
-    checkAccess();
-  }, []);
-
-  const checkAccess = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-
-      if (!user) {
-        toast({
-          title: "Доступ запрещен",
-          description: "Пожалуйста, войдите в систему",
-          variant: "destructive",
-        });
-        navigate("/auth");
-        return;
-      }
-
-      // Check user_roles table first
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user.id);
-
-      const hasRoleAccess = roles?.some(
-        (r) => r.role === "doctor" || r.role === "clinic_admin" || r.role === "super_admin" || r.role === "admin"
-      );
-
-      if (hasRoleAccess) {
-        setIsAuthorized(true);
-        return;
-      }
-
-      // Check clinic_members table
-      const { data: membership } = await supabase
-        .from("clinic_members")
-        .select("role")
-        .eq("user_id", user.id);
-
-      const hasMemberAccess = membership?.some(
-        (m) => ["doctor", "clinic_admin", "clinic_manager", "assistant", "accountant"].includes(m.role)
-      );
-
-      if (hasMemberAccess) {
-        setIsAuthorized(true);
-        return;
-      }
-
+    if (stillLoading) return;
+    if (!user) {
       toast({
-        title: "Доступ запрещен",
-        description: "Доступ только для сотрудников клиник",
+        title: t("crm.accessDenied"),
+        description: t("crm.loginRequired"),
         variant: "destructive",
       });
-      navigate("/");
-    } catch (error) {
-      console.error("Error checking access:", error);
-      toast({
-        title: "Ошибка",
-        description: "Не удалось проверить права доступа",
-        variant: "destructive",
-      });
-      navigate("/");
-    } finally {
-      setIsChecking(false);
+      navigate("/auth");
+      return;
     }
-  };
+    if (!isAuthorized) {
+      toast({
+        title: t("crm.accessDenied"),
+        description: t("crm.staffOnly"),
+        variant: "destructive",
+      });
+      navigate("/");
+    }
+  }, [stillLoading, user, isAuthorized, navigate, toast, t]);
 
-  if (isChecking) {
+  if (stillLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
+      <RoleCabinetShell
+        sidebar={<CRMSidebarNew />}
+        isLoading
+        loadingLabel={t("crm.loadingCabinet")}
+      />
     );
   }
 
   if (!isAuthorized) {
-    return null;
+    /**
+     * The effect above navigates away, but that takes a tick — and a signed-in
+     * user with the wrong role used to see a completely blank white screen in
+     * the meantime, which reads as "the app is broken" rather than "this is not
+     * for you". Say what happened instead of rendering nothing.
+     */
+    return (
+      <div className="grid min-h-screen place-items-center bg-background p-4">
+        <PermissionState
+          title={t("crm.accessDenied")}
+          description={t("crm.staffOnly")}
+        />
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground text-[15px]">
-      <CRMSidebarNew />
-      <main className="min-h-screen transition-all duration-200 lg:pl-56">
+    <CabinetShellProvider>
+      <RoleCabinetShell
+        sidebar={<CRMSidebarNew />}
+        topBar={<CabinetTopBar />}
+        mainClassName="transition-all duration-200"
+      >
         {children}
-      </main>
-    </div>
+      </RoleCabinetShell>
+      {/* Mounted once per cabinet, outside <main>: the palette is a global
+          keyboard surface, not page content. */}
+      <CabinetCommandPalette />
+    </CabinetShellProvider>
   );
 }

@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PhoneInputProps {
   value: string;
@@ -23,6 +24,7 @@ const COUNTRY_CODES = [
 ];
 
 export function PhoneInput({ value, onChange, error, disabled }: PhoneInputProps) {
+  const { t } = useLanguage();
   const [countryCode, setCountryCode] = useState("+998");
 
   // Extract the phone number without country code
@@ -58,7 +60,7 @@ export function PhoneInput({ value, onChange, error, disabled }: PhoneInputProps
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="phone" className="text-base font-medium">Телефон</Label>
+      <Label htmlFor="phone" className="text-base font-medium">{t("auth.phoneLabel")}</Label>
       <div className="flex gap-2">
         <Select value={countryCode} onValueChange={handleCountryChange} disabled={disabled}>
           <SelectTrigger className="w-[110px] h-12 rounded-xl bg-muted/50 border-border/50 font-medium">

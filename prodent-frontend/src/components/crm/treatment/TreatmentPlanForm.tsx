@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,13 +15,23 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   Plus, Trash2, Save, FileText, CheckCircle, Smile, ShieldCheck,
-  ChevronDown, ChevronUp, Percent, Hash, Sparkles, BarChart3, FileDown,
-  Pencil, GripVertical
+  ChevronDown, ChevronUp, Percent, Sparkles, BarChart3, FileDown,
+  Pencil,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  TreatmentPlanDto,
+  createTreatmentPlan,
+  updateTreatmentPlanStatus,
+} from "@/lib/treatment-plans-api";
+import {
+  loadActiveClinicServiceOptions,
+  type ClinicServiceOption,
+} from "@/lib/clinic-services";
 
 interface TreatmentPlanFormProps {
   open: boolean;
@@ -28,8 +39,8 @@ interface TreatmentPlanFormProps {
   patientId: string;
   doctorId: string;
   clinicId: string;
-  planId?: string;
-  onSuccess?: () => void;
+  onSuccess?: (plan: TreatmentPlanDto) => void;
+  planPathPrefix?: "/crm/treatment-plans" | "/doctor/treatment-plans";
 }
 
 interface PlanItem {
@@ -50,29 +61,11 @@ interface Stage {
   collapsed: boolean;
 }
 
-interface ClinicService {
+interface DoctorInfo {
   id: string;
-  name: string;
-  price: number;
-  category: string;
+  user_id: string;
+  profiles?: { full_name?: string | null } | null;
 }
-
-const GENERAL_PROCEDURES = [
-  { name: "Профессиональная чистка зубов", category: "Гигиена" },
-  { name: "Ультразвуковая чистка", category: "Гигиена" },
-  { name: "Air-Flow чистка", category: "Гигиена" },
-  { name: "Отбеливание зубов", category: "Эстетика" },
-  { name: "Установка брекетов", category: "Ортодонтия" },
-  { name: "Снятие брекетов", category: "Ортодонтия" },
-  { name: "Установка элайнеров", category: "Ортодонтия" },
-  { name: "Коррекция брекетов", category: "Ортодонтия" },
-  { name: "Ретейнер", category: "Ортодонтия" },
-  { name: "Фторирование", category: "Профилактика" },
-  { name: "Реминерализация", category: "Профилактика" },
-  { name: "Консультация", category: "Общее" },
-  { name: "Панорамный снимок", category: "Диагностика" },
-  { name: "КТ челюсти", category: "Диагностика" },
-];
 
 const TOOTH_NUMBERS = [
   18, 17, 16, 15, 14, 13, 12, 11,
@@ -80,8 +73,9 @@ const TOOTH_NUMBERS = [
   38, 37, 36, 35, 34, 33, 32, 31,
   41, 42, 43, 44, 45, 46, 47, 48,
 ];
-
-const DEFAULT_STAGE = "Этап 1";
+const MAX_PLAN_ITEMS = 100;
+const MAX_ITEM_QUANTITY = 1000;
+const MAX_MONEY = 9_999_999_999.99;
 
 export function TreatmentPlanForm({
   open,
@@ -89,12 +83,16 @@ export function TreatmentPlanForm({
   patientId,
   doctorId,
   clinicId,
-  planId,
   onSuccess,
+  planPathPrefix = "/crm/treatment-plans",
 }: TreatmentPlanFormProps) {
+  const { t, language } = useLanguage();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [approving, setApproving] = useState(false);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [items, setItems] = useState<PlanItem[]>([]);
   const [discountType, setDiscountType] = useState<"percent" | "fixed">("percent");
   const [discountValue, setDiscountValue] = useState(0);
@@ -105,6 +103,43 @@ export function TreatmentPlanForm({
   const [showDiscount, setShowDiscount] = useState(false);
   const [collapsedStages, setCollapsedStages] = useState<Record<string, boolean>>({});
   const [addMode, setAddMode] = useState<"tooth" | "general">("tooth");
+
+  useEffect(() => {
+    if (open) return;
+    setSaving(false);
+    setApproving(false);
+    setTitle("");
+    setDescription("");
+    setItems([]);
+    setDiscountType("percent");
+    setDiscountValue(0);
+    setDiscountComment("");
+    setPatientConsent(false);
+    setServiceSearch("");
+    setActiveItemIndex(null);
+    setShowDiscount(false);
+    setCollapsedStages({});
+    setAddMode("tooth");
+  }, [open]);
+
+  const DEFAULT_STAGE = `${t('crmTreatmentForm.stagePrefix')} 1`;
+
+  const GENERAL_PROCEDURES = useMemo(() => [
+    { name: t('crmTreatmentForm.gpProfCleaning'), category: t('crmTreatmentForm.gpHygiene') },
+    { name: t('crmTreatmentForm.gpUltrasoundCleaning'), category: t('crmTreatmentForm.gpHygiene') },
+    { name: t('crmTreatmentForm.gpAirFlow'), category: t('crmTreatmentForm.gpHygiene') },
+    { name: t('crmTreatmentForm.gpWhitening'), category: t('crmTreatmentForm.gpAesthetics') },
+    { name: t('crmTreatmentForm.gpInstallBraces'), category: t('crmTreatmentForm.gpOrtho') },
+    { name: t('crmTreatmentForm.gpRemoveBraces'), category: t('crmTreatmentForm.gpOrtho') },
+    { name: t('crmTreatmentForm.gpInstallAligners'), category: t('crmTreatmentForm.gpOrtho') },
+    { name: t('crmTreatmentForm.gpCorrectBraces'), category: t('crmTreatmentForm.gpOrtho') },
+    { name: t('crmTreatmentForm.gpRetainer'), category: t('crmTreatmentForm.gpOrtho') },
+    { name: t('crmTreatmentForm.gpFluoridation'), category: t('crmTreatmentForm.gpPrevention') },
+    { name: t('crmTreatmentForm.gpRemineralization'), category: t('crmTreatmentForm.gpPrevention') },
+    { name: t('crmTreatmentForm.gpConsultation'), category: t('crmTreatmentForm.gpGeneral') },
+    { name: t('crmTreatmentForm.gpPanoramic'), category: t('crmTreatmentForm.gpDiagnostics') },
+    { name: t('crmTreatmentForm.gpCt'), category: t('crmTreatmentForm.gpDiagnostics') },
+  ], [t]);
 
   // Queries
   const { data: patient } = useQuery({
@@ -120,7 +155,7 @@ export function TreatmentPlanForm({
     queryKey: ["doctor-info", doctorId],
     queryFn: async () => {
       const { data } = await supabase.from("doctors").select("id, user_id, profiles:user_id(full_name)").eq("id", doctorId).single();
-      return data;
+      return (data || null) as DoctorInfo | null;
     },
     enabled: !!doctorId,
   });
@@ -135,53 +170,10 @@ export function TreatmentPlanForm({
   });
 
   const { data: services = [] } = useQuery({
-    queryKey: ["clinic-services", clinicId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("services")
-        .select("id, name, price, category")
-        .eq("clinic_id", clinicId)
-        .eq("is_active", true)
-        .order("category")
-        .order("name");
-      return (data || []) as ClinicService[];
-    },
+    queryKey: ["treatment-plan-service-options", clinicId, language],
+    queryFn: () => loadActiveClinicServiceOptions(clinicId, language),
     enabled: !!clinicId,
   });
-
-  const { data: existingPlan } = useQuery({
-    queryKey: ["treatment-plan", planId],
-    queryFn: async () => {
-      const { data: plan } = await supabase.from("treatment_plans").select("*").eq("id", planId).single();
-      const { data: planItems } = await supabase.from("treatment_plan_items").select("*").eq("plan_id", planId).order("created_at");
-      return { plan, items: planItems || [] };
-    },
-    enabled: !!planId,
-  });
-
-  useEffect(() => {
-    if (existingPlan?.plan) {
-      const dtype = existingPlan.plan.discount_type;
-      if (dtype === "percent" || dtype === "fixed") setDiscountType(dtype);
-      setDiscountValue(existingPlan.plan.discount_value || 0);
-      setDiscountComment(existingPlan.plan.discount_comment || "");
-      setPatientConsent(existingPlan.plan.patient_consent || false);
-      if (existingPlan.plan.discount_value > 0) setShowDiscount(true);
-      if (existingPlan.items.length > 0) {
-        setItems(existingPlan.items.map((item: any) => ({
-          id: item.id,
-          service_id: item.service_id,
-          procedure: item.procedure,
-          tooth_number: item.tooth_number?.toString() || "",
-          is_general: !item.tooth_number,
-          quantity: item.quantity || 1,
-          price: item.price || 0,
-          stage_name: item.stage_name || DEFAULT_STAGE,
-          notes: item.notes || "",
-        })));
-      }
-    }
-  }, [existingPlan]);
 
   const filteredServices = useMemo(() => {
     if (!serviceSearch.trim()) return services.slice(0, 10);
@@ -193,7 +185,7 @@ export function TreatmentPlanForm({
     if (!serviceSearch.trim()) return GENERAL_PROCEDURES;
     const search = serviceSearch.toLowerCase();
     return GENERAL_PROCEDURES.filter(p => p.name.toLowerCase().includes(search) || p.category.toLowerCase().includes(search));
-  }, [serviceSearch]);
+  }, [serviceSearch, GENERAL_PROCEDURES]);
 
   const totals = useMemo(() => {
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -202,6 +194,16 @@ export function TreatmentPlanForm({
     else discount = discountValue;
     return { subtotal, discount, total: Math.max(0, subtotal - discount) };
   }, [items, discountType, discountValue]);
+
+  useEffect(() => {
+    if (
+      showDiscount &&
+      discountType === "fixed" &&
+      discountValue > totals.subtotal
+    ) {
+      setDiscountValue(totals.subtotal);
+    }
+  }, [showDiscount, discountType, discountValue, totals.subtotal]);
 
   // Group items by stage
   const stages = useMemo((): Stage[] => {
@@ -216,16 +218,20 @@ export function TreatmentPlanForm({
       items: stageItems,
       collapsed: collapsedStages[name] || false,
     }));
-  }, [items, collapsedStages]);
+  }, [items, collapsedStages, DEFAULT_STAGE]);
 
   const addItem = useCallback((isGeneral: boolean = false) => {
+    if (items.length >= MAX_PLAN_ITEMS) {
+      toast.error("В плане может быть не больше 100 услуг");
+      return;
+    }
     const lastStage = items.length > 0 ? (items[items.length - 1].stage_name || DEFAULT_STAGE) : DEFAULT_STAGE;
     setItems(prev => [...prev, {
       procedure: "", tooth_number: "", is_general: isGeneral,
       quantity: 1, price: 0, stage_name: lastStage, notes: "",
     }]);
     setTimeout(() => setActiveItemIndex(items.length), 50);
-  }, [items]);
+  }, [items, DEFAULT_STAGE]);
 
   const removeItem = (index: number) => {
     setItems(prev => prev.filter((_, i) => i !== index));
@@ -240,7 +246,7 @@ export function TreatmentPlanForm({
     });
   };
 
-  const selectService = (index: number, service: ClinicService) => {
+  const selectService = (index: number, service: ClinicServiceOption) => {
     updateItem(index, { service_id: service.id, procedure: service.name, price: service.price });
     setServiceSearch("");
     setActiveItemIndex(null);
@@ -257,8 +263,12 @@ export function TreatmentPlanForm({
   };
 
   const addStage = () => {
+    if (items.length >= MAX_PLAN_ITEMS) {
+      toast.error("В плане может быть не больше 100 услуг");
+      return;
+    }
     const stageNum = stages.length + 1;
-    const newStageName = `Этап ${stageNum}`;
+    const newStageName = `${t('crmTreatmentForm.stagePrefix')} ${stageNum}`;
     setItems(prev => [...prev, {
       procedure: "", tooth_number: "", is_general: false,
       quantity: 1, price: 0, stage_name: newStageName, notes: "",
@@ -267,57 +277,86 @@ export function TreatmentPlanForm({
 
   const formatPrice = (price: number) => new Intl.NumberFormat("ru-RU").format(price) + " UZS";
 
-  const isApproved = existingPlan?.plan?.status === "approved";
+  const isApproved = false;
 
   const handleSave = async (status: "draft" | "approved" = "draft") => {
     const validItems = items.filter(item => item.procedure.trim());
-    if (validItems.length === 0) { toast.error("Добавьте хотя бы одну услугу"); return; }
-    if (status === "approved" && !patientConsent) { toast.error("Необходимо подтверждение согласия пациента"); return; }
-    if (!patientId?.trim()) { toast.error("Не указан пациент"); return; }
-    if (!clinicId?.trim()) { toast.error("Не выбрана клиника"); return; }
+    if (!title.trim()) { toast.error(t('crmCreatePlanDialog.enterPlanName')); return; }
+    if (validItems.length === 0) { toast.error(t('crmTreatmentForm.addAtLeastOneService')); return; }
+    if (validItems.length > MAX_PLAN_ITEMS) { toast.error("В плане может быть не больше 100 услуг"); return; }
+    if (validItems.some((item) => !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > MAX_ITEM_QUANTITY)) {
+      toast.error("Количество каждой услуги должно быть от 1 до 1000");
+      return;
+    }
+    if (validItems.some((item) => !Number.isFinite(item.price) || item.price <= 0)) {
+      toast.error(`${t('crmTreatmentDialogs.price')} > 0`);
+      return;
+    }
+    if (validItems.some((item) => item.price > MAX_MONEY || item.price * item.quantity > MAX_MONEY)
+        || validItems.reduce((sum, item) => sum + item.price * item.quantity, 0) > MAX_MONEY) {
+      toast.error("Сумма услуги или всего плана слишком большая");
+      return;
+    }
+    if (status === "approved" && !patientConsent) { toast.error(t('crmTreatmentForm.consentRequired')); return; }
+    if (!patientId?.trim()) { toast.error(t('crmTreatmentForm.patientNotSpecified')); return; }
+    if (!clinicId?.trim()) { toast.error(t('crmTreatmentForm.clinicNotSelected')); return; }
+    if (!doctorId?.trim()) { toast.error(t('common.error')); return; }
 
     setSaving(true);
     if (status === "approved") setApproving(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const validDoctorId = doctorId?.trim() || null;
-      const planData = {
-        patient_id: patientId, doctor_id: validDoctorId, clinic_id: clinicId,
-        status, discount_type: discountType, discount_value: discountValue,
-        discount_comment: discountComment || null, patient_consent: patientConsent,
-        consent_at: patientConsent ? new Date().toISOString() : null,
-        approved_at: status === "approved" ? new Date().toISOString() : null,
-        approved_by: status === "approved" ? user?.id : null,
-      };
+      let createdPlan = await createTreatmentPlan({
+        patientId,
+        clinicId,
+        title: title.trim(),
+        description: description.trim() || null,
+        discountType: discountType === "percent" ? "PERCENT" : "FIXED",
+        discountValue: showDiscount ? discountValue : 0,
+        discountComment: showDiscount ? discountComment.trim() || null : null,
+        patientConsentConfirmed: patientConsent,
+        items: validItems.map((item) => ({
+          serviceId: item.service_id || null,
+          toothNumber: item.is_general || !item.tooth_number
+            ? null
+            : Number.parseInt(item.tooth_number, 10),
+          description: item.procedure.trim(),
+          quantity: item.quantity,
+          unitPrice: item.price,
+          stageName: item.stage_name || null,
+          notes: item.notes.trim() || null,
+        })),
+      });
 
-      let finalPlanId = planId;
-      if (planId) {
-        const { error } = await supabase.from("treatment_plans").update(planData as any).eq("id", planId);
-        if (error) throw error;
-        await supabase.from("treatment_plan_items").delete().eq("plan_id", planId);
-      } else {
-        const { data: newPlan, error } = await supabase.from("treatment_plans").insert(planData as any).select().single();
-        if (error) throw error;
-        finalPlanId = newPlan.id;
+      let approvalSucceeded = status !== "approved";
+      if (status === "approved") {
+        try {
+          createdPlan = await updateTreatmentPlanStatus(createdPlan.id, "IN_PROGRESS");
+          approvalSucceeded = true;
+        } catch (approvalError) {
+          // Creation is already committed. Continue to the new plan so retrying
+          // the dialog cannot accidentally create a duplicate.
+          toast.error(
+            t('crmTreatmentForm.saveError') +
+              (approvalError instanceof Error ? approvalError.message : ""),
+          );
+        }
       }
 
-      const planItems = validItems.map(item => ({
-        clinic_id: clinicId, plan_id: finalPlanId, service_id: item.service_id || null,
-        procedure: item.procedure, tooth_number: item.is_general ? null : (item.tooth_number ? parseInt(item.tooth_number) : null),
-        quantity: item.quantity, price: item.price, stage_name: item.stage_name || null,
-        notes: item.notes || null, status: "planned",
-      }));
-
-      const { error: itemsError } = await supabase.from("treatment_plan_items").insert(planItems as any);
-      if (itemsError) throw itemsError;
-
-      toast.success(status === "approved" ? "План лечения утверждён" : "План лечения сохранён");
+      toast.success(
+        status === "approved" && approvalSucceeded
+          ? t('crmTreatmentForm.planApproved')
+          : t('crmTreatmentForm.planSaved'),
+      );
       queryClient.invalidateQueries({ queryKey: ["treatment-plans"] });
-      onSuccess?.();
+      onSuccess?.(createdPlan);
       onOpenChange(false);
-    } catch (error: any) {
-      toast.error("Ошибка сохранения: " + error.message);
+      navigate(`${planPathPrefix}/${encodeURIComponent(createdPlan.id)}`);
+    } catch (error: unknown) {
+      toast.error(
+        t('crmTreatmentForm.saveError') +
+          (error instanceof Error ? error.message : ""),
+      );
     } finally {
       setSaving(false);
       setApproving(false);
@@ -334,7 +373,7 @@ export function TreatmentPlanForm({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, patientConsent, items]);
+  }, [open, patientConsent, items, title, description, discountType, discountValue, discountComment]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -350,25 +389,22 @@ export function TreatmentPlanForm({
                 </div>
                 <div>
                   <h2 className="text-base font-semibold text-foreground leading-tight">
-                    {planId ? "Редактировать план" : "Новый план лечения"}
+                    {t('crmTreatmentForm.newPlan')}
                   </h2>
-                  {existingPlan?.plan?.plan_number && (
-                    <span className="text-xs text-muted-foreground font-mono">{existingPlan.plan.plan_number}</span>
-                  )}
                 </div>
               </div>
               <Separator orientation="vertical" className="h-8 hidden md:block" />
               <div className="hidden md:flex items-center gap-5 text-sm">
                 <div>
-                  <span className="text-muted-foreground text-xs">Пациент</span>
+                  <span className="text-muted-foreground text-xs">{t('crmTreatmentForm.patient')}</span>
                   <p className="font-medium text-foreground leading-tight truncate max-w-[140px]">{patient?.full_name || "..."}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground text-xs">Врач</span>
-                  <p className="font-medium text-foreground leading-tight truncate max-w-[140px]">{(doctor?.profiles as any)?.full_name || "..."}</p>
+                  <span className="text-muted-foreground text-xs">{t('crmTreatmentForm.doctor')}</span>
+                  <p className="font-medium text-foreground leading-tight truncate max-w-[140px]">{doctor?.profiles?.full_name || "..."}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground text-xs">Клиника</span>
+                  <span className="text-muted-foreground text-xs">{t('crmTreatmentForm.clinic')}</span>
                   <p className="font-medium text-foreground leading-tight truncate max-w-[140px]">{clinic?.name || "..."}</p>
                 </div>
               </div>
@@ -377,18 +413,18 @@ export function TreatmentPlanForm({
             {/* Right: Status + Total */}
             <div className="flex items-center gap-4 shrink-0">
               {isApproved ? (
-                <Badge className="bg-green-500/10 text-green-600 border-green-500/20 gap-1.5 px-3 py-1">
+                <Badge className="bg-status-success/10 text-status-success border-status-success/20 gap-1.5 px-3 py-1">
                   <CheckCircle className="w-3.5 h-3.5" />
-                  Утверждён
+                  {t('crmTreatmentForm.approved')}
                 </Badge>
               ) : (
-                <Badge variant="secondary" className="gap-1.5 px-3 py-1 bg-warning-amber/10 text-warning-amber border-warning-amber/20">
+                <Badge variant="secondary" className="gap-1.5 px-3 py-1 bg-status-warning/10 text-status-warning border-status-warning/20">
                   <Pencil className="w-3.5 h-3.5" />
-                  Черновик
+                  {t('crmTreatmentForm.draft')}
                 </Badge>
               )}
               <div className="text-right hidden sm:block">
-                <span className="text-xs text-muted-foreground block">Итого</span>
+                <span className="text-xs text-muted-foreground block">{t('crmTreatmentForm.total')}</span>
                 <span className="text-lg font-bold text-primary">{formatPrice(totals.total)}</span>
               </div>
               <span className="text-xs text-muted-foreground hidden lg:block">
@@ -400,6 +436,36 @@ export function TreatmentPlanForm({
 
         {/* ===== SCROLLABLE CONTENT ===== */}
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5" style={{ maxHeight: "calc(98vh - 180px)" }}>
+
+          {/* ===== PLAN DETAILS ===== */}
+          <div className="grid gap-4 rounded-panel border border-border bg-card p-5 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="treatment-plan-title">
+                {t('crmTreatmentDialogs.planName')} *
+              </Label>
+              <Input
+                id="treatment-plan-title"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder={t('crmTreatmentDialogs.planNamePlaceholder')}
+                maxLength={255}
+                disabled={saving}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="treatment-plan-description">
+                {t('crmTreatmentDialogs.planDescription')}
+              </Label>
+              <Textarea
+                id="treatment-plan-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder={t('crmTreatmentDialogs.planDescriptionPlaceholder')}
+                className="min-h-10 resize-y"
+                disabled={saving}
+              />
+            </div>
+          </div>
 
           {/* ===== ADD MODE SWITCH ===== */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -415,7 +481,7 @@ export function TreatmentPlanForm({
                 )}
               >
                 <span className="text-base">🦷</span>
-                На зуб
+                {t('crmTreatmentForm.onTooth')}
               </button>
               <button
                 type="button"
@@ -428,7 +494,7 @@ export function TreatmentPlanForm({
                 )}
               >
                 <span className="text-base">🧠</span>
-                Общая процедура
+                {t('crmTreatmentForm.generalProcedure')}
               </button>
             </div>
 
@@ -444,18 +510,18 @@ export function TreatmentPlanForm({
                       className="gap-2"
                     >
                       <Plus className="w-4 h-4" />
-                      Добавить услугу
+                      {t('crmTreatmentForm.addService')}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {addMode === "tooth" ? "Добавить процедуру для конкретного зуба" : "Добавить общую процедуру"}
+                    {addMode === "tooth" ? t('crmTreatmentForm.addToothProcedureTooltip') : t('crmTreatmentForm.addGeneralProcedureTooltip')}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
 
               <Button type="button" variant="outline" size="sm" onClick={addStage} disabled={isApproved} className="gap-2">
                 <Plus className="w-4 h-4" />
-                Новый этап
+                {t('crmTreatmentForm.newStage')}
               </Button>
             </div>
           </div>
@@ -467,23 +533,22 @@ export function TreatmentPlanForm({
               <div className="w-20 h-20 mx-auto mb-5 rounded-2xl bg-primary/5 flex items-center justify-center">
                 <Sparkles className="w-10 h-10 text-primary/40" />
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Добавьте услуги</h3>
+              <h3 className="text-base font-bold text-foreground mb-2">{t('crmTreatmentForm.addServicesEmpty')}</h3>
               <p className="text-muted-foreground text-sm max-w-md mx-auto mb-6">
-                Начните формировать план лечения. Система автоматически рассчитает итог,
-                а пациент получит понятный PDF-документ.
+                {t('crmTreatmentForm.emptyHelp')}
               </p>
               <div className="flex justify-center gap-8 text-sm text-muted-foreground">
                 <div className="flex items-center gap-2">
                   <span className="text-lg">🦷</span>
-                  <span>Привязка к зубу</span>
+                  <span>{t('crmTreatmentForm.toothBinding')}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <BarChart3 className="w-4 h-4 text-primary" />
-                  <span>Авторасчёт</span>
+                  <span>{t('crmTreatmentForm.autoCalc')}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <FileDown className="w-4 h-4 text-primary" />
-                  <span>PDF для пациента</span>
+                  <span>{t('crmTreatmentForm.pdfForPatient')}</span>
                 </div>
               </div>
             </div>
@@ -495,19 +560,19 @@ export function TreatmentPlanForm({
                 return (
                   <div
                     key={stage.name}
-                    className="rounded-xl border border-border bg-card shadow-soft overflow-hidden transition-all duration-200"
+                    className="rounded-panel border border-border bg-card shadow-soft overflow-hidden transition-all duration-200"
                   >
                     {/* Stage Header */}
                     <button
                       type="button"
                       onClick={() => toggleStage(stage.name)}
-                      className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-muted/30 transition-colors"
+                      className="w-full flex items-center justify-between px-card-x py-2.5 hover:bg-muted/30 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         {stage.collapsed ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronUp className="w-4 h-4 text-muted-foreground" />}
                         <span className="font-semibold text-foreground">{stage.name}</span>
                         <Badge variant="secondary" className="text-xs font-normal">
-                          {stage.items.length} {stage.items.length === 1 ? "услуга" : "услуг"}
+                          {stage.items.length} {stage.items.length === 1 ? t('crmTreatmentForm.services1') : t('crmTreatmentForm.servicesMany')}
                         </Badge>
                       </div>
                       <span className="text-sm font-semibold text-foreground">{formatPrice(stageTotal)}</span>
@@ -518,12 +583,12 @@ export function TreatmentPlanForm({
                       <div className="border-t border-border">
                         {/* Table header */}
                         <div className="hidden md:grid grid-cols-[36px_80px_1fr_64px_100px_100px_36px] gap-3 px-5 py-2.5 bg-muted/40 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                          <span>№</span>
-                          <span>Тип</span>
-                          <span>Услуга</span>
-                          <span>Кол-во</span>
-                          <span className="text-right">Цена</span>
-                          <span className="text-right">Итого</span>
+                          <span>{t('crmTreatmentForm.colNum')}</span>
+                          <span>{t('crmTreatmentForm.colType')}</span>
+                          <span>{t('crmTreatmentForm.colService')}</span>
+                          <span>{t('crmTreatmentForm.colQty')}</span>
+                          <span className="text-right">{t('crmTreatmentForm.colPrice')}</span>
+                          <span className="text-right">{t('crmTreatmentForm.colTotal')}</span>
                           <span />
                         </div>
 
@@ -544,9 +609,9 @@ export function TreatmentPlanForm({
                                 {/* Type */}
                                 <div className="hidden md:flex">
                                   {item.is_general ? (
-                                    <Badge variant="outline" className="text-[11px] px-2 py-0.5 border-primary/25 text-primary gap-1 whitespace-nowrap">
+                                    <Badge variant="outline" className="text-xs px-2 py-0.5 border-primary/25 text-primary gap-1 whitespace-nowrap">
                                       <Smile className="w-3 h-3" />
-                                      Общая
+                                      {t('crmTreatmentForm.generalShort')}
                                     </Badge>
                                   ) : (
                                     <Select
@@ -559,9 +624,9 @@ export function TreatmentPlanForm({
                                       </SelectTrigger>
                                       <SelectContent className="max-h-60">
                                         <SelectItem value="none">—</SelectItem>
-                                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted/50">Верхняя</div>
+                                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted/50">{t('crmTreatmentForm.upper')}</div>
                                         {TOOTH_NUMBERS.slice(0, 16).map(n => <SelectItem key={n} value={n.toString()}>{n}</SelectItem>)}
-                                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted/50">Нижняя</div>
+                                        <div className="px-2 py-1 text-xs font-semibold text-muted-foreground bg-muted/50">{t('crmTreatmentForm.lower')}</div>
                                         {TOOTH_NUMBERS.slice(16).map(n => <SelectItem key={n} value={n.toString()}>{n}</SelectItem>)}
                                       </SelectContent>
                                     </Select>
@@ -569,8 +634,9 @@ export function TreatmentPlanForm({
                                 </div>
 
                                 {/* Service */}
-                                <div className="relative">
-                                  <Input
+                                <div>
+                                  <div className="relative">
+                                    <Input
                                     value={item.procedure}
                                     onChange={(e) => {
                                       updateItem(idx, { procedure: e.target.value, service_id: undefined });
@@ -579,26 +645,26 @@ export function TreatmentPlanForm({
                                     }}
                                     onFocus={() => { setActiveItemIndex(idx); setServiceSearch(item.procedure); }}
                                     onBlur={() => setTimeout(() => setActiveItemIndex(null), 200)}
-                                    placeholder={item.is_general ? "Общая процедура..." : "Введите услугу..."}
+                                    placeholder={item.is_general ? t('crmTreatmentForm.generalProcedurePlaceholder') : t('crmTreatmentForm.enterServicePlaceholder')}
                                     className="h-9 bg-background border-border text-sm"
                                     disabled={isApproved}
                                   />
-                                  {activeItemIndex === idx && (filteredServices.length > 0 || (item.is_general && filteredGeneralProcedures.length > 0)) && (
-                                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-xl shadow-xl max-h-60 overflow-y-auto backdrop-blur-sm">
+                                    {activeItemIndex === idx && (filteredServices.length > 0 || (item.is_general && filteredGeneralProcedures.length > 0)) && (
+                                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border border-border rounded-xl shadow-xl max-h-60 overflow-y-auto backdrop-blur-sm">
                                       {item.is_general && filteredGeneralProcedures.length > 0 && (
                                         <>
-                                          <div className="px-3 py-2 text-[11px] font-semibold text-muted-foreground bg-muted/60 sticky top-0 uppercase tracking-wider border-b border-border/50">Популярные</div>
+                                          <div className="px-3 py-2 text-xs font-semibold text-muted-foreground bg-muted/60 sticky top-0 uppercase tracking-wider border-b border-border/50">{t('crmTreatmentForm.popular')}</div>
                                           {filteredGeneralProcedures.slice(0, 6).map((proc, i) => (
                                             <button key={i} type="button" className="w-full px-3 py-2.5 text-left hover:bg-primary/5 flex items-center justify-between text-sm transition-colors border-b border-border/20 last:border-b-0" onMouseDown={() => selectGeneralProcedure(idx, proc)}>
                                               <span className="truncate font-medium text-foreground">{proc.name}</span>
-                                              <span className="text-[11px] text-muted-foreground ml-3 shrink-0 bg-muted/50 px-2 py-0.5 rounded-full">{proc.category}</span>
+                                              <span className="text-xs text-muted-foreground ml-3 shrink-0 bg-muted/50 px-2 py-0.5 rounded-full">{proc.category}</span>
                                             </button>
                                           ))}
                                         </>
                                       )}
                                       {filteredServices.length > 0 && (
                                         <>
-                                          <div className="px-3 py-2 text-[11px] font-semibold text-muted-foreground bg-muted/60 sticky top-0 uppercase tracking-wider border-b border-border/50">Прайс-лист</div>
+                                          <div className="px-3 py-2 text-xs font-semibold text-muted-foreground bg-muted/60 sticky top-0 uppercase tracking-wider border-b border-border/50">{t('crmTreatmentForm.priceList')}</div>
                                           {filteredServices.map(service => (
                                             <button key={service.id} type="button" className="w-full px-3 py-2.5 text-left hover:bg-primary/5 flex items-center justify-between text-sm transition-colors border-b border-border/20 last:border-b-0" onMouseDown={() => selectService(idx, service)}>
                                               <span className="truncate font-medium text-foreground">{service.name}</span>
@@ -607,14 +673,33 @@ export function TreatmentPlanForm({
                                           ))}
                                         </>
                                       )}
-                                    </div>
-                                  )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <Label htmlFor={`treatment-plan-item-notes-${idx}`} className="sr-only">
+                                    {t('crmTreatmentDialogs.planNotes')}
+                                  </Label>
+                                  <Textarea
+                                    id={`treatment-plan-item-notes-${idx}`}
+                                    value={item.notes}
+                                    onChange={(e) => updateItem(idx, { notes: e.target.value })}
+                                    placeholder={t('crmTreatmentDialogs.planNotes')}
+                                    maxLength={2000}
+                                    rows={1}
+                                    className="mt-2 min-h-8 resize-y bg-background border-border text-xs"
+                                    disabled={isApproved}
+                                  />
                                 </div>
 
                                 {/* Qty */}
                                 <Input
-                                  type="number" min={1} value={item.quantity}
-                                  onChange={(e) => updateItem(idx, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
+                                  type="number" min={1} max={MAX_ITEM_QUANTITY} value={item.quantity}
+                                  onChange={(e) => updateItem(idx, {
+                                    quantity: Math.min(
+                                      MAX_ITEM_QUANTITY,
+                                      Math.max(1, parseInt(e.target.value) || 1),
+                                    ),
+                                  })}
                                   className="h-9 text-sm text-center bg-background border-border"
                                   disabled={isApproved}
                                 />
@@ -622,8 +707,13 @@ export function TreatmentPlanForm({
                                 {/* Price */}
                                 <div className="relative">
                                   <Input
-                                    type="number" min={0} value={item.price}
-                                    onChange={(e) => updateItem(idx, { price: Math.max(0, parseInt(e.target.value) || 0) })}
+                                    type="number" min={0} max={MAX_MONEY} step="0.01" value={item.price}
+                                    onChange={(e) => updateItem(idx, {
+                                      price: Math.min(
+                                        MAX_MONEY,
+                                        Math.max(0, Number(e.target.value) || 0),
+                                      ),
+                                    })}
                                     className={cn("h-9 text-sm text-right bg-background border-border pr-7", item.price === 0 && "text-muted-foreground")}
                                     disabled={isApproved}
                                   />
@@ -641,7 +731,7 @@ export function TreatmentPlanForm({
                                 <div className="flex justify-center">
                                   {!isApproved && (
                                     <Button type="button" variant="ghost" size="sm" onClick={() => removeItem(idx)}
-                                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                                       <Trash2 className="w-3.5 h-3.5" />
                                     </Button>
                                   )}
@@ -666,7 +756,7 @@ export function TreatmentPlanForm({
                               className="text-xs text-muted-foreground hover:text-primary gap-1.5"
                             >
                               <Plus className="w-3.5 h-3.5" />
-                              Добавить в этот этап
+                              {t('crmTreatmentForm.addToThisStage')}
                             </Button>
                           </div>
                         )}
@@ -687,20 +777,20 @@ export function TreatmentPlanForm({
                 className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
               >
                 <Plus className="w-4 h-4" />
-                Добавить скидку
+                {t('crmTreatmentForm.addDiscount')}
               </button>
             )
           ) : (
-            <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <div className="rounded-panel border border-border bg-card p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
                   <Percent className="w-4 h-4 text-primary" />
-                  Скидка
+                  {t('crmTreatmentForm.discount')}
                 </h3>
                 {!isApproved && (
                   <Button type="button" variant="ghost" size="sm" onClick={() => { setShowDiscount(false); setDiscountValue(0); }}
                     className="text-xs text-muted-foreground">
-                    Убрать
+                    {t('crmTreatmentForm.remove')}
                   </Button>
                 )}
               </div>
@@ -717,15 +807,24 @@ export function TreatmentPlanForm({
                 </div>
                 <Input
                   type="number" min={0} max={discountType === "percent" ? 100 : undefined}
-                  value={discountValue} onChange={(e) => setDiscountValue(Math.max(0, parseInt(e.target.value) || 0))}
+                  value={discountValue}
+                  onChange={(e) => {
+                    const nextValue = Math.max(0, parseInt(e.target.value) || 0);
+                    setDiscountValue(
+                      discountType === "percent"
+                        ? Math.min(100, nextValue)
+                        : Math.min(totals.subtotal, nextValue),
+                    );
+                  }}
                   className="w-32 bg-background border-border" placeholder="0" disabled={isApproved}
                 />
                 <Input
                   value={discountComment} onChange={(e) => setDiscountComment(e.target.value)}
-                  className="flex-1 bg-background border-border" placeholder="Причина (опционально)" disabled={isApproved}
+                  maxLength={2000}
+                  className="flex-1 bg-background border-border" placeholder={t('crmTreatmentForm.reasonOptional')} disabled={isApproved}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">Скидка отображается в плане лечения пациента</p>
+              <p className="text-xs text-muted-foreground">{t('crmTreatmentForm.discountShownInPlan')}</p>
             </div>
           )}
 
@@ -733,7 +832,7 @@ export function TreatmentPlanForm({
           {items.length > 0 && (
             <div className={cn(
               "rounded-xl border p-5 transition-colors",
-              patientConsent ? "bg-green-500/5 border-green-500/20" : "bg-card border-border"
+              patientConsent ? "bg-status-success/5 border-status-success/20" : "bg-card border-border"
             )}>
               <div className="flex items-start gap-3">
                 <Checkbox
@@ -744,18 +843,12 @@ export function TreatmentPlanForm({
                   className="mt-0.5"
                 />
                 <div className="flex items-start gap-2 flex-1">
-                  <ShieldCheck className={cn("w-5 h-5 mt-0.5 shrink-0", patientConsent ? "text-green-600" : "text-muted-foreground")} />
+                  <ShieldCheck className={cn("w-5 h-5 mt-0.5 shrink-0", patientConsent ? "text-status-success" : "text-muted-foreground")} />
                   <Label htmlFor="consent" className="text-sm leading-relaxed cursor-pointer text-foreground">
-                    План лечения и стоимость услуг разъяснены и согласованы с пациентом
+                    {t('crmTreatmentForm.planExplained')}
                   </Label>
                 </div>
               </div>
-              {isApproved && existingPlan?.plan?.approved_at && (
-                <div className="mt-3 ml-9 text-xs text-green-600">
-                  <CheckCircle className="w-3.5 h-3.5 inline mr-1" />
-                  Утверждён {format(new Date(existingPlan.plan.approved_at), "dd.MM.yyyy в HH:mm", { locale: ru })}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -767,17 +860,17 @@ export function TreatmentPlanForm({
             {items.length > 0 && (
               <div className="flex items-center gap-6 text-sm">
                 <div>
-                  <span className="text-muted-foreground text-xs">Услуги</span>
+                  <span className="text-muted-foreground text-xs">{t('crmTreatmentForm.services')}</span>
                   <p className="font-medium text-foreground">{formatPrice(totals.subtotal)}</p>
                 </div>
                 {totals.discount > 0 && (
                   <div>
-                    <span className="text-muted-foreground text-xs">Скидка</span>
-                    <p className="font-medium text-green-600">−{formatPrice(totals.discount)}</p>
+                    <span className="text-muted-foreground text-xs">{t('crmTreatmentForm.discount')}</span>
+                    <p className="font-medium text-status-success">−{formatPrice(totals.discount)}</p>
                   </div>
                 )}
                 <div>
-                  <span className="text-muted-foreground text-xs">К оплате</span>
+                  <span className="text-muted-foreground text-xs">{t('crmTreatmentForm.toPay')}</span>
                   <p className="text-xl font-bold text-primary">{formatPrice(totals.total)}</p>
                 </div>
               </div>
@@ -787,14 +880,14 @@ export function TreatmentPlanForm({
             {/* Buttons */}
             <div className="flex items-center gap-2">
               <Button variant="outline" onClick={() => onOpenChange(false)} className="border-border">
-                Отмена
+                {t('crmTreatmentForm.cancel')}
               </Button>
 
               {!isApproved && (
                 <>
                   <Button variant="outline" onClick={() => handleSave("draft")} disabled={saving} className="border-border gap-2">
                     <Save className="w-4 h-4" />
-                    Черновик
+                    {t('crmTreatmentForm.saveDraft')}
                   </Button>
 
                   <TooltipProvider>
@@ -803,14 +896,14 @@ export function TreatmentPlanForm({
                         <span>
                           <Button onClick={() => handleSave("approved")} disabled={saving || !patientConsent} className="gap-2">
                             <CheckCircle className="w-4 h-4" />
-                            {approving ? "Утверждение..." : "Утвердить план"}
+                            {approving ? t('crmTreatmentForm.approving') : t('crmTreatmentForm.approvePlan')}
                           </Button>
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
                         {patientConsent
-                          ? "После утверждения план станет доступен пациенту (Ctrl+Enter)"
-                          : "Подтвердите согласие пациента"}
+                          ? t('crmTreatmentForm.tooltipAfterApprove')
+                          : t('crmTreatmentForm.tooltipConfirmConsent')}
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>

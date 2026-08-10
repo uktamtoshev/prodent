@@ -12,7 +12,7 @@ import { OtpTimer } from "./OtpTimer";
 import { VerificationMethodSelector } from "./VerificationMethodSelector";
 import { LocationSelector } from "./LocationSelector";
 import { getErrorMessage } from "@/lib/edge-function-error";
-import prodentLogo from "@/assets/prodent-logo.png";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface RegistrationFlowProps {
   onSuccess: () => void;
@@ -20,8 +20,10 @@ interface RegistrationFlowProps {
 }
 
 type Step = "role" | "details" | "otp" | "additional" | "complete";
+const LEGAL_DOCUMENT_VERSION = "2026-07-27";
 
 export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlowProps) {
+  const { t } = useLanguage();
   const [step, setStep] = useState<Step>("role");
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
@@ -43,7 +45,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
   const [consentAccepted, setConsentAccepted] = useState(false);
 
   // Location data
-  const [country, setCountry] = useState("Узбекистан");
+  const [country, setCountry] = useState(t("auth.uzbekistan"));
   const [region, setRegion] = useState("");
   const [district, setDistrict] = useState("");
   const [address, setAddress] = useState("");
@@ -53,45 +55,53 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
   // Errors
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const clearError = (field: string) =>
+    setErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+
   const validateDetails = () => {
     const newErrors: Record<string, string> = {};
 
     if (role === "clinic") {
       if (!clinicName.trim() || clinicName.trim().length < 2) {
-        newErrors.clinicName = "Введите название клиники (минимум 2 символа)";
+        newErrors.clinicName = t("auth.errClinicName");
       }
     } else {
       if (!lastName.trim() || lastName.trim().length < 2) {
-        newErrors.lastName = "Введите фамилию (минимум 2 символа)";
+        newErrors.lastName = t("auth.errLastName");
       }
-      
+
       if (!firstName.trim() || firstName.trim().length < 2) {
-        newErrors.firstName = "Введите имя (минимум 2 символа)";
+        newErrors.firstName = t("auth.errFirstName");
       }
     }
 
     if (verificationMethod === "phone" || role !== "patient") {
       const phoneRegex = /^\+998\d{9}$/;
       if (!phoneRegex.test(phone)) {
-        newErrors.phone = "Введите корректный номер телефона";
+        newErrors.phone = t("auth.errPhoneInvalid");
       }
     } else if (verificationMethod === "email") {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
-        newErrors.email = "Введите корректный email";
+        newErrors.email = t("auth.errEmailInvalid");
       }
     }
 
     // Location validation
     if (!country) {
-      newErrors.country = "Выберите страну";
+      newErrors.country = t("auth.errCountry");
     }
     if (!region) {
-      newErrors.region = "Выберите область или город";
+      newErrors.region = t("auth.errRegion");
     }
     // District is optional - not all regions have districts in DB
     if (!address.trim()) {
-      newErrors.address = "Введите адрес";
+      newErrors.address = t("auth.errAddress");
     }
 
     setErrors(newErrors);
@@ -102,7 +112,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
     if (!validateDetails()) return;
 
     if (!consentAccepted) {
-      toast.error("Необходимо принять условия использования и политику конфиденциальности");
+      toast.error(t("auth.acceptTermsRequired"));
       return;
     }
 
@@ -122,22 +132,26 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
           clinic_name: role === "clinic" ? clinicName.trim() : undefined,
           email: email || undefined,
           action: "register",
+          legal_consent_accepted: consentAccepted,
+          terms_version: LEGAL_DOCUMENT_VERSION,
+          privacy_version: LEGAL_DOCUMENT_VERSION,
+          locale: document.documentElement.lang || "ru",
         },
       });
 
       if (error) {
-        throw new Error(error.message || "Ошибка сервера");
+        throw new Error(error.message || t("auth.toastServerError"));
       }
       if (data?.success === false || data?.error) {
-        throw new Error(data.error || "Ошибка отправки кода");
+        throw new Error(data.error || t("auth.toastSendCodeError"));
       }
 
       setMaskedContact(data.masked_phone);
       setStep("otp");
-      toast.success("SMS код отправлен");
-    } catch (err: any) {
+      toast.success(t("auth.toastSmsSent"));
+    } catch (err: unknown) {
       console.error("Error sending OTP:", err);
-      toast.error(getErrorMessage(err, err?.message || "Ошибка отправки кода"));
+      toast.error(getErrorMessage(err, err instanceof Error ? err.message : t("auth.toastSendCodeError")));
     } finally {
       setLoading(false);
     }
@@ -145,7 +159,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
 
   const handleVerifyCode = async () => {
     if (otpCode.length !== 6) {
-      setErrors({ otp: "Введите 6-значный код" });
+      setErrors({ otp: t("auth.err6DigitCode") });
       return;
     }
 
@@ -158,6 +172,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
         body: {
           type: verificationMethod,
           contact: verificationMethod === "phone" ? phone : email,
+          phone: verificationMethod === "phone" ? phone : email,
           code: otpCode,
           role,
           full_name: fullNameCombined,
@@ -166,21 +181,28 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
           middle_name: role !== "clinic" ? middleName.trim() || undefined : undefined,
           clinic_name: role === "clinic" ? clinicName.trim() : undefined,
           additional_contact: additionalContact || undefined,
+          action: "register",
+          legal_consent_accepted: consentAccepted,
+          terms_version: LEGAL_DOCUMENT_VERSION,
+          privacy_version: LEGAL_DOCUMENT_VERSION,
+          locale: document.documentElement.lang || "ru",
         },
       });
 
       if (error) {
-        throw new Error(error.message || "Ошибка сервера");
+        throw new Error(error.message || t("auth.toastServerError"));
       }
       if (data?.success === false || data?.error) {
-        throw new Error(data.error || "Ошибка проверки кода");
+        throw new Error(data.error || t("auth.toastVerifyError"));
       }
 
       // Set session from response
-      if (data.session) {
+      const accessToken = data.session?.access_token ?? data.access_token;
+      const refreshToken = data.session?.refresh_token ?? data.refresh_token ?? "";
+      if (accessToken) {
         await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
+          access_token: accessToken,
+          refresh_token: refreshToken,
         });
       }
 
@@ -189,12 +211,12 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
         setStep("additional");
       } else {
         // For doctors and clinics, redirect to application form
-        toast.success("Телефон подтвержден! Заполните анкету для верификации.");
+        toast.success(t("auth.phoneVerified"));
         onSuccess(); // This will trigger Auth.tsx to show the application form
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error verifying code:", err);
-      setErrors({ otp: getErrorMessage(err, err?.message || "Неверный код") });
+      setErrors({ otp: getErrorMessage(err, err instanceof Error ? err.message : t("auth.toastInvalidCode")) });
     } finally {
       setLoading(false);
     }
@@ -212,16 +234,16 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
       });
 
       if (error) {
-        throw new Error(error.message || "Ошибка сервера");
+        throw new Error(error.message || t("auth.toastServerError"));
       }
       if (data?.success === false || data?.error) {
-        throw new Error(data.error || "Ошибка повторной отправки");
+        throw new Error(data.error || t("auth.toastResendError"));
       }
 
-      toast.success("Код отправлен повторно");
-    } catch (err: any) {
+      toast.success(t("auth.toastCodeResent"));
+    } catch (err: unknown) {
       console.error("Error resending code:", err);
-      toast.error(getErrorMessage(err, err?.message || "Ошибка отправки кода"));
+      toast.error(getErrorMessage(err, err instanceof Error ? err.message : t("auth.toastSendCodeError")));
     } finally {
       setResending(false);
     }
@@ -233,7 +255,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
       // Update profile with additional contact and location
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const updateData: Record<string, any> = {
+        const updateData: Record<string, unknown> = {
           country,
           region,
           district,
@@ -257,11 +279,11 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
       }
 
       setStep("complete");
-      toast.success("Регистрация завершена!");
+      toast.success(t("auth.toastRegisterDone"));
       setTimeout(onSuccess, 1500);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error completing registration:", error);
-      toast.error("Ошибка завершения регистрации");
+      toast.error(t("auth.finishRegisterError"));
     } finally {
       setLoading(false);
     }
@@ -286,9 +308,9 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
 
   // Step indicators
   const steps = [
-    { key: "role", label: "Роль" },
-    { key: "details", label: "Данные" },
-    { key: "otp", label: "Код" },
+    { key: "role", label: t("auth.stepRole") },
+    { key: "details", label: t("auth.stepDetails") },
+    { key: "otp", label: t("auth.stepCode") },
   ];
   
   const currentStepIndex = steps.findIndex(s => s.key === step);
@@ -325,18 +347,18 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               {step === "complete" && <CheckCircle2 className="w-8 h-8 text-white" />}
             </div>
             <h1 className="text-2xl font-bold text-foreground mb-1">
-              {step === "role" && "Создать аккаунт"}
-              {step === "details" && (role === "patient" ? "Регистрация" : role === "doctor" ? "Регистрация врача" : "Регистрация клиники")}
-              {step === "otp" && "Подтверждение"}
-              {step === "additional" && "Почти готово!"}
-              {step === "complete" && "Добро пожаловать!"}
+              {step === "role" && t("auth.registerCreate")}
+              {step === "details" && (role === "patient" ? t("auth.registerTitle") : role === "doctor" ? t("auth.registerDoctor") : t("auth.registerClinic"))}
+              {step === "otp" && t("auth.otpVerification")}
+              {step === "additional" && t("auth.almostDone")}
+              {step === "complete" && t("auth.welcome")}
             </h1>
             <p className="text-muted-foreground">
-              {step === "role" && "Выберите тип вашего аккаунта"}
-              {step === "details" && "Заполните ваши данные"}
-              {step === "otp" && "Введите код подтверждения"}
-              {step === "additional" && (verificationMethod === "phone" ? "Добавьте email для уведомлений" : "Добавьте номер телефона")}
-              {step === "complete" && "Регистрация успешно завершена"}
+              {step === "role" && t("auth.pickAccountType")}
+              {step === "details" && t("auth.fillYourData")}
+              {step === "otp" && t("auth.enterOtp")}
+              {step === "additional" && (verificationMethod === "phone" ? t("auth.addEmailForNotif") : t("auth.addPhoneNumber"))}
+              {step === "complete" && t("auth.regSuccess")}
             </p>
           </div>
           
@@ -381,15 +403,15 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                 className="w-full h-12 text-base font-semibold rounded-xl bg-gradient-to-r from-primary to-teal-500 hover:from-primary/90 hover:to-teal-500/90 shadow-lg shadow-primary/25 transition-all hover:shadow-xl hover:shadow-primary/30 hover:scale-[1.02] active:scale-[0.98]" 
                 onClick={() => setStep("details")}
               >
-                Продолжить
+                {t("auth.continue")}
               </Button>
               <p className="text-center text-sm text-muted-foreground">
-                Уже есть аккаунт?{" "}
-                <button 
+                {t("auth.alreadyHaveAccount")}{" "}
+                <button
                   onClick={onSwitchToLogin}
                   className="text-primary font-semibold hover:underline"
                 >
-                  Войти
+                  {t("auth.loginLink")}
                 </button>
               </p>
             </>
@@ -401,12 +423,12 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
             <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
               {role === "clinic" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="clinicName">Название клиники *</Label>
+                  <Label htmlFor="clinicName">{t("auth.clinicNameRequired")}</Label>
                   <Input
                     id="clinicName"
-                    placeholder="Стоматология «Улыбка»"
+                    placeholder={t("auth.clinicNamePlaceholderText")}
                     value={clinicName}
-                    onChange={(e) => setClinicName(e.target.value)}
+                    onChange={(e) => { setClinicName(e.target.value); if (e.target.value.trim().length >= 2) clearError("clinicName"); }}
                     disabled={loading}
                     className={errors.clinicName ? "border-destructive" : ""}
                   />
@@ -415,12 +437,12 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               ) : (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="lastName">Фамилия *</Label>
+                    <Label htmlFor="lastName">{t("auth.lastNameRequired")}</Label>
                     <Input
                       id="lastName"
-                      placeholder="Иванов"
+                      placeholder={t("auth.lastNamePh")}
                       value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
+                      onChange={(e) => { setLastName(e.target.value); if (e.target.value.trim().length >= 2) clearError("lastName"); }}
                       disabled={loading}
                       className={errors.lastName ? "border-destructive" : ""}
                     />
@@ -428,12 +450,12 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="firstName">Имя *</Label>
+                    <Label htmlFor="firstName">{t("auth.firstNameRequired")}</Label>
                     <Input
                       id="firstName"
-                      placeholder="Иван"
+                      placeholder={t("auth.firstNamePh")}
                       value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
+                      onChange={(e) => { setFirstName(e.target.value); if (e.target.value.trim().length >= 2) clearError("firstName"); }}
                       disabled={loading}
                       className={errors.firstName ? "border-destructive" : ""}
                     />
@@ -441,10 +463,10 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="middleName">Отчество <span className="text-muted-foreground text-xs">(необязательно)</span></Label>
+                    <Label htmlFor="middleName">{t("auth.middleName")} <span className="text-muted-foreground text-xs">{t("auth.middleNameOptional")}</span></Label>
                     <Input
                       id="middleName"
-                      placeholder="Иванович"
+                      placeholder={t("auth.middleNamePh")}
                       value={middleName}
                       onChange={(e) => setMiddleName(e.target.value)}
                       disabled={loading}
@@ -456,7 +478,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               {/* For patients, show verification method selector */}
               {role === "patient" && (
                 <div className="space-y-2">
-                  <Label>Способ подтверждения</Label>
+                  <Label>{t("auth.verificationMethodLabel")}</Label>
                   <VerificationMethodSelector
                     value={verificationMethod}
                     onChange={setVerificationMethod}
@@ -469,7 +491,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               {(role !== "patient" || verificationMethod === "phone") && (
                 <PhoneInput
                   value={phone}
-                  onChange={setPhone}
+                  onChange={(value) => { setPhone(value); clearError("phone"); }}
                   error={errors.phone}
                   disabled={loading}
                 />
@@ -484,7 +506,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                     type="email"
                     placeholder="example@mail.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => { setEmail(e.target.value); clearError("email"); }}
                     disabled={loading}
                     className={errors.email ? "border-destructive" : ""}
                   />
@@ -495,11 +517,11 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               {/* Optional email for phone verification */}
               {(role !== "patient" || verificationMethod === "phone") && (
                 <div className="space-y-2">
-                  <Label htmlFor="emailOptional">Email (опционально)</Label>
+                  <Label htmlFor="emailOptional">{t("auth.emailOptional")}</Label>
                   <Input
                     id="emailOptional"
                     type="email"
-                    placeholder="Для уведомлений"
+                    placeholder={t("auth.forNotificationsPlaceholder")}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
@@ -509,7 +531,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
 
               {/* Location Selection */}
               <div className="pt-2 border-t border-border/50">
-                <p className="text-sm font-medium text-muted-foreground mb-3">Местоположение</p>
+                <p className="text-sm font-medium text-muted-foreground mb-3">{t("auth.location")}</p>
                 <LocationSelector
                   country={country}
                   region={region}
@@ -517,10 +539,10 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                   address={address}
                   latitude={latitude}
                   longitude={longitude}
-                  onCountryChange={setCountry}
-                  onRegionChange={setRegion}
+                  onCountryChange={(value) => { setCountry(value); clearError("country"); clearError("region"); }}
+                  onRegionChange={(value) => { setRegion(value); clearError("region"); }}
                   onDistrictChange={setDistrict}
-                  onAddressChange={setAddress}
+                  onAddressChange={(value) => { setAddress(value); if (value.trim()) clearError("address"); }}
                   onLocationChange={(lat, lng) => {
                     setLatitude(lat);
                     setLongitude(lng);
@@ -545,11 +567,11 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                 className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
               />
               <span className="text-sm text-muted-foreground leading-relaxed">
-                Я принимаю{" "}
-                <a href="/terms" target="_blank" className="text-primary hover:underline">условия использования</a>
-                {" "}и{" "}
-                <a href="/privacy" target="_blank" className="text-primary hover:underline">политику конфиденциальности</a>,
-                а также даю согласие на обработку персональных данных.
+                {t("auth.iAccept")}{" "}
+                <a href="/terms" target="_blank" className="text-primary hover:underline">{t("auth.termsLink")}</a>
+                {" "}{t("auth.andLink")}{" "}
+                <a href="/privacy" target="_blank" className="text-primary hover:underline">{t("auth.privacyLink")}</a>,
+                {" "}{t("auth.personalDataConsent")}
               </span>
             </label>
 
@@ -561,12 +583,12 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Отправка...
+                  {t("auth.sending")}
                 </>
               ) : (
                 <>
                   <Shield className="w-4 h-4 mr-2" />
-                  Получить {verificationMethod === "phone" ? "SMS" : "Email"} код
+                  {verificationMethod === "phone" ? t("auth.getCodeSms") : t("auth.getCodeEmail")}
                 </>
               )}
             </Button>
@@ -577,7 +599,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
         {step === "otp" && (
           <>
             <div className="text-center p-4 rounded-xl bg-primary/5 border border-primary/20">
-              <p className="text-sm text-muted-foreground">Код отправлен на</p>
+              <p className="text-sm text-muted-foreground">{t("auth.codeSentLabel")}</p>
               <p className="font-semibold text-foreground mt-1">{maskedContact}</p>
             </div>
             
@@ -605,12 +627,12 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Проверка...
+                  {t("auth.checking")}
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Подтвердить
+                  {t("auth.confirm")}
                 </>
               )}
             </Button>
@@ -623,7 +645,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
             <div className="space-y-4">
               {verificationMethod === "phone" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="additionalEmail" className="text-base font-medium">Email (опционально)</Label>
+                  <Label htmlFor="additionalEmail" className="text-base font-medium">{t("auth.additionalEmailLabel")}</Label>
                   <Input
                     id="additionalEmail"
                     type="email"
@@ -633,7 +655,7 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                     disabled={loading}
                     className="h-12 rounded-xl"
                   />
-                  <p className="text-xs text-muted-foreground">Для получения уведомлений о записях</p>
+                  <p className="text-xs text-muted-foreground">{t("auth.forNotificationsHint")}</p>
                 </div>
               ) : (
                 <PhoneInput
@@ -652,21 +674,21 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
                   onClick={handleCompleteRegistration} 
                   disabled={loading}
                 >
-                  Пропустить
+                  {t("auth.skip")}
                 </Button>
               )}
-              <Button 
-                className="flex-1 h-12 text-base font-semibold rounded-xl bg-gradient-to-r from-primary to-teal-500 hover:from-primary/90 hover:to-teal-500/90 shadow-lg shadow-primary/25" 
-                onClick={handleCompleteRegistration} 
+              <Button
+                className="flex-1 h-12 text-base font-semibold rounded-xl bg-gradient-to-r from-primary to-teal-500 hover:from-primary/90 hover:to-teal-500/90 shadow-lg shadow-primary/25"
+                onClick={handleCompleteRegistration}
                 disabled={loading}
               >
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Сохранение...
+                    {t("auth.saving")}
                   </>
                 ) : (
-                  "Завершить"
+                  t("auth.finish")
                 )}
               </Button>
             </div>
@@ -679,8 +701,8 @@ export function RegistrationFlow({ onSuccess, onSwitchToLogin }: RegistrationFlo
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shadow-lg shadow-green-500/30 animate-[pulse_2s_ease-in-out_infinite]">
               <CheckCircle2 className="w-10 h-10 text-white" />
             </div>
-            <h2 className="text-xl font-bold text-foreground mb-2">Добро пожаловать в ProDent!</h2>
-            <p className="text-muted-foreground">Перенаправление...</p>
+            <h2 className="text-xl font-bold text-foreground mb-2">{t("auth.welcomeProdent")}</h2>
+            <p className="text-muted-foreground">{t("auth.redirectingDots")}</p>
             <div className="mt-4 flex justify-center">
               <Loader2 className="w-5 h-5 animate-spin text-primary" />
             </div>

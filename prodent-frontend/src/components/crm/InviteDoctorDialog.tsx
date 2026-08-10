@@ -16,6 +16,43 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Search, UserPlus, Loader2, Mail, AtSign, CheckCircle, Star } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  createDoctorClinicRequest,
+  normalizeDoctorClinicRequestStatus,
+} from '@/lib/doctor-clinic-requests-api';
+
+type DoctorProfile = {
+  id?: string | null;
+  full_name?: string | null;
+  avatar_url?: string | null;
+  phone?: string | null;
+};
+
+type InviteDoctorResult = {
+  id: string;
+  specialty?: string | null;
+  experience_years?: number | null;
+  rating?: number | null;
+  verified?: boolean | null;
+  user_id?: string | null;
+  clinic_id?: string | null;
+  profile?: DoctorProfile | DoctorProfile[] | null;
+  email?: string | null;
+};
+
+type SupabaseAuthWithOptionalAdmin = typeof supabase.auth & {
+  admin?: {
+    getUserById?: (userId: string) => Promise<{ data?: { user?: { email?: string | null } | null } | null }>;
+  };
+};
+
+type MutationError = { message?: string } | Error | unknown;
+
+const getDoctorProfile = (doctor: InviteDoctorResult): DoctorProfile | null => {
+  if (Array.isArray(doctor.profile)) return doctor.profile[0] ?? null;
+  return doctor.profile ?? null;
+};
 
 interface InviteDoctorDialogProps {
   open: boolean;
@@ -24,10 +61,34 @@ interface InviteDoctorDialogProps {
 }
 
 export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDoctorDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
+  const [selectedDoctor, setSelectedDoctor] = useState<InviteDoctorResult | null>(null);
   const [message, setMessage] = useState('');
+  // Cooperation terms the clinic offers the doctor (carried on the invitation).
+  const [cooperationType, setCooperationType] = useState<'staff_doctor' | 'chair_rental' | ''>('');
+  // Staff pay model: % share, fixed monthly salary, by agreement, or unpaid intern.
+  const [salaryMode, setSalaryMode] = useState<'percent' | 'fixed' | 'agreement' | 'intern'>('percent');
+  const [salaryPercent, setSalaryPercent] = useState('');
+  const [salaryAmount, setSalaryAmount] = useState('');
+  // Rental terms: a fixed fee, free, or negotiable ("по соглашению").
+  const [rentalMode, setRentalMode] = useState<'fixed' | 'free' | 'negotiable'>('fixed');
+  const [rentalFee, setRentalFee] = useState('');
+  const [rentalPeriod, setRentalPeriod] = useState('monthly');
+
+  const resetForm = () => {
+    setSelectedDoctor(null);
+    setMessage('');
+    setSearchQuery('');
+    setCooperationType('');
+    setSalaryMode('percent');
+    setSalaryPercent('');
+    setSalaryAmount('');
+    setRentalMode('fixed');
+    setRentalFee('');
+    setRentalPeriod('monthly');
+  };
 
   // Search doctors by email or name
   const { data: searchResults, isLoading: isSearching } = useQuery({
@@ -60,14 +121,17 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
       const filteredDoctors = [];
       
       for (const doctor of doctors || []) {
-        const profile = doctor.profile as any;
+        const profile = getDoctorProfile(doctor as InviteDoctorResult);
         const fullName = profile?.full_name?.toLowerCase() || '';
         const queryLower = searchQuery.toLowerCase();
         
         // Check if name matches
         if (fullName.includes(queryLower)) {
           // Get email from auth
-          const { data: userData } = await supabase.auth.admin?.getUserById?.(doctor.user_id) || { data: null };
+          const { data: userData } =
+            (doctor.user_id
+              ? await (supabase.auth as SupabaseAuthWithOptionalAdmin).admin?.getUserById?.(doctor.user_id)
+              : null) || { data: null };
           filteredDoctors.push({
             ...doctor,
             email: userData?.user?.email || null
@@ -113,8 +177,8 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
       if (nameError) throw nameError;
 
       // Filter by name containing query
-      return (doctorsByName || []).filter(d => {
-        const profile = d.profile as any;
+      return ((doctorsByName || []) as InviteDoctorResult[]).filter(d => {
+        const profile = getDoctorProfile(d);
         const name = profile?.full_name?.toLowerCase() || '';
         return name.includes(searchQuery.toLowerCase());
       });
@@ -130,7 +194,7 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
         .from('doctor_clinic_requests')
         .select('doctor_id, status')
         .eq('clinic_id', clinicId)
-        .in('status', ['pending', 'approved']);
+        .in('status', ['pending', 'approved', 'PENDING', 'APPROVED']);
 
       const { data: members } = await supabase
         .from('clinic_members')
@@ -139,7 +203,9 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
         .eq('role', 'doctor');
 
       return {
-        pendingDoctorIds: requests?.filter(r => r.status === 'pending').map(r => r.doctor_id) || [],
+        pendingDoctorIds: requests
+          ?.filter((request) => normalizeDoctorClinicRequestStatus(request.status) === 'pending')
+          .map((request) => request.doctor_id) || [],
         memberUserIds: members?.map(m => m.user_id) || [],
       };
     },
@@ -148,35 +214,38 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
 
   const inviteMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedDoctor) throw new Error('Выберите врача');
+      if (!selectedDoctor) throw new Error(t('crmDoctorMgmt.doctorPlaceholder'));
 
-      const user = (await supabase.auth.getUser()).data.user;
-      if (!user) throw new Error('Не авторизован');
-
-      const { error } = await supabase
-        .from('doctor_clinic_requests')
-        .insert({
-          doctor_id: selectedDoctor.id,
-          clinic_id: clinicId,
-          request_type: 'clinic_to_doctor',
-          invited_by: user.id,
-          message: message || null,
-          status: 'pending',
-        });
-
-      if (error) throw error;
+      await createDoctorClinicRequest({
+        doctorId: selectedDoctor.id,
+        clinicId,
+        requestType: 'clinic_to_doctor',
+        message: message || null,
+        cooperationType: cooperationType || null,
+        salaryMode: cooperationType === 'staff_doctor' ? salaryMode : null,
+        salaryPercent: cooperationType === 'staff_doctor' && salaryMode === 'percent' && salaryPercent
+          ? Number(salaryPercent)
+          : null,
+        salaryAmount: cooperationType === 'staff_doctor' && salaryMode === 'fixed' && salaryAmount
+          ? Number(salaryAmount)
+          : null,
+        rentalFee: cooperationType === 'chair_rental'
+          ? (rentalMode === 'free' ? 0 : (rentalMode === 'fixed' && rentalFee ? Number(rentalFee) : null))
+          : null,
+        rentalPeriod: cooperationType === 'chair_rental'
+          ? (rentalMode === 'negotiable' ? 'negotiable' : (rentalMode === 'fixed' ? rentalPeriod : null))
+          : null,
+      });
     },
     onSuccess: () => {
-      toast.success('Приглашение отправлено врачу');
+      toast.success(t('crmDoctorMgmt.inviteSent'));
       queryClient.invalidateQueries({ queryKey: ['doctor-clinic-relations'] });
       queryClient.invalidateQueries({ queryKey: ['clinic-invitations'] });
-      setSelectedDoctor(null);
-      setMessage('');
-      setSearchQuery('');
+      resetForm();
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast.error('Ошибка', { description: error.message });
+    onError: (error: MutationError) => {
+      toast.error(t('crmDoctorMgmt.inviteError'), { description: error instanceof Error ? error.message : undefined });
     },
   });
 
@@ -184,7 +253,7 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
     return existingRelations?.pendingDoctorIds?.includes(doctorId);
   };
 
-  const isDoctorAlreadyMember = (doctor: any) => {
+  const isDoctorAlreadyMember = (doctor: InviteDoctorResult) => {
     return existingRelations?.memberUserIds?.includes(doctor.user_id) || doctor.clinic_id === clinicId;
   };
 
@@ -194,21 +263,21 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
-            Пригласить врача в клинику
+            {t('crmDoctorMgmt.inviteTitle')}
           </DialogTitle>
           <DialogDescription>
-            Найдите врача по имени или email и отправьте приглашение
+            {t('crmDoctorMgmt.inviteDesc')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Search Input */}
           <div className="space-y-2">
-            <Label>Поиск врача</Label>
+            <Label>{t('crmDoctorMgmt.doctorPlaceholder')}</Label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Введите имя или email врача..."
+                placeholder={t('crmDoctorMgmt.doctorEmailPlaceholder')}
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
@@ -218,7 +287,7 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Минимум 3 символа для поиска
+              {t('crmPatientComponents.searchPlaceholder')}
             </p>
           </div>
 
@@ -231,9 +300,9 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
 
           {searchResults && searchResults.length > 0 && !selectedDoctor && (
             <div className="space-y-2 max-h-60 overflow-y-auto">
-              <Label>Результаты поиска</Label>
-              {searchResults.map((doctor: any) => {
-                const profile = doctor.profile as any;
+              <Label>{t('crmDoctorMgmt.doctorPlaceholder')}</Label>
+              {searchResults.map((doctor: InviteDoctorResult) => {
+                const profile = getDoctorProfile(doctor);
                 const isInvited = isDoctorAlreadyInvited(doctor.id);
                 const isMember = isDoctorAlreadyMember(doctor);
 
@@ -260,7 +329,7 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">
-                          {profile?.full_name || 'Без имени'}
+                          {profile?.full_name || t('crmDoctorMgmt.doctorName')}
                         </span>
                         {doctor.verified && (
                           <CheckCircle className="h-4 w-4 text-primary flex-shrink-0" />
@@ -270,12 +339,12 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
                         {doctor.specialty}
                       </p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{doctor.experience_years} лет опыта</span>
+                        <span>{doctor.experience_years} {t('doctorAbout.yearsExp')}</span>
                         {doctor.rating && (
                           <>
                             <span>•</span>
                             <span className="flex items-center gap-1">
-                              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                              <Star className="h-3 w-3 fill-rating text-rating" />
                               {doctor.rating}
                             </span>
                           </>
@@ -283,10 +352,10 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
                       </div>
                     </div>
                     {isInvited && (
-                      <Badge variant="secondary">Приглашён</Badge>
+                      <Badge variant="secondary">{t('doctorClinicInvitations.pending')}</Badge>
                     )}
                     {isMember && (
-                      <Badge variant="default">В клинике</Badge>
+                      <Badge variant="default">{t('doctorClinicInvitations.accepted')}</Badge>
                     )}
                   </div>
                 );
@@ -296,7 +365,7 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
 
           {searchQuery.length >= 3 && !isSearching && searchResults?.length === 0 && (
             <p className="text-center text-muted-foreground py-4">
-              Врачи не найдены
+              {t('crmPatientComponents.noResults')}
             </p>
           )}
 
@@ -306,14 +375,14 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
               <div className="p-4 rounded-lg border bg-primary/5 border-primary/20">
                 <div className="flex items-center gap-3">
                   <Avatar className="h-12 w-12">
-                    <AvatarImage src={(selectedDoctor.profile as any)?.avatar_url} />
+                    <AvatarImage src={getDoctorProfile(selectedDoctor)?.avatar_url ?? undefined} />
                     <AvatarFallback>
-                      {(selectedDoctor.profile as any)?.full_name?.charAt(0) || 'D'}
+                      {getDoctorProfile(selectedDoctor)?.full_name?.charAt(0) || 'D'}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="font-medium">
-                      {(selectedDoctor.profile as any)?.full_name}
+                      {getDoctorProfile(selectedDoctor)?.full_name}
                     </p>
                     <p className="text-sm text-muted-foreground">
                       {selectedDoctor.specialty}
@@ -325,15 +394,127 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
                     className="ml-auto"
                     onClick={() => setSelectedDoctor(null)}
                   >
-                    Изменить
+                    {t('doctorReviews.edit')}
                   </Button>
                 </div>
               </div>
 
+              {/* Cooperation type the clinic offers */}
               <div className="space-y-2">
-                <Label>Сообщение (необязательно)</Label>
-                <Textarea
-                  placeholder="Напишите сообщение для врача..."
+                <Label>Тип сотрудничества <span className="text-destructive">*</span></Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={cooperationType === 'staff_doctor' ? 'default' : 'outline'}
+                    onClick={() => setCooperationType('staff_doctor')}
+                  >
+                    Штатный врач
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={cooperationType === 'chair_rental' ? 'default' : 'outline'}
+                    onClick={() => setCooperationType('chair_rental')}
+                  >
+                    Аренда кресла
+                  </Button>
+                </div>
+              </div>
+
+              {cooperationType === 'staff_doctor' && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Оплата</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" variant={salaryMode === 'percent' ? 'default' : 'outline'} onClick={() => setSalaryMode('percent')}>
+                        Процент
+                      </Button>
+                      <Button type="button" variant={salaryMode === 'fixed' ? 'default' : 'outline'} onClick={() => setSalaryMode('fixed')}>
+                        Фикс. зарплата
+                      </Button>
+                      <Button type="button" variant={salaryMode === 'agreement' ? 'default' : 'outline'} onClick={() => setSalaryMode('agreement')}>
+                        По соглашению
+                      </Button>
+                      <Button type="button" variant={salaryMode === 'intern' ? 'default' : 'outline'} onClick={() => setSalaryMode('intern')}>
+                        Интерн
+                      </Button>
+                    </div>
+                  </div>
+                  {salaryMode === 'percent' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="invite-doctor-dialog-field-1">Доля клиники, %</Label>
+                      <Input id="invite-doctor-dialog-field-1"
+                        type="number"
+                        min="0"
+                        max="100"
+                        placeholder="40"
+                        value={salaryPercent}
+                        onChange={(e) => setSalaryPercent(e.target.value)}
+                      />
+                    </div>
+                  )}
+                  {salaryMode === 'fixed' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="invite-doctor-dialog-field-2">Зарплата, сум / мес</Label>
+                      <Input id="invite-doctor-dialog-field-2"
+                        type="number"
+                        min="0"
+                        placeholder="5000000"
+                        value={salaryAmount}
+                        onChange={(e) => setSalaryAmount(e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {cooperationType === 'chair_rental' && (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label>Условия аренды</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button type="button" variant={rentalMode === 'fixed' ? 'default' : 'outline'} onClick={() => setRentalMode('fixed')}>
+                        Сумма
+                      </Button>
+                      <Button type="button" variant={rentalMode === 'free' ? 'default' : 'outline'} onClick={() => setRentalMode('free')}>
+                        Бесплатно
+                      </Button>
+                      <Button type="button" variant={rentalMode === 'negotiable' ? 'default' : 'outline'} onClick={() => setRentalMode('negotiable')}>
+                        По соглашению
+                      </Button>
+                    </div>
+                  </div>
+                  {rentalMode === 'fixed' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="invite-doctor-dialog-field-3">Аренда, сум</Label>
+                        <Input id="invite-doctor-dialog-field-3"
+                          type="number"
+                          min="0"
+                          placeholder="2000000"
+                          value={rentalFee}
+                          onChange={(e) => setRentalFee(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Период</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={rentalPeriod}
+                          onChange={(e) => setRentalPeriod(e.target.value)}
+                        >
+                          <option value="monthly">в месяц</option>
+                          <option value="daily">в день</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="invite-doctor-dialog-field-4">{t('crmDoctorMgmt.message')}</Label>
+                <Textarea id="invite-doctor-dialog-field-4"
+                  placeholder={t('crmDoctorMgmt.messagePlaceholder')}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   rows={3}
@@ -343,17 +524,17 @@ export function InviteDoctorDialog({ open, onOpenChange, clinicId }: InviteDocto
               <Button
                 className="w-full"
                 onClick={() => inviteMutation.mutate()}
-                disabled={inviteMutation.isPending}
+                disabled={inviteMutation.isPending || !cooperationType}
               >
                 {inviteMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Отправка...
+                    {t('crmDoctorMgmt.sending')}
                   </>
                 ) : (
                   <>
                     <UserPlus className="mr-2 h-4 w-4" />
-                    Отправить приглашение
+                    {t('crmDoctorMgmt.sendInvite')}
                   </>
                 )}
               </Button>

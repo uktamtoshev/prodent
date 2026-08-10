@@ -1,27 +1,37 @@
 import { CRMLayout } from "@/components/crm/CRMLayout";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Settings, Shield } from "lucide-react";
 import { PermissionsManager } from "@/components/crm/settings/PermissionsManager";
+import { BookingPolicyManager } from "@/components/crm/settings/BookingPolicyManager";
+import { CurrencyManager } from "@/components/crm/settings/CurrencyManager";
+import { IntegrationsManager } from "@/components/crm/settings/IntegrationsManager";
+import { RoomsManager } from "@/components/crm/settings/RoomsManager";
+import { WorkingHoursManager } from "@/components/crm/settings/WorkingHoursManager";
+import { WorkspaceBackgroundManager } from "@/components/crm/settings/WorkspaceBackgroundManager";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 export default function CRMSettings() {
+  const { t } = useLanguage();
   return (
     <CRMLayout>
-      <div className="p-6 lg:p-8 space-y-6">
-        <div>
-          <h1 className="font-heading text-foreground">Настройки</h1>
-          <p className="text-muted-foreground mt-1">Настройки CRM</p>
+      <div className="space-y-section p-4 lg:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="cabinet-page-title font-heading text-xl font-bold tracking-tight text-foreground">{t("crmSettings.title")}</h1>
+            <p className="text-muted-foreground">{t("crmSettings.description")}</p>
+          </div>
         </div>
 
-        <Tabs defaultValue="permissions" className="space-y-6">
-          <TabsList className="bg-muted/50 border border-border/50">
-            <TabsTrigger value="permissions" className="gap-2 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+        <Tabs defaultValue="permissions" className="space-y-section">
+          <TabsList className="h-auto flex-wrap gap-0.5">
+            <TabsTrigger value="permissions" className="gap-2">
               <Shield className="w-4 h-4" />
-              Права доступа
+              {t("crmSettings.tabPermissions")}
             </TabsTrigger>
-            <TabsTrigger value="general" className="gap-2 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
+            <TabsTrigger value="general" className="gap-2">
               <Settings className="w-4 h-4" />
-              Общие
+              {t("crmSettings.tabGeneral")}
             </TabsTrigger>
           </TabsList>
 
@@ -30,19 +40,14 @@ export default function CRMSettings() {
           </TabsContent>
 
           <TabsContent value="general">
-            <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-              <CardHeader>
-                <CardTitle className="text-foreground flex items-center gap-2">
-                  <Settings className="w-5 h-5" />
-                  Общие настройки
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-muted-foreground text-center py-12">
-                  Здесь будут общие настройки CRM системы
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-section">
+              <WorkspaceBackgroundManager />
+              <BookingPolicyManager />
+              <WorkingHoursManager />
+              <RoomsManager />
+              <CurrencyManager />
+              <IntegrationsManager />
+            </div>
           </TabsContent>
         </Tabs>
       </div>

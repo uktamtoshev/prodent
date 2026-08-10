@@ -13,6 +13,10 @@ import { differenceInYears } from "date-fns";
 
 type FormulaType = 'child' | 'adult' | 'mixed';
 
+const isToothStatus = (value: unknown): value is ToothStatus =>
+  typeof value === 'string' &&
+  (value in CHILD_STATUS_CONFIG || value in ADULT_STATUS_CONFIG);
+
 // Child teeth numbers (FDI notation)
 const CHILD_UPPER_RIGHT = [55, 54, 53, 52, 51];
 const CHILD_UPPER_LEFT = [61, 62, 63, 64, 65];
@@ -77,7 +81,9 @@ export function AnimatedDentalChart({ patientId, birthDate, readOnly = true }: A
 
   // Build teeth map for quick lookup
   const teethMap = useMemo(() => {
-    const map = new Map<number, any>();
+    type ToothRow = NonNullable<typeof teethData>[number];
+    type ToothWithDoctor = ToothRow & { doctor_name?: string | null };
+    const map = new Map<number, ToothWithDoctor>();
     teethData?.forEach(tooth => {
       map.set(tooth.tooth_number, {
         ...tooth,
@@ -88,14 +94,15 @@ export function AnimatedDentalChart({ patientId, birthDate, readOnly = true }: A
   }, [teethData]);
 
   const getToothStatus = (number: number): ToothStatus => {
-    return teethMap.get(number)?.status || 'healthy';
+    const status = teethMap.get(number)?.status;
+    return isToothStatus(status) ? status : 'healthy';
   };
 
   const getToothData = (number: number) => {
     const data = teethMap.get(number);
     return {
       tooth_number: number,
-      status: data?.status || 'healthy',
+      status: isToothStatus(data?.status) ? data.status : 'healthy',
       notes: data?.notes,
       images: data?.images,
       materials: data?.materials,

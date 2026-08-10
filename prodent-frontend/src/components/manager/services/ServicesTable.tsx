@@ -1,30 +1,33 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator
 } from '@/components/ui/dropdown-menu';
-import { toast } from 'sonner';
-import { 
-  Clock, 
-  Edit, 
-  Trash2, 
-  UserPlus, 
+import {
+  Clock,
+  Edit,
+  Trash2,
+  UserPlus,
   MoreHorizontal,
   ChevronDown,
   ChevronRight,
-  Users
 } from 'lucide-react';
 import { formatPrice, cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useClinic } from '@/contexts/ClinicContext';
+import {
+  invalidateClinicServiceQueries,
+  setClinicServicesActive,
+} from '@/lib/clinic-service-management-api';
 
 interface Service {
   id: string;
@@ -59,8 +62,11 @@ interface ServicesTableProps {
   onAssign: (service: Service) => void;
   onDelete: (id: string) => void;
   groupedByCategory?: boolean;
+  canEdit?: boolean;
+  canManage?: boolean;
 }
 
+// Category color map keyed by canonical Russian category names stored in DB.
 const categoryColors: Record<string, string> = {
   'Консультация': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
   'Диагностика': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
@@ -74,6 +80,20 @@ const categoryColors: Record<string, string> = {
   'Детская стоматология': 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
 };
 
+// Map canonical Russian category name -> crmServiceDialogs translation key.
+const categoryKeyMap: Record<string, string> = {
+  'Консультация': 'catConsultation',
+  'Диагностика': 'catDiagnostics',
+  'Терапия': 'catTherapy',
+  'Профилактика': 'catPrevention',
+  'Хирургия': 'catSurgery',
+  'Имплантация': 'catImplantation',
+  'Ортопедия': 'catProsthetics',
+  'Ортодонтия': 'catOrthodontics',
+  'Эстетика': 'catAesthetics',
+  'Детская стоматология': 'catPediatric',
+};
+
 export function ServicesTable({
   services,
   doctors,
@@ -84,10 +104,22 @@ export function ServicesTable({
   onAssign,
   onDelete,
   groupedByCategory = true,
+  canEdit = true,
+  canManage = true,
 }: ServicesTableProps) {
+  const { t } = useLanguage();
+  const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
+
+  const localizedCategory = (cat: string) => {
+    const key = categoryKeyMap[cat];
+    return key ? t(`crmServiceDialogs.${key}`) : cat;
+  };
+
+  const otherFallback = t('crmServiceDialogs.catOther');
+
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(
-    [...new Set(services.map(s => s.category || 'Другие'))]
+    [...new Set(services.map(s => s.category || otherFallback))]
   ));
 
   const toggleCategory = (category: string) => {
@@ -102,21 +134,18 @@ export function ServicesTable({
 
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const { error } = await supabase
-        .from('services')
-        .update({ is_active })
-        .eq('id', id);
-      if (error) throw error;
+      if (!canEdit) throw new Error(t('crm.accessDenied'));
+      if (!currentClinic?.id) throw new Error(t('crmServiceDialogs.noClinicSelected'));
+      await setClinicServicesActive(currentClinic.id, [id], is_active);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['clinic-services'] });
-      queryClient.invalidateQueries({ queryKey: ['services'] });
+      void invalidateClinicServiceQueries(queryClient);
     },
   });
 
   // Group by category
   const groupedServices = services.reduce((acc, service) => {
-    const category = service.category || 'Другие';
+    const category = service.category || otherFallback;
     if (!acc[category]) {
       acc[category] = [];
     }
@@ -128,8 +157,8 @@ export function ServicesTable({
   const someSelected = selectedServices.size > 0 && selectedServices.size < services.length;
 
   const renderServiceRow = (service: Service, showCategory = false) => (
-    <TableRow 
-      key={service.id} 
+    <TableRow
+      key={service.id}
       className={cn(
         "group hover:bg-muted/50 transition-colors",
         selectedServices.has(service.id) && "bg-muted/30"
@@ -139,7 +168,8 @@ export function ServicesTable({
         <Checkbox
           checked={selectedServices.has(service.id)}
           onCheckedChange={() => onToggleSelect(service.id)}
-          aria-label={`Выбрать ${service.name}`}
+          disabled={!canEdit}
+          aria-label={`${t('managerRole.selectServiceAria')} ${service.name}`}
         />
       </TableCell>
       <TableCell>
@@ -156,21 +186,21 @@ export function ServicesTable({
       </TableCell>
       {showCategory && (
         <TableCell>
-          <Badge 
-            variant="secondary" 
+          <Badge
+            variant="secondary"
             className={cn(
               "font-normal",
               categoryColors[service.category] || 'bg-muted text-muted-foreground'
             )}
           >
-            {service.category}
+            {localizedCategory(service.category)}
           </Badge>
         </TableCell>
       )}
       <TableCell>
         <div className="font-semibold text-foreground">
           {service.price > 0 ? formatPrice(service.price) : (
-            <span className="text-muted-foreground font-normal">Не указана</span>
+            <span className="text-muted-foreground font-normal">{t('managerRole.priceNotSet')}</span>
           )}
         </div>
         {service.currency === 'USD' && service.price > 0 && (
@@ -180,18 +210,18 @@ export function ServicesTable({
       <TableCell>
         <div className="flex items-center gap-1.5 text-muted-foreground">
           <Clock className="w-3.5 h-3.5" />
-          <span className="text-sm">{service.duration_minutes || 30} мин</span>
+          <span className="text-sm">{service.duration_minutes || 30} {t('managerRole.durationMin')}</span>
         </div>
       </TableCell>
       <TableCell>
         <Switch
           checked={service.is_active ?? true}
           onCheckedChange={(checked) => toggleActiveMutation.mutate({ id: service.id, is_active: checked })}
-          disabled={toggleActiveMutation.isPending}
+          disabled={!canEdit || toggleActiveMutation.isPending}
         />
       </TableCell>
       <TableCell>
-        <DropdownMenu>
+        {canEdit && <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <MoreHorizontal className="w-4 h-4" />
@@ -200,22 +230,22 @@ export function ServicesTable({
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem onClick={() => onEdit(service)} className="gap-2">
               <Edit className="w-4 h-4" />
-              Редактировать
+              {t('managerRole.svcEdit')}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAssign(service)} className="gap-2">
               <UserPlus className="w-4 h-4" />
-              Назначить врачу
+              {t('managerRole.svcAssignToDoctor')}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={() => onDelete(service.id)} 
+            {canManage && <DropdownMenuSeparator />}
+            {canManage && <DropdownMenuItem
+              onClick={() => onDelete(service.id)}
               className="gap-2 text-destructive focus:text-destructive"
             >
               <Trash2 className="w-4 h-4" />
-              Удалить
-            </DropdownMenuItem>
+              {t('managerRole.svcDelete')}
+            </DropdownMenuItem>}
           </DropdownMenuContent>
-        </DropdownMenu>
+        </DropdownMenu>}
       </TableCell>
     </TableRow>
   );
@@ -229,18 +259,19 @@ export function ServicesTable({
               <TableHead className="w-12">
                 <Checkbox
                   checked={allSelected}
+                  disabled={!canEdit}
                   ref={(el) => {
                     if (el) (el as HTMLButtonElement).dataset.state = someSelected ? 'indeterminate' : (allSelected ? 'checked' : 'unchecked');
                   }}
                   onCheckedChange={(checked) => onSelectAll(!!checked)}
-                  aria-label="Выбрать все"
+                  aria-label={t('managerRole.selectAria')}
                 />
               </TableHead>
-              <TableHead>Название услуги</TableHead>
-              <TableHead>Категория</TableHead>
-              <TableHead>Цена</TableHead>
-              <TableHead>Время</TableHead>
-              <TableHead>Статус</TableHead>
+              <TableHead>{t('managerRole.tableNameHeader')}</TableHead>
+              <TableHead>{t('managerRole.tableCategoryHeader')}</TableHead>
+              <TableHead>{t('managerRole.tablePriceHeader')}</TableHead>
+              <TableHead>{t('managerRole.tableTimeHeader')}</TableHead>
+              <TableHead>{t('managerRole.tableStatusHeader')}</TableHead>
               <TableHead className="w-16"></TableHead>
             </TableRow>
           </TableHeader>
@@ -257,10 +288,10 @@ export function ServicesTable({
       {Object.entries(groupedServices).map(([category, categoryServices]) => {
         const isExpanded = expandedCategories.has(category);
         const activeCount = categoryServices.filter(s => s.is_active !== false).length;
-        
+
         return (
-          <div 
-            key={category} 
+          <div
+            key={category}
             className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden shadow-soft"
           >
             {/* Category Header */}
@@ -274,17 +305,17 @@ export function ServicesTable({
                 ) : (
                   <ChevronRight className="w-5 h-5 text-muted-foreground" />
                 )}
-                <Badge 
-                  variant="secondary" 
+                <Badge
+                  variant="secondary"
                   className={cn(
                     "font-medium px-3 py-1",
                     categoryColors[category] || 'bg-muted text-muted-foreground'
                   )}
                 >
-                  {category}
+                  {localizedCategory(category)}
                 </Badge>
                 <span className="text-sm text-muted-foreground">
-                  {categoryServices.length} услуг • {activeCount} активных
+                  {categoryServices.length} {t('managerRole.svcCount')} • {activeCount} {t('managerRole.svcActiveCount')}
                 </span>
               </div>
             </button>
@@ -297,6 +328,7 @@ export function ServicesTable({
                     <TableHead className="w-12">
                       <Checkbox
                         checked={categoryServices.every(s => selectedServices.has(s.id))}
+                        disabled={!canEdit}
                         onCheckedChange={(checked) => {
                           categoryServices.forEach(s => {
                             if (checked && !selectedServices.has(s.id)) {
@@ -306,13 +338,13 @@ export function ServicesTable({
                             }
                           });
                         }}
-                        aria-label={`Выбрать все в ${category}`}
+                        aria-label={`${t('managerRole.selectInCatAria')} ${localizedCategory(category)}`}
                       />
                     </TableHead>
-                    <TableHead>Название услуги</TableHead>
-                    <TableHead>Цена</TableHead>
-                    <TableHead>Время</TableHead>
-                    <TableHead>Статус</TableHead>
+                    <TableHead>{t('managerRole.tableNameHeader')}</TableHead>
+                    <TableHead>{t('managerRole.tablePriceHeader')}</TableHead>
+                    <TableHead>{t('managerRole.tableTimeHeader')}</TableHead>
+                    <TableHead>{t('managerRole.tableStatusHeader')}</TableHead>
                     <TableHead className="w-16"></TableHead>
                   </TableRow>
                 </TableHeader>

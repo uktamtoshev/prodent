@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useClinic } from '@/contexts/ClinicContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,20 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { toast } from 'sonner';
 import { UserPlus, Search, Trash2 } from 'lucide-react';
 import type { Database } from '@/integrations/supabase/types';
+import { addClinicMember, removeClinicMember, updateClinicMember } from '@/lib/clinic-members-api';
 
 type AppRole = Database['public']['Enums']['app_role'];
-
-const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Супер-админ',
-  clinic_admin: 'Админ клиники',
-  clinic_manager: 'Менеджер',
-  doctor: 'Врач',
-  assistant: 'Ассистент',
-  accountant: 'Бухгалтер',
-  patient: 'Пациент',
-  admin: 'Админ',
-  moderator: 'Модератор',
-};
 
 const ROLE_COLORS: Record<string, string> = {
   super_admin: 'bg-red-500/10 text-red-500',
@@ -34,7 +24,7 @@ const ROLE_COLORS: Record<string, string> = {
   doctor: 'bg-emerald-500/10 text-emerald-500',
   assistant: 'bg-amber-500/10 text-amber-500',
   accountant: 'bg-cyan-500/10 text-cyan-500',
-  patient: 'bg-slate-500/10 text-slate-500',
+  patient: 'bg-muted text-muted-foreground',
   admin: 'bg-orange-500/10 text-orange-500',
   moderator: 'bg-pink-500/10 text-pink-500',
 };
@@ -53,7 +43,21 @@ interface MemberWithProfile {
 }
 
 export function UsersManager() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
+
+  const ROLE_LABELS: Record<string, string> = useMemo(() => ({
+    super_admin: t('crmUsersManager.roleSuperAdmin'),
+    clinic_admin: t('crmUsersManager.roleClinicAdmin'),
+    clinic_manager: t('crmUsersManager.roleManager'),
+    doctor: t('crmUsersManager.roleDoctor'),
+    assistant: t('crmUsersManager.roleAssistant'),
+    accountant: t('crmUsersManager.roleAccountant'),
+    patient: t('crmUsersManager.rolePatient'),
+    admin: t('crmUsersManager.roleAdmin'),
+    moderator: t('crmUsersManager.roleModerator'),
+  }), [t]);
+
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -90,37 +94,27 @@ export function UsersManager() {
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ memberId, role }: { memberId: string; role: AppRole }) => {
-      const { error } = await supabase
-        .from('clinic_members')
-        .update({ role })
-        .eq('id', memberId);
-
-      if (error) throw error;
+      await updateClinicMember({ memberId, role });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clinic-members'] });
-      toast.success('Роль обновлена');
+      toast.success(t('crmUsersManager.roleUpdated'));
     },
     onError: () => {
-      toast.error('Ошибка при обновлении роли');
+      toast.error(t('crmUsersManager.roleUpdateError'));
     },
   });
 
   const removeMemberMutation = useMutation({
     mutationFn: async (memberId: string) => {
-      const { error } = await supabase
-        .from('clinic_members')
-        .delete()
-        .eq('id', memberId);
-
-      if (error) throw error;
+      await removeClinicMember({ memberId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clinic-members'] });
-      toast.success('Пользователь удален из клиники');
+      toast.success(t('crmUsersManager.userRemoved'));
     },
     onError: () => {
-      toast.error('Ошибка при удалении пользователя');
+      toast.error(t('crmUsersManager.userRemoveError'));
     },
   });
 
@@ -133,28 +127,24 @@ export function UsersManager() {
         .single();
 
       if (profileError || !profile) {
-        throw new Error('Пользователь с таким email не найден');
+        throw new Error(t('crmUsersManager.userNotFound'));
       }
 
-      const { error } = await supabase
-        .from('clinic_members')
-        .insert({
-          user_id: profile.id,
-          clinic_id: currentClinic!.id,
-          role,
-        });
-
-      if (error) throw error;
+      await addClinicMember({
+        userId: profile.id,
+        clinicId: currentClinic!.id,
+        role,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clinic-members'] });
-      toast.success('Пользователь добавлен');
+      toast.success(t('crmUsersManager.userAdded'));
       setIsAddDialogOpen(false);
       setNewUserEmail('');
       setNewUserRole('assistant');
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Ошибка при добавлении пользователя');
+      toast.error(error.message || t('crmUsersManager.userAddError'));
     },
   });
 
@@ -167,22 +157,22 @@ export function UsersManager() {
 
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Пользователи клиники</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
+        <CardTitle>{t('crmUsersManager.title')}</CardTitle>
         <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm">
               <UserPlus className="w-4 h-4 mr-2" />
-              Добавить
+              {t('crmUsersManager.add')}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Добавить пользователя</DialogTitle>
+              <DialogTitle>{t('crmUsersManager.addUser')}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>
-                <label className="text-sm text-muted-foreground">Email пользователя</label>
+                <label className="text-sm text-muted-foreground">{t('crmUsersManager.userEmail')}</label>
                 <Input
                   value={newUserEmail}
                   onChange={(e) => setNewUserEmail(e.target.value)}
@@ -190,7 +180,7 @@ export function UsersManager() {
                 />
               </div>
               <div>
-                <label className="text-sm text-muted-foreground">Роль</label>
+                <label className="text-sm text-muted-foreground">{t('crmUsersManager.role')}</label>
                 <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as AppRole)}>
                   <SelectTrigger>
                     <SelectValue />
@@ -209,7 +199,7 @@ export function UsersManager() {
                 onClick={() => addMemberMutation.mutate({ email: newUserEmail, role: newUserRole })}
                 disabled={!newUserEmail || addMemberMutation.isPending}
               >
-                Добавить
+                {t('crmUsersManager.add')}
               </Button>
             </div>
           </DialogContent>
@@ -219,7 +209,7 @@ export function UsersManager() {
         <div className="relative mb-4">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Поиск по имени или email..."
+            placeholder={t('crmUsersManager.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -227,23 +217,23 @@ export function UsersManager() {
         </div>
 
         {isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">Загрузка...</div>
+          <div className="text-center py-8 text-muted-foreground">{t('crmUsersManager.loading')}</div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Пользователь</TableHead>
+                <TableHead>{t('crmUsersManager.colUser')}</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Телефон</TableHead>
-                <TableHead>Роль</TableHead>
-                <TableHead className="text-right">Действия</TableHead>
+                <TableHead>{t('crmUsersManager.colPhone')}</TableHead>
+                <TableHead>{t('crmUsersManager.role')}</TableHead>
+                <TableHead className="text-right">{t('crmUsersManager.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredMembers?.map((member) => (
                 <TableRow key={member.id}>
                   <TableCell className="font-medium">
-                    {member.profile?.full_name || 'Без имени'}
+                    {member.profile?.full_name || t('crmUsersManager.noName')}
                   </TableCell>
                   <TableCell>{member.profile?.email || '-'}</TableCell>
                   <TableCell>{member.profile?.phone || '-'}</TableCell>
@@ -271,7 +261,7 @@ export function UsersManager() {
                       variant="ghost"
                       size="icon"
                       onClick={() => {
-                        if (confirm('Удалить пользователя из клиники?')) {
+                        if (confirm(t('crmUsersManager.confirmRemove'))) {
                           removeMemberMutation.mutate(member.id);
                         }
                       }}

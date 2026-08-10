@@ -19,15 +19,28 @@ import {
   UserCheck,
   Percent
 } from "lucide-react";
-import { useState, useMemo } from "react";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { lazy, Suspense, useState, useMemo } from "react";
 import { formatPrice } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface DoctorPersonalIncomeProps {
   currency?: string;
 }
 
+type ProfileSummary = { full_name: string | null };
+type AppointmentPatient = ProfileSummary | ProfileSummary[] | null;
+
+const getProfileName = (profile: AppointmentPatient | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const DoctorPersonalIncomeChart = lazy(() =>
+  import("./DoctorPersonalIncomeChart").then((module) => ({
+    default: module.DoctorPersonalIncomeChart,
+  })),
+);
+
 export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const { doctorId, isStaffDoctor, isChairRental, cooperationType } = useUserRole();
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
@@ -68,7 +81,7 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
         .select(`
           id,
           patient_id,
-          price,
+          total_price,
           service,
           status,
           appointment_date,
@@ -114,7 +127,7 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
   const stats = useMemo(() => {
     if (!appointments) return null;
     
-    const totalRevenue = appointments.reduce((sum, a) => sum + (a.price || 0), 0);
+    const totalRevenue = appointments.reduce((sum, a) => sum + (a.total_price || 0), 0);
     const salaryPercent = doctorInfo?.salary_percent || 30;
     
     // For staff doctors - calculate their share
@@ -131,7 +144,7 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
     const dailyData: { [key: string]: number } = {};
     appointments.forEach(a => {
       const date = format(parseISO(a.appointment_date), "dd.MM");
-      dailyData[date] = (dailyData[date] || 0) + (a.price || 0);
+      dailyData[date] = (dailyData[date] || 0) + (a.total_price || 0);
     });
     
     const chartData = Object.entries(dailyData)
@@ -169,21 +182,21 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className={`p-3 rounded-xl ${isChairRental ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
+          <div className={`p-3 rounded-xl ${isChairRental ? 'bg-status-warning/10' : 'bg-status-success/10'}`}>
             {isChairRental ? (
-              <Armchair className="w-6 h-6 text-amber-500" />
+              <Armchair className="w-6 h-6 text-status-warning" />
             ) : (
-              <Building2 className="w-6 h-6 text-emerald-500" />
+              <Building2 className="w-6 h-6 text-status-success" />
             )}
           </div>
           <div>
-            <h2 className="text-xl font-semibold">Мой доход</h2>
+            <h2 className="text-base font-bold">{t('crmFinanceComponents.myIncome')}</h2>
             <div className="flex items-center gap-2">
-              <Badge 
-                variant="outline" 
-                className={isChairRental ? 'border-amber-500/30 text-amber-600' : 'border-emerald-500/30 text-emerald-600'}
+              <Badge
+                variant="outline"
+                className={isChairRental ? 'border-status-warning/30 text-status-warning' : 'border-status-success/30 text-status-success'}
               >
-                {isChairRental ? 'Арендатор кресла' : 'Штатный врач'}
+                {isChairRental ? t('crmFinanceComponents.chairTenant') : t('crmFinanceComponents.staffDoctor')}
               </Badge>
               {isStaffDoctor && doctorInfo?.salary_percent && (
                 <Badge variant="secondary" className="gap-1">
@@ -212,70 +225,70 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
       {/* Stats cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Общая выручка
+              {t('crmFinanceComponents.totalRevenue')}
             </CardTitle>
             <DollarSign className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(stats?.totalRevenue || 0)}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              За выбранный период
+              {t('crmFinanceComponents.forSelectedPeriod')}
             </p>
           </CardContent>
         </Card>
 
-        <Card className={`border-border/50 ${isStaffDoctor ? '' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <Card className={`border-border/50 ${isStaffDoctor ? '' : 'bg-status-success/5 border-status-success/20'}`}>
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              {isStaffDoctor ? 'Моя доля' : 'Мой доход'}
+              {isStaffDoctor ? t('crmFinanceComponents.myShare') : t('crmFinanceComponents.myIncome')}
             </CardTitle>
-            <UserCheck className="w-4 h-4 text-emerald-500" />
+            <UserCheck className="w-4 h-4 text-status-success" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-emerald-600">
+            <div className="text-2xl font-bold text-status-success">
               {formatCurrency(stats?.doctorShare || 0)}
             </div>
             {isStaffDoctor && (
               <p className="text-xs text-muted-foreground mt-1">
-                {stats?.salaryPercent}% от выручки
+                {stats?.salaryPercent}% {t('crmFinanceComponents.ofRevenue')}
               </p>
             )}
             {isChairRental && (
               <p className="text-xs text-muted-foreground mt-1">
-                100% (вне кассы клиники)
+                100% ({t('crmFinanceComponents.offClinicCashier')})
               </p>
             )}
           </CardContent>
         </Card>
 
         <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Пациентов
+              {t('crmFinanceComponents.patientsCount')}
             </CardTitle>
             <Users className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats?.patientsCount || 0}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              Уникальных пациентов
+              {t('crmFinanceComponents.uniquePatients')}
             </p>
           </CardContent>
         </Card>
 
         <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Приёмов
+              {t('crmFinanceComponents.appointmentsCount')}
             </CardTitle>
             <Calendar className="w-4 h-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats?.appointmentsCount || 0}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              Завершённых приёмов
+              {t('crmFinanceComponents.completedAppointments')}
             </p>
           </CardContent>
         </Card>
@@ -285,52 +298,22 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
       {stats?.chartData && stats.chartData.length > 0 && (
         <Card className="border-border/50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-bold">
               <TrendingUp className="w-5 h-5 text-primary" />
-              Динамика выручки
+              {t('crmFinanceComponents.revenueDynamics')}
             </CardTitle>
             <CardDescription>
-              Ежедневная выручка за {format(periodStart, "LLLL yyyy", { locale: ru })}
+              {t('crmFinanceComponents.dailyRevenueFor')} {format(periodStart, "LLLL yyyy", { locale: ru })}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={stats.chartData}>
-                <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
-                <XAxis 
-                  dataKey="date" 
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                />
-                <YAxis 
-                  stroke="hsl(var(--muted-foreground))"
-                  fontSize={12}
-                  tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "hsl(var(--card))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: "8px",
-                  }}
-                  formatter={(value: number) => [formatCurrency(value), "Выручка"]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="hsl(var(--primary))"
-                  fillOpacity={1}
-                  fill="url(#colorRevenue)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <Suspense fallback={<Skeleton className="h-[250px] w-full bg-muted" />}>
+              <DoctorPersonalIncomeChart
+                data={stats.chartData}
+                formatCurrency={formatCurrency}
+                revenueLabel={t('crmFinanceComponents.revenue')}
+              />
+            </Suspense>
           </CardContent>
         </Card>
       )}
@@ -338,24 +321,24 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
       {/* Appointments list */}
       <Card className="border-border/50">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-base font-bold">
             <Calendar className="w-5 h-5 text-primary" />
-            Завершённые приёмы
+            {t('crmFinanceComponents.completedAppointmentsTitle')}
           </CardTitle>
           <CardDescription>
-            Детализация по приёмам за период
+            {t('crmFinanceComponents.appointmentsBreakdownDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Дата</TableHead>
-                <TableHead>Пациент</TableHead>
-                <TableHead>Услуга</TableHead>
-                <TableHead className="text-right">Сумма</TableHead>
+                <TableHead>{t('crmFinanceComponents.colDate')}</TableHead>
+                <TableHead>{t('crmFinanceComponents.colPatient')}</TableHead>
+                <TableHead>{t('crmFinanceComponents.colService')}</TableHead>
+                <TableHead className="text-right">{t('crmFinanceComponents.colAmount')}</TableHead>
                 {isStaffDoctor && (
-                  <TableHead className="text-right">Моя доля</TableHead>
+                  <TableHead className="text-right">{t('crmFinanceComponents.myShare')}</TableHead>
                 )}
               </TableRow>
             </TableHeader>
@@ -367,15 +350,15 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
                       {format(parseISO(apt.appointment_date), "dd.MM.yyyy HH:mm")}
                     </TableCell>
                     <TableCell>
-                      {(apt.profiles as any)?.full_name || "—"}
+                      {getProfileName(apt.profiles) || "—"}
                     </TableCell>
                     <TableCell>{apt.service}</TableCell>
                     <TableCell className="text-right font-medium">
-                      {formatCurrency(apt.price || 0)}
+                      {formatCurrency(apt.total_price || 0)}
                     </TableCell>
                     {isStaffDoctor && (
-                      <TableCell className="text-right font-medium text-emerald-600">
-                        {formatCurrency(Math.round((apt.price || 0) * ((doctorInfo?.salary_percent || 30) / 100)))}
+                      <TableCell className="text-right font-medium text-status-success">
+                        {formatCurrency(Math.round((apt.total_price || 0) * ((doctorInfo?.salary_percent || 30) / 100)))}
                       </TableCell>
                     )}
                   </TableRow>
@@ -383,7 +366,7 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
               ) : (
                 <TableRow>
                   <TableCell colSpan={isStaffDoctor ? 5 : 4} className="text-center text-muted-foreground py-8">
-                    Нет приёмов за выбранный период
+                    {t('crmFinanceComponents.noAppointmentsForPeriod')}
                   </TableCell>
                 </TableRow>
               )}
@@ -396,22 +379,22 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
       {isStaffDoctor && salaryRecords && salaryRecords.length > 0 && (
         <Card className="border-border/50">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-emerald-500" />
-              Начисления зарплаты
+            <CardTitle className="flex items-center gap-2 text-base font-bold">
+              <DollarSign className="w-5 h-5 text-status-success" />
+              {t('crmFinanceComponents.salaryAccruals')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Период</TableHead>
-                  <TableHead>Выручка</TableHead>
-                  <TableHead>Процент</TableHead>
-                  <TableHead>Начислено</TableHead>
-                  <TableHead>Бонус</TableHead>
-                  <TableHead>Итого</TableHead>
-                  <TableHead>Статус</TableHead>
+                  <TableHead>{t('crmFinanceComponents.colPeriod')}</TableHead>
+                  <TableHead>{t('crmFinanceComponents.revenue')}</TableHead>
+                  <TableHead>{t('crmFinanceComponents.colPercent')}</TableHead>
+                  <TableHead>{t('crmFinanceComponents.colAccrued')}</TableHead>
+                  <TableHead>{t('crmFinanceComponents.colBonus')}</TableHead>
+                  <TableHead>{t('crmFinanceComponents.colTotal')}</TableHead>
+                  <TableHead>{t('crmFinanceComponents.colStatus')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -423,7 +406,7 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
                     <TableCell>{formatCurrency(record.total_revenue)}</TableCell>
                     <TableCell>{record.salary_percent}%</TableCell>
                     <TableCell>{formatCurrency(record.calculated_salary)}</TableCell>
-                    <TableCell className="text-emerald-600">
+                    <TableCell className="text-status-success">
                       +{formatCurrency(record.bonus || 0)}
                     </TableCell>
                     <TableCell className="font-bold">
@@ -431,7 +414,7 @@ export function DoctorPersonalIncome({ currency = "UZS" }: DoctorPersonalIncomeP
                     </TableCell>
                     <TableCell>
                       <Badge variant={record.status === 'paid' ? 'default' : 'secondary'}>
-                        {record.status === 'paid' ? 'Выплачено' : 'Ожидает'}
+                        {record.status === 'paid' ? t('crmFinanceComponents.paid') : t('crmFinanceComponents.pending')}
                       </Badge>
                     </TableCell>
                   </TableRow>

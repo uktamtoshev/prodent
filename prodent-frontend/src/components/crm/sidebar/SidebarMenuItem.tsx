@@ -35,18 +35,18 @@ export function SidebarMenuItem({
       <div className="relative shrink-0">
         <Icon className="w-[18px] h-[18px] transition-colors" />
         {badge && badge > 0 && collapsed && (
-          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 bg-destructive text-destructive-foreground text-xs font-bold rounded-full flex items-center justify-center">
             {badge > 9 ? "+" : badge}
           </span>
         )}
       </div>
       {!collapsed && (
         <>
-          <span className="text-[13px] truncate">{title}</span>
+          <span className="text-sm truncate">{title}</span>
           {badge && badge > 0 && (
             <Badge
               variant="destructive"
-              className="ml-auto h-4 min-w-4 px-1 text-[9px] font-bold"
+              className="ml-auto h-4 min-w-4 px-1 text-xs font-bold"
             >
               {badge > 99 ? "99+" : badge}
             </Badge>
@@ -63,7 +63,7 @@ export function SidebarMenuItem({
         <TooltipContent side="right" className="text-xs font-medium">
           {title}
           {badge && badge > 0 && (
-            <Badge variant="destructive" className="ml-2 h-3.5 px-1 text-[9px]">
+            <Badge variant="destructive" className="ml-2 h-3.5 px-1 text-xs">
               {badge}
             </Badge>
           )}

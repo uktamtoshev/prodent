@@ -15,6 +15,22 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Save } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLanguage } from "@/contexts/LanguageContext";
+import type { Database } from "@/integrations/supabase/types";
+
+type PaymentInsert = Database["public"]["Tables"]["payments"]["Insert"];
+type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
+type ProfileSummary = { full_name: string | null };
+type ClinicDoctor = {
+  id: string;
+  user: ProfileSummary | ProfileSummary[] | null;
+};
+
+const getProfileName = (profile: ProfileSummary | ProfileSummary[] | null | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 interface AddPaymentDialogProps {
   open: boolean;
@@ -29,6 +45,7 @@ export function AddPaymentDialog({
   clinicId,
   onSuccess,
 }: AddPaymentDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
   const [patientId, setPatientId] = useState("");
@@ -80,19 +97,19 @@ export function AddPaymentDialog({
 
   const handleSave = async () => {
     if (!patientId || !amount) {
-      toast.error("Заполните обязательные поля");
+      toast.error(t('crmFinanceComponents.fillRequiredFields'));
       return;
     }
 
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      toast.error("Введите корректную сумму");
+      toast.error(t('crmFinanceComponents.enterValidAmount'));
       return;
     }
 
     setSaving(true);
     try {
-      const { error } = await supabase.from("payments").insert({
+      const payment: PaymentInsert = {
         clinic_id: clinicId,
         user_id: patientId,
         doctor_id: doctorId || null,
@@ -103,27 +120,31 @@ export function AddPaymentDialog({
         payment_method: method,
         status: "completed",
         description: description || null,
-      } as any);
+      };
+
+      const { error } = await supabase.from("payments").insert(payment);
 
       if (error) throw error;
 
-      // Создаём уведомление для пациента
-      await supabase.from("notifications").insert({
+      // Create notification for patient
+      const notification: NotificationInsert = {
         user_id: patientId,
         type: "payment",
-        title: "Оплата получена",
-        message: `Платёж на сумму ${amountNum.toLocaleString()} ${currency} успешно обработан`,
+        title: t('crmFinanceComponents.notifPaymentReceivedTitle'),
+        message: `${t('crmFinanceComponents.notifPaymentReceivedMsgPrefix')} ${amountNum.toLocaleString()} ${currency} ${t('crmFinanceComponents.notifPaymentReceivedMsgSuffix')}`,
         metadata: { amount: amountNum, currency, method },
-      } as any);
+      };
 
-      toast.success("Оплата добавлена");
+      await supabase.from("notifications").insert(notification);
+
+      toast.success(t('crmFinanceComponents.paymentAdded'));
       queryClient.invalidateQueries({ queryKey: ["payments-list"] });
       queryClient.invalidateQueries({ queryKey: ["finance-stats"] });
       onSuccess();
       onOpenChange(false);
       resetForm();
-    } catch (error: any) {
-      toast.error("Ошибка добавления оплаты: " + error.message);
+    } catch (error: unknown) {
+      toast.error(t('crmFinanceComponents.paymentAddError') + ": " + getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -142,23 +163,23 @@ export function AddPaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Добавить оплату</DialogTitle>
+          <DialogTitle>{t('crmFinanceComponents.addPayment')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>
-                Пациент <span className="text-destructive">*</span>
+                {t('crmFinanceComponents.colPatient')} <span className="text-destructive">*</span>
               </Label>
               <Select value={patientId} onValueChange={setPatientId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите пациента" />
+                  <SelectValue placeholder={t('crmFinanceComponents.selectPatient')} />
                 </SelectTrigger>
                 <SelectContent>
                   {patients?.map((patient) => (
                     <SelectItem key={patient.id} value={patient.id}>
-                      {patient.full_name || "Без имени"}
+                      {patient.full_name || t('crmFinanceComponents.noName')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -166,15 +187,15 @@ export function AddPaymentDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Врач</Label>
+              <Label>{t('crmFinanceComponents.doctor')}</Label>
               <Select value={doctorId} onValueChange={setDoctorId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите врача (опционально)" />
+                  <SelectValue placeholder={t('crmFinanceComponents.selectDoctorOptional')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {doctors?.map((doctor) => (
+                  {(doctors as ClinicDoctor[] | undefined)?.map((doctor) => (
                     <SelectItem key={doctor.id} value={doctor.id}>
-                      {(doctor.user as any)?.full_name || "Без имени"}
+                      {getProfileName(doctor.user) || t('crmFinanceComponents.noName')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -184,10 +205,10 @@ export function AddPaymentDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>
-                Сумма <span className="text-destructive">*</span>
+              <Label htmlFor="add-payment-dialog-field-1">
+                {t('crmFinanceComponents.colAmount')} <span className="text-destructive">*</span>
               </Label>
-              <Input
+              <Input id="add-payment-dialog-field-1"
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -196,41 +217,41 @@ export function AddPaymentDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Валюта</Label>
+              <Label>{t('crmFinanceComponents.currency')}</Label>
               <Select value={currency} onValueChange={setCurrency}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="UZS">UZS - Узбекский сум</SelectItem>
-                  <SelectItem value="USD">USD - Доллар США</SelectItem>
-                  <SelectItem value="EUR">EUR - Евро</SelectItem>
-                  <SelectItem value="RUB">RUB - Российский рубль</SelectItem>
+                  <SelectItem value="UZS">UZS - {t('crmFinanceComponents.currencyUZS')}</SelectItem>
+                  <SelectItem value="USD">USD - {t('crmFinanceComponents.currencyUSD')}</SelectItem>
+                  <SelectItem value="EUR">EUR - {t('crmFinanceComponents.currencyEUR')}</SelectItem>
+                  <SelectItem value="RUB">RUB - {t('crmFinanceComponents.currencyRUB')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Метод оплаты</Label>
+            <Label>{t('crmFinanceComponents.paymentMethod')}</Label>
             <Select value={method} onValueChange={setMethod}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">Наличные</SelectItem>
-                <SelectItem value="card">Банковская карта</SelectItem>
-                <SelectItem value="online">Онлайн-платёж</SelectItem>
+                <SelectItem value="cash">{t('crmFinanceComponents.methodCash')}</SelectItem>
+                <SelectItem value="card">{t('crmFinanceComponents.methodCard')}</SelectItem>
+                <SelectItem value="online">{t('crmFinanceComponents.methodOnline')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label>Комментарий</Label>
-            <Textarea
+            <Label htmlFor="add-payment-dialog-field-2">{t('crmFinanceComponents.comment')}</Label>
+            <Textarea id="add-payment-dialog-field-2"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Дополнительная информация..."
+              placeholder={t('crmFinanceComponents.additionalInfo')}
               rows={3}
             />
           </div>
@@ -240,11 +261,11 @@ export function AddPaymentDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
-              Отмена
+              {t('crmFinanceComponents.cancel')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               <Save className="w-4 h-4 mr-2" />
-              {saving ? "Сохранение..." : "Сохранить оплату"}
+              {saving ? t('crmFinanceComponents.saving') : t('crmFinanceComponents.savePayment')}
             </Button>
           </div>
         </div>

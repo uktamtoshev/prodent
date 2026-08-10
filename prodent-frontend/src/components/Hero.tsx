@@ -110,33 +110,35 @@ const Hero = () => {
             className="flex flex-wrap justify-center gap-6 sm:gap-10 opacity-0 animate-fade-in"
             style={{ animationDelay: "0.5s" }}
           >
+            {/* Honest value props (was fabricated 500+/4.9/10K+ counts — misleading
+                on a pilot with little real data). */}
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-prodent bg-gradient-jade flex items-center justify-center shadow-medium">
                 <Shield className="w-6 h-6 text-white" />
               </div>
               <div className="text-left">
-                <div className="text-2xl font-heading font-bold">500+</div>
-                <div className="text-sm text-muted-foreground">{t('hero.doctors')}</div>
+                <div className="text-lg font-heading font-bold">Проверенные</div>
+                <div className="text-sm text-muted-foreground">врачи и клиники</div>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-prodent bg-gradient-gold flex items-center justify-center shadow-medium">
                 <Star className="w-6 h-6 text-ink-gray" />
               </div>
               <div className="text-left">
-                <div className="text-2xl font-heading font-bold">4.9</div>
-                <div className="text-sm text-muted-foreground">{t('hero.rating')}</div>
+                <div className="text-lg font-heading font-bold">Реальные</div>
+                <div className="text-sm text-muted-foreground">отзывы пациентов</div>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 rounded-prodent bg-gradient-sky flex items-center justify-center shadow-medium">
                 <Clock className="w-6 h-6 text-white" />
               </div>
               <div className="text-left">
-                <div className="text-2xl font-heading font-bold">10K+</div>
-                <div className="text-sm text-muted-foreground">{t('hero.appointments')}</div>
+                <div className="text-2xl font-heading font-bold">24/7</div>
+                <div className="text-sm text-muted-foreground">онлайн-запись</div>
               </div>
             </div>
           </div>

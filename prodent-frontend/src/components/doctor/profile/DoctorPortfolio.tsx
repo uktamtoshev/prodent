@@ -40,6 +40,9 @@ import {
 } from '@/components/ui/alert-dialog';
 import { AddPortfolioDialog } from './AddPortfolioDialog';
 import { AddAwardDialog } from './AddAwardDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { Tables } from '@/integrations/supabase/types';
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface DoctorPortfolioProps {
   doctorId: string;
@@ -47,9 +50,10 @@ interface DoctorPortfolioProps {
 }
 
 export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<string>('all');
-  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [selectedItem, setSelectedItem] = useState<Tables<'doctor_portfolio'> | null>(null);
   const [addPortfolioOpen, setAddPortfolioOpen] = useState(false);
   const [addAwardOpen, setAddAwardOpen] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
@@ -94,12 +98,12 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Элемент удалён' });
+      toast({ title: t('doctorPortfolio.deleted') });
       queryClient.invalidateQueries({ queryKey: ['doctor-portfolio', doctorId] });
       setDeleteItemId(null);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: t('doctorPortfolio.deleteError'), description: error instanceof Error ? error.message : t('doctorPortfolio.deleteError'), variant: 'destructive' });
     },
   });
 
@@ -109,12 +113,12 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Награда удалена' });
+      toast({ title: t('doctorPortfolio.deleted') });
       queryClient.invalidateQueries({ queryKey: ['doctor-awards', doctorId] });
       setDeleteAwardId(null);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: t('doctorPortfolio.deleteError'), description: error instanceof Error ? error.message : t('doctorPortfolio.deleteError'), variant: 'destructive' });
     },
   });
 
@@ -163,20 +167,20 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
 
   const getTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      before_after: 'До/После',
-      video: 'Видео',
-      case: 'Кейс',
-      certificate: 'Сертификат',
+      before_after: `${t('doctorPortfolio.beforePhotos')}/${t('doctorPortfolio.afterPhotos')}`,
+      video: t('doctorTimeline.typeNews'),
+      case: t('doctorPortfolio.workTitle'),
+      certificate: t('doctorAbout.sectionCertifications'),
     };
     return labels[type] || type;
   };
 
   const filters = [
-    { id: 'all', label: 'Все', icon: null },
-    { id: 'before_after', label: 'До/После', icon: ArrowLeftRight },
-    { id: 'video', label: 'Видео', icon: Video },
-    { id: 'case', label: 'Кейсы', icon: FileText },
-    { id: 'certificate', label: 'Сертификаты', icon: Award },
+    { id: 'all', label: t('doctorPortfolio.filterAll'), icon: null },
+    { id: 'before_after', label: t('doctorPortfolio.filterBeforeAfter'), icon: ArrowLeftRight },
+    { id: 'video', label: t('doctorPortfolio.filterVideo'), icon: Video },
+    { id: 'case', label: t('doctorPortfolio.filterCase'), icon: FileText },
+    { id: 'certificate', label: t('doctorAbout.sectionCertifications'), icon: Award },
   ];
 
   return (
@@ -187,15 +191,17 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
           {filters.map((f) => (
             <button
               key={f.id}
+              type="button"
               onClick={() => setFilter(f.id)}
-              className={`
-                flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap
-                transition-all duration-200
-                ${filter === f.id 
-                  ? 'bg-primary/10 text-primary border-2 border-primary' 
-                  : 'bg-muted/50 text-muted-foreground hover:bg-muted border-2 border-transparent'
-                }
-              `}
+              aria-pressed={filter === f.id}
+              /* Форма вкладки как во всём кабинете: язычок на карточке.
+                 Раньше это были круглые пилюли с двойной рамкой — они читались
+                 как отдельные кнопки, а не как выбор одного среза из набора. */
+              className={`cabinet-control inline-flex items-center gap-1.5 whitespace-nowrap rounded-t-field px-3 py-2 text-cell transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                filter === f.id
+                  ? 'border border-b-0 border-border bg-card font-semibold text-primary shadow-soft'
+                  : 'font-medium text-muted-foreground hover:text-foreground'
+              }`}
             >
               {f.icon && <f.icon className="w-4 h-4" />}
               {f.label}
@@ -207,11 +213,11 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
           <div className="flex gap-2">
             <Button onClick={() => setAddPortfolioOpen(true)} className="gap-2">
               <Plus className="w-4 h-4" />
-              Добавить работу
+              {t('doctorPortfolio.addWork')}
             </Button>
             <Button variant="outline" onClick={() => setAddAwardOpen(true)} className="gap-2">
               <Award className="w-4 h-4" />
-              Добавить награду
+              {t('doctorAbout.add')}
             </Button>
           </div>
         )}
@@ -219,11 +225,11 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
 
       {/* Portfolio Grid */}
       {isLoading ? (
-        <div className="text-center py-8 text-muted-foreground">Загрузка...</div>
+        <div className="text-center py-8 text-muted-foreground">{t('doctorPortfolio.adding')}</div>
       ) : portfolio?.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            Портфолио пока пусто
+            {t('doctorPortfolio.noWorks')}
           </CardContent>
         </Card>
       ) : (
@@ -240,21 +246,21 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
                     <div className="w-1/2 h-full relative">
                       <img
                         src={item.before_image_url}
-                        alt="До"
+                        alt={t('doctorPortfolio.beforePhotos')}
                         className="w-full h-full object-cover"
                       />
                       <span className="absolute bottom-2 left-2 bg-background/80 px-2 py-0.5 text-xs rounded">
-                        До
+                        {t('doctorPortfolio.beforePhotos')}
                       </span>
                     </div>
                     <div className="w-1/2 h-full relative border-l-2 border-background">
                       <img
                         src={item.after_image_url}
-                        alt="После"
+                        alt={t('doctorPortfolio.afterPhotos')}
                         className="w-full h-full object-cover"
                       />
                       <span className="absolute bottom-2 right-2 bg-primary/80 text-primary-foreground px-2 py-0.5 text-xs rounded">
-                        После
+                        {t('doctorPortfolio.afterPhotos')}
                       </span>
                     </div>
                   </div>
@@ -284,7 +290,7 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
                 )}
                 
                 {/* Hover Overlay */}
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center justify-center">
                   <div className="text-white text-center p-4">
                     <p className="font-medium line-clamp-2">{item.title}</p>
                   </div>
@@ -302,12 +308,12 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
                 {/* Owner Actions */}
                 {isOwner && (
                   <div
-                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="secondary" size="icon" className="h-8 w-8">
+                        <Button variant="secondary" size="icon" className="h-8 w-8" aria-label={a11yLabel("more")}>
                           <MoreVertical className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -317,7 +323,7 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
                           onClick={() => setDeleteItemId(item.id)}
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
-                          Удалить
+                          {t('doctorPortfolio.removePhoto')}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -344,9 +350,9 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
       {/* Awards Section */}
       {(filter === 'all' || filter === 'certificate') && awards && awards.length > 0 && (
         <div className="mt-8">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Award className="w-5 h-5 text-amber-500" />
-            Награды и достижения
+          <h3 className="text-base font-bold mb-4 flex items-center gap-2">
+            <Award className="w-5 h-5 text-primary" />
+            {t('doctorAbout.sectionCertifications')}
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {awards.map((award) => (
@@ -374,7 +380,7 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
 
                 {/* Owner Actions */}
                 {isOwner && (
-                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                     <Button
                       variant="secondary"
                       size="icon"
@@ -401,18 +407,18 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
           {selectedItem?.type === 'before_after' && (
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">До</p>
+                <p className="text-sm font-medium text-muted-foreground">{t('doctorPortfolio.beforePhotos')}</p>
                 <img
                   src={selectedItem.before_image_url}
-                  alt="До"
+                  alt={t('doctorPortfolio.beforePhotos')}
                   className="w-full rounded-lg"
                 />
               </div>
               <div className="space-y-2">
-                <p className="text-sm font-medium text-primary">После</p>
+                <p className="text-sm font-medium text-primary">{t('doctorPortfolio.afterPhotos')}</p>
                 <img
                   src={selectedItem.after_image_url}
-                  alt="После"
+                  alt={t('doctorPortfolio.afterPhotos')}
                   className="w-full rounded-lg"
                 />
               </div>
@@ -481,18 +487,18 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
       <AlertDialog open={!!deleteItemId} onOpenChange={() => setDeleteItemId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить элемент?</AlertDialogTitle>
+            <AlertDialogTitle>{t('doctorPortfolio.deleteWork')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить.
+              {t('doctorPortfolio.deleteConfirm')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t('doctorPortfolio.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteItemId && deletePortfolioItem.mutate(deleteItemId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Удалить
+              {t('doctorPortfolio.removePhoto')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -502,18 +508,18 @@ export function DoctorPortfolio({ doctorId, isOwner }: DoctorPortfolioProps) {
       <AlertDialog open={!!deleteAwardId} onOpenChange={() => setDeleteAwardId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить награду?</AlertDialogTitle>
+            <AlertDialogTitle>{t('doctorPortfolio.deleteWork')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить.
+              {t('doctorPortfolio.deleteConfirm')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t('doctorPortfolio.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteAwardId && deleteAward.mutate(deleteAwardId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Удалить
+              {t('doctorPortfolio.removePhoto')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

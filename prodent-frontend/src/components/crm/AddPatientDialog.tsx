@@ -18,6 +18,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useUserRole } from "@/hooks/useUserRole";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useLanguage } from "@/contexts/LanguageContext";
+import type { TablesInsert } from "@/integrations/supabase/types";
 
 interface AddPatientDialogProps {
   open: boolean;
@@ -34,6 +36,7 @@ interface PatientResult {
 type Step = "search" | "select" | "confirm";
 
 export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) {
+  const { t } = useLanguage();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { currentClinic } = useClinic();
@@ -46,7 +49,6 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
   const [step, setStep] = useState<Step>("search");
   const [searching, setSearching] = useState(false);
 
-  // Получаем информацию о текущем враче
   const { data: currentDoctor } = useQuery({
     queryKey: ["current-doctor-for-patient", user?.id],
     queryFn: async () => {
@@ -63,7 +65,6 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
 
   const isChairRental = currentDoctor?.cooperation_type === "chair_rental";
 
-  // Сброс при закрытии
   useEffect(() => {
     if (!open) {
       setSearchQuery("");
@@ -73,12 +74,11 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
     }
   }, [open]);
 
-  // Поиск пациентов
   const handleSearch = async () => {
     if (!searchQuery.trim() || searchQuery.length < 2) {
       toast({
-        title: "Введите запрос",
-        description: "Минимум 2 символа для поиска",
+        title: t('crmAddPatientSearch.enterQuery'),
+        description: t('crmAddPatientSearch.minTwoChars'),
         variant: "destructive",
       });
       return;
@@ -87,8 +87,7 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
     setSearching(true);
     try {
       const query = searchQuery.trim();
-      
-      // Поиск по ФИО или телефону
+
       const { data, error } = await supabase
         .from("profiles")
         .select("id, full_name, phone, avatar_url")
@@ -98,27 +97,25 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
       if (error) throw error;
 
       setSearchResults(data || []);
-      
+
       if (data && data.length > 0) {
         if (data.length === 1) {
-          // Один результат - сразу выбираем
           setSelectedPatient(data[0]);
           setStep("confirm");
         } else {
-          // Несколько результатов - показываем список
           setStep("select");
         }
       } else {
         toast({
-          title: "Пациенты не найдены",
-          description: "Попробуйте изменить запрос",
+          title: t('crmAddPatientSearch.notFound'),
+          description: t('crmAddPatientSearch.tryDifferent'),
         });
       }
     } catch (error) {
       console.error("Search error:", error);
       toast({
-        title: "Ошибка поиска",
-        description: "Не удалось выполнить поиск",
+        title: t('crmAddPatientSearch.searchError'),
+        description: t('crmAddPatientSearch.searchFailed'),
         variant: "destructive",
       });
     } finally {
@@ -126,27 +123,24 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
     }
   };
 
-  // Выбор пациента из списка
   const handleSelectPatient = (patient: PatientResult) => {
     setSelectedPatient(patient);
     setStep("confirm");
   };
 
-  // Отправка запроса пациенту
   const handleSendRequest = async () => {
     if (!currentClinic?.id || !selectedPatient || !user?.id) {
       toast({
-        title: "Ошибка",
-        description: "Не все данные заполнены",
+        title: t('common.error'),
+        description: t('crmAddPatientSearch.notAllData'),
         variant: "destructive",
       });
       return;
     }
-    
+
     setLoading(true);
 
     try {
-      // Проверяем, не добавлен ли уже пациент
       const { data: existingMember } = await supabase
         .from("clinic_members")
         .select("id")
@@ -156,14 +150,13 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
 
       if (existingMember) {
         toast({
-          title: "Пациент уже добавлен",
-          description: "Этот пациент уже есть в вашей клинике",
+          title: t('crmAddPatientSearch.alreadyAdded'),
+          description: t('crmAddPatientSearch.alreadyInClinic'),
         });
         onOpenChange(false);
         return;
       }
 
-      // Проверяем, нет ли уже активного запроса
       const { data: existingRequest } = await supabase
         .from("patient_add_requests")
         .select("id, status")
@@ -174,21 +167,20 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
 
       if (existingRequest) {
         toast({
-          title: "Запрос уже отправлен",
-          description: "Ожидайте ответа от пациента",
+          title: t('crmAddPatientSearch.requestAlreadySent'),
+          description: t('crmAddPatientSearch.waitForResponse'),
         });
         onOpenChange(false);
         return;
       }
 
-      // Создаем запрос на добавление
-      const requestData: any = {
+      const requestData: TablesInsert<"clinic_patient_access"> = {
         clinic_id: currentClinic.id,
         patient_id: selectedPatient.id,
         requested_by: user.id,
-        message: isChairRental 
-          ? `Врач приглашает вас стать его пациентом` 
-          : `Клиника "${currentClinic.name}" приглашает вас стать пациентом`,
+        message: isChairRental
+          ? t('crmAddPatientSearch.doctorInvitesYou')
+          : `${t('crmAddPatientSearch.clinicPrefix')} "${currentClinic.name}" ${t('crmAddPatientSearch.invitesYouSuffix')}`,
       };
 
       if (isChairRental && currentDoctor?.id) {
@@ -202,8 +194,8 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
       if (error) throw error;
 
       toast({
-        title: "Запрос отправлен",
-        description: "Пациент получит уведомление и сможет принять или отклонить приглашение",
+        title: t('crmAddPatientSearch.requestSent'),
+        description: t('crmAddPatientSearch.patientWillReceive'),
       });
 
       queryClient.invalidateQueries({ queryKey: ["patient-add-requests"] });
@@ -211,8 +203,8 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
     } catch (error) {
       console.error("Error sending request:", error);
       toast({
-        title: "Ошибка",
-        description: "Не удалось отправить запрос",
+        title: t('common.error'),
+        description: t('crmAddPatientSearch.failedToSend'),
         variant: "destructive",
       });
     } finally {
@@ -227,44 +219,43 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+      <DialogContent className="bg-slate-900 border-border text-white max-w-md">
         <DialogHeader>
           <DialogTitle className="text-white flex items-center gap-2">
             {isChairRental ? (
               <>
                 <UserCheck className="w-5 h-5 text-amber-500" />
-                Добавить личного пациента
+                {t('crmAddPatientSearch.addPersonalPatient')}
               </>
             ) : (
               <>
                 <Building2 className="w-5 h-5 text-primary" />
-                Добавить пациента
+                {t('crmAddPatientSearch.addPatient')}
               </>
             )}
           </DialogTitle>
-          <DialogDescription className="text-slate-400">
-            {step === "search" && "Введите ФИО или номер телефона для поиска"}
-            {step === "select" && "Выберите пациента из списка"}
-            {step === "confirm" && "Подтвердите отправку приглашения"}
+          <DialogDescription className="text-muted-foreground">
+            {step === "search" && t('crmAddPatientSearch.enterFullNameOrPhone')}
+            {step === "select" && t('crmAddPatientSearch.selectFromList')}
+            {step === "confirm" && t('crmAddPatientSearch.confirmInvite')}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Шаг 1: Поиск */}
         {step === "search" && (
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="search" className="text-slate-300">
-                ФИО или телефон
+                {t('crmAddPatientSearch.fullNameOrPhone')}
               </Label>
               <div className="flex gap-2">
                 <Input
                   id="search"
                   type="text"
-                  placeholder="Иванов Иван или +998..."
+                  placeholder={t('crmAddPatientSearch.searchPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                  className="bg-slate-800 border-slate-700 text-white flex-1"
+                  className="bg-slate-800 border-border text-white flex-1"
                 />
                 <Button
                   onClick={handleSearch}
@@ -278,8 +269,8 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
                   )}
                 </Button>
               </div>
-              <p className="text-xs text-slate-500">
-                Достаточно одного поля для поиска
+              <p className="text-xs text-muted-foreground">
+                {t('crmAddPatientSearch.oneFieldEnough')}
               </p>
             </div>
 
@@ -288,25 +279,24 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                className="border-border text-slate-300 hover:bg-slate-800"
               >
-                Отмена
+                {t('crmAddPatient.cancel')}
               </Button>
             </div>
           </div>
         )}
 
-        {/* Шаг 2: Выбор из списка */}
         {step === "select" && (
           <div className="space-y-4">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => setStep("search")}
-              className="text-slate-400 hover:text-white -ml-2"
+              className="text-muted-foreground hover:text-white -ml-2"
             >
               <ArrowLeft className="w-4 h-4 mr-1" />
-              Назад к поиску
+              {t('crmAddPatientSearch.backToSearch')}
             </Button>
 
             <ScrollArea className="h-[300px] pr-4">
@@ -325,7 +315,7 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <p className="text-white font-medium truncate">
-                        {patient.full_name || "Без имени"}
+                        {patient.full_name || t('crmAddPatientSearch.noName')}
                       </p>
                     </div>
                   </button>
@@ -335,17 +325,16 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
           </div>
         )}
 
-        {/* Шаг 3: Подтверждение */}
         {step === "confirm" && selectedPatient && (
           <div className="space-y-4">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => searchResults.length > 1 ? setStep("select") : setStep("search")}
-              className="text-slate-400 hover:text-white -ml-2"
+              className="text-muted-foreground hover:text-white -ml-2"
             >
               <ArrowLeft className="w-4 h-4 mr-1" />
-              Назад
+              {t('crmAddPatient.back')}
             </Button>
 
             <div className="flex flex-col items-center gap-4 py-4">
@@ -358,15 +347,14 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
 
               <div className="text-center">
                 <p className="text-white font-semibold text-lg">
-                  {selectedPatient.full_name || "Без имени"}
+                  {selectedPatient.full_name || t('crmAddPatientSearch.noName')}
                 </p>
               </div>
 
               <div className="bg-slate-800 rounded-lg p-4 w-full text-center">
                 <Send className="w-8 h-8 text-[#00C6BB] mx-auto mb-2" />
                 <p className="text-slate-300 text-sm">
-                  Пациенту будет отправлен запрос на добавление.
-                  После подтверждения он появится в списке пациентов.
+                  {t('crmAddPatientSearch.requestWillBeSent')}
                 </p>
               </div>
             </div>
@@ -376,9 +364,9 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                className="border-border text-slate-300 hover:bg-slate-800"
               >
-                Отмена
+                {t('crmAddPatient.cancel')}
               </Button>
               <Button
                 onClick={handleSendRequest}
@@ -390,7 +378,7 @@ export function AddPatientDialog({ open, onOpenChange }: AddPatientDialogProps) 
                 ) : (
                   <Send className="w-4 h-4 mr-2" />
                 )}
-                Отправить запрос
+                {t('crmAddPatientSearch.sendRequest')}
               </Button>
             </div>
           </div>

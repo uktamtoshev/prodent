@@ -25,6 +25,16 @@ const buttonVariants = cva(
         sm: "h-10 rounded-prodent-btn px-4",
         lg: "h-14 rounded-prodent-btn px-10 text-base",
         icon: "h-prodent-btn w-prodent-btn",
+
+        /* Плотность кабинета из макета: 36px и 29px.
+           Класс cabinet-control обязателен — он возвращает 44px на касании
+           (правило в index.css). Без него пальцем в такую кнопку не попасть,
+           а 44px — записанное решение проекта, а не пожелание.
+           Размер по умолчанию НЕ трогаем: 48px стоит на лендинге и в кабинете
+           пациента, где плотность макета кабинета неуместна. */
+        cabinet: "cabinet-control h-ctl rounded-panel px-4 text-cell",
+        "cabinet-sm": "cabinet-control h-ctl-sm rounded-panel px-3 text-meta",
+        "cabinet-icon": "cabinet-control h-ctl w-ctl rounded-panel",
       },
     },
     defaultVariants: {

@@ -22,7 +22,7 @@ export function SidebarMenuGroup({
 
   return (
     <Collapsible defaultOpen={defaultOpen} className="py-0.5">
-      <CollapsibleTrigger className="flex items-center justify-between w-full px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 hover:text-muted-foreground transition-colors group">
+      <CollapsibleTrigger className="flex items-center justify-between w-full px-2.5 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/60 hover:text-muted-foreground transition-colors group">
         <span>{title}</span>
         <ChevronDown className="w-3 h-3 transition-transform group-data-[state=open]:rotate-180" />
       </CollapsibleTrigger>

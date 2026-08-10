@@ -1,10 +1,11 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useClinic } from '@/contexts/ClinicContext';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
 import { AssistantSidebar } from './AssistantSidebar';
+import { RoleCabinetShell } from '@/components/shared/RoleCabinetShell';
 
 interface AssistantLayoutProps {
   children: ReactNode;
@@ -12,15 +13,12 @@ interface AssistantLayoutProps {
 
 export const AssistantLayout = ({ children }: AssistantLayoutProps) => {
   const { user } = useAuth();
+  const { currentClinic } = useClinic();
   const { toast } = useToast();
   const [isChecking, setIsChecking] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
 
-  useEffect(() => {
-    checkAccess();
-  }, [user]);
-
-  const checkAccess = async () => {
+  const checkAccess = useCallback(async () => {
     if (!user) {
       setIsChecking(false);
       return;
@@ -42,10 +40,15 @@ export const AssistantLayout = ({ children }: AssistantLayoutProps) => {
       }
 
       // Check clinic_members table
-      const { data: membership } = await supabase
+      let membershipQuery = supabase
         .from('clinic_members')
         .select('role')
-        .eq('user_id', user.id);
+        .eq('user_id', user.id)
+        .eq('is_active', true);
+      if (currentClinic?.id) {
+        membershipQuery = membershipQuery.eq('clinic_id', currentClinic.id);
+      }
+      const { data: membership } = await membershipQuery;
 
       const hasMemberAccess = membership?.some(m => m.role === 'assistant');
 
@@ -63,26 +66,19 @@ export const AssistantLayout = ({ children }: AssistantLayoutProps) => {
     } finally {
       setIsChecking(false);
     }
-  };
+  }, [currentClinic?.id, toast, user]);
+
+  useEffect(() => {
+    checkAccess();
+  }, [checkAccess]);
 
   if (isChecking) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <RoleCabinetShell sidebar={<AssistantSidebar />} isLoading />;
   }
 
   if (!user || !hasAccess) {
     return <Navigate to="/" replace />;
   }
 
-  return (
-    <div className="min-h-screen bg-background flex w-full">
-      <AssistantSidebar />
-      <main className="flex-1 lg:pl-72 min-h-screen">
-        {children}
-      </main>
-    </div>
-  );
+  return <RoleCabinetShell sidebar={<AssistantSidebar />}>{children}</RoleCabinetShell>;
 };

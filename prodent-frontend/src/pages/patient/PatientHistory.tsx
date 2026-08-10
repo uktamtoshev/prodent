@@ -1,21 +1,24 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PatientLayout } from "@/components/patient/PatientLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { History, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface Appointment {
   id: string;
   appointment_date: string;
+  start_time: string | null;
   service: string;
   status: string;
   notes: string | null;
-  price: number | null;
+  total_price: number | null;
   doctors?: {
     id: string;
     specialty: string;
@@ -29,27 +32,30 @@ interface Appointment {
 
 export default function PatientHistory() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadRequestRef = useRef(0);
 
-  useEffect(() => {
-    if (user) {
-      loadAppointments();
-    }
-  }, [user]);
-
-  const loadAppointments = async () => {
+  const loadAppointments = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) return;
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
-    
-    const { data } = await supabase
-      .from("appointments")
-      .select(`
+    setLoadError(null);
+
+    try {
+      const { data, error } = await supabase
+        .from("appointments")
+        .select(`
         id,
         appointment_date,
+        start_time,
         service,
         status,
         notes,
-        price,
+        total_price,
         doctors (
           id,
           specialty,
@@ -59,32 +65,54 @@ export default function PatientHistory() {
           name
         )
       `)
-      .eq("patient_id", user!.id)
-      .order("appointment_date", { ascending: false });
+        .eq("patient_id", userId)
+        .order("appointment_date", { ascending: false });
+      if (error) throw error;
+      if (requestId !== loadRequestRef.current) return;
+      const appointmentRows = data || [];
 
-    if (data) {
-      const doctorUserIds = data
+      const doctorUserIds = appointmentRows
         .map(a => a.doctors?.user_id)
-        .filter(Boolean);
+        .filter((id): id is string => typeof id === "string");
 
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, full_name")
-        .in("id", doctorUserIds);
+      const profiles = doctorUserIds.length > 0
+        ? await supabase
+            .from("profiles")
+            .select("id, full_name")
+            .in("id", doctorUserIds)
+        : { data: [], error: null };
+      if (profiles.error) throw profiles.error;
+      if (requestId !== loadRequestRef.current) return;
 
-      const appointmentsWithNames = data.map(apt => ({
+      const appointmentsWithNames = appointmentRows.map(apt => ({
         ...apt,
-        doctor_name: profiles?.find(p => p.id === apt.doctors?.user_id)?.full_name || "Врач"
+        doctor_name: profiles.data?.find(p => p.id === apt.doctors?.user_id)?.full_name || t("patientCabinet.doctor")
       }));
 
       setAppointments(appointmentsWithNames);
+    } catch (error) {
+      if (requestId !== loadRequestRef.current) return;
+      setLoadError(error instanceof Error ? error.message : t("common.error"));
+    } finally {
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
+  }, [t, user?.id]);
 
-    setLoading(false);
-  };
+  useEffect(() => {
+    if (user?.id) {
+      void loadAppointments();
+    } else {
+      loadRequestRef.current += 1;
+      setAppointments([]);
+      setLoading(false);
+    }
+    return () => {
+      loadRequestRef.current += 1;
+    };
+  }, [user?.id, loadAppointments]);
 
   const getStatusColor = (status: string) => {
-    switch (status) {
+    switch (status.toLowerCase()) {
       case "confirmed": return "bg-emerald-500/10 text-emerald-500 border-emerald-500/20";
       case "pending": return "bg-amber-500/10 text-amber-500 border-amber-500/20";
       case "completed": return "bg-blue-500/10 text-blue-500 border-blue-500/20";
@@ -94,37 +122,45 @@ export default function PatientHistory() {
   };
 
   const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "confirmed": return "Подтверждён";
-      case "pending": return "Ожидает";
-      case "completed": return "Завершён";
-      case "cancelled": return "Отменён";
+    switch (status.toLowerCase()) {
+      case "confirmed": return t("patientCabinet.statusConfirmed");
+      case "pending": return t("patientCabinet.statusPending");
+      case "completed": return t("patientCabinet.statusCompletedM");
+      case "cancelled": return t("patientCabinet.statusCancelledM");
       default: return status;
     }
   };
 
   return (
     <PatientLayout>
-      <div className="p-6 lg:p-8 space-y-6">
+      <div className="min-w-0 space-y-6 p-3 sm:p-6 lg:p-8">
         <div>
           <h1 className="font-heading text-foreground flex items-center gap-3">
             <History className="w-8 h-8" />
-            История посещений
+            {t("patientCabinet.visitHistory")}
           </h1>
-          <p className="text-muted-foreground mt-1">Ваши прошлые и предстоящие визиты</p>
+          <p className="text-muted-foreground mt-1">{t("patientCabinet.visitHistoryDesc")}</p>
         </div>
 
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-foreground">Все записи</CardTitle>
+            <CardTitle className="text-foreground">{t("patientCabinet.allRecords")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading ? (
-              <>
+              <div role="status" aria-live="polite" className="space-y-3">
+                <span className="sr-only">{t("common.loading")}</span>
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
-              </>
+              </div>
+            ) : loadError ? (
+              <div className="flex flex-col items-center gap-3 py-12 text-center" role="alert">
+                <p className="text-sm font-medium text-destructive">{t("common.error")}</p>
+                <Button type="button" variant="outline" className="min-h-11" onClick={() => void loadAppointments()}>
+                  Повторить
+                </Button>
+              </div>
             ) : appointments.length > 0 ? (
               appointments.map((apt) => (
                 <div
@@ -156,12 +192,14 @@ export default function PatientHistory() {
                         <Calendar className="w-4 h-4" />
                         {format(new Date(apt.appointment_date), "d MMMM yyyy", { locale: ru })}
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        {format(new Date(apt.appointment_date), "HH:mm")}
-                      </p>
-                      {apt.price && (
+                      {apt.start_time && (
+                        <p className="text-sm text-muted-foreground">
+                          {apt.start_time.slice(0, 5)}
+                        </p>
+                      )}
+                      {apt.total_price && (
                         <p className="text-sm font-bold text-primary mt-1">
-                          {apt.price.toLocaleString()} сум
+                          {apt.total_price.toLocaleString()} {t("patientCabinet.sumCurrency")}
                         </p>
                       )}
                     </div>
@@ -171,8 +209,8 @@ export default function PatientHistory() {
             ) : (
               <div className="text-center py-12 text-muted-foreground">
                 <History className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg">История посещений пуста</p>
-                <p className="text-sm">Запишитесь на первый приём</p>
+                <p className="text-lg">{t("patientCabinet.historyEmptyMessage")}</p>
+                <p className="text-sm">{t("patientCabinet.historyEmptyMessageDesc")}</p>
               </div>
             )}
           </CardContent>

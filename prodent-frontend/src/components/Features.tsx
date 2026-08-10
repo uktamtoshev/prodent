@@ -56,7 +56,7 @@ const Features = () => {
             {t('features.badge')}
           </span>
           <h2 
-            className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 opacity-0 animate-fade-in"
+            className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold mb-6 opacity-0 animate-fade-in [overflow-wrap:anywhere]"
             style={{ animationDelay: "0.2s" }}
           >
             {t('features.title')}{" "}

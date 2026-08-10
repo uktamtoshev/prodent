@@ -1,24 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { useClinic } from "@/contexts/ClinicContext";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Json } from "@/integrations/supabase/types";
-
-const DAYS = [
-  { key: "monday", label: "Пн" },
-  { key: "tuesday", label: "Вт" },
-  { key: "wednesday", label: "Ср" },
-  { key: "thursday", label: "Чт" },
-  { key: "friday", label: "Пт" },
-  { key: "saturday", label: "Сб" },
-  { key: "sunday", label: "Вс" },
-];
+import { useLanguage } from "@/contexts/LanguageContext";
+import { saveClinicSetting } from "@/lib/clinic-settings";
 
 interface StepScheduleProps {
   onNext: () => void;
@@ -27,9 +16,21 @@ interface StepScheduleProps {
 }
 
 export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+
+  const DAYS = useMemo(() => ([
+    { key: "monday", label: t('crmStepSchedule.mon') },
+    { key: "tuesday", label: t('crmStepSchedule.tue') },
+    { key: "wednesday", label: t('crmStepSchedule.wed') },
+    { key: "thursday", label: t('crmStepSchedule.thu') },
+    { key: "friday", label: t('crmStepSchedule.fri') },
+    { key: "saturday", label: t('crmStepSchedule.sat') },
+    { key: "sunday", label: t('crmStepSchedule.sun') },
+  ]), [t]);
+
   const [workDays, setWorkDays] = useState<Record<string, boolean>>({
     monday: true, tuesday: true, wednesday: true, thursday: true, friday: true,
     saturday: true, sunday: false,
@@ -46,7 +47,7 @@ export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
     try {
       if (!currentClinic?.id) throw new Error("No clinic");
 
-      const schedule: Record<string, any> = {};
+      const schedule: Record<string, { enabled: boolean; start: string; end: string }> = {};
       DAYS.forEach((day) => {
         schedule[day.key] = {
           enabled: workDays[day.key],
@@ -55,20 +56,12 @@ export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
         };
       });
 
-      await supabase.from("clinic_settings").upsert(
-        [{
-          clinic_id: currentClinic.id,
-          key: "working_hours",
-          value: schedule as unknown as Json,
-          description: "Рабочие часы клиники",
-        }],
-        { onConflict: "clinic_id,key" }
-      );
+      await saveClinicSetting(currentClinic.id, "working_hours", schedule);
 
-      toast({ title: "Расписание настроено ✓" });
+      toast({ title: t('crmStepSchedule.scheduleConfigured') });
       onNext();
     } catch {
-      toast({ title: "Ошибка сохранения", variant: "destructive" });
+      toast({ title: t('crmStepSchedule.saveError'), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -80,13 +73,13 @@ export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
         <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
           <Calendar className="w-7 h-7 text-primary" />
         </div>
-        <CardTitle className="text-xl">Настройте расписание</CardTitle>
-        <CardDescription>Выберите рабочие дни и часы клиники</CardDescription>
+        <CardTitle className="text-xl">{t('crmStepSchedule.configureSchedule')}</CardTitle>
+        <CardDescription>{t('crmStepSchedule.chooseWorkDaysHours')}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Working days */}
         <div>
-          <Label className="mb-3 block">Рабочие дни</Label>
+          <Label className="mb-3 block">{t('crmStepSchedule.workDays')}</Label>
           <div className="flex gap-2 justify-center">
             {DAYS.map((day) => (
               <button
@@ -108,7 +101,7 @@ export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
         {/* Working hours */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <Label>Начало работы</Label>
+            <Label>{t('crmStepSchedule.workStart')}</Label>
             <select
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
@@ -122,7 +115,7 @@ export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
             </select>
           </div>
           <div>
-            <Label>Конец работы</Label>
+            <Label>{t('crmStepSchedule.workEnd')}</Label>
             <select
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
@@ -138,15 +131,15 @@ export function StepSchedule({ onNext, onBack, onSkip }: StepScheduleProps) {
         </div>
 
         <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-          💡 Вы сможете настроить индивидуальное расписание для каждого врача позже в разделе «Настройки».
+          💡 {t('crmStepSchedule.individualScheduleHint')}
         </div>
 
         <div className="flex gap-2 pt-2">
-          <Button variant="outline" onClick={onBack} className="flex-1">Назад</Button>
-          <Button variant="ghost" onClick={onSkip} className="flex-1">Пропустить</Button>
+          <Button variant="outline" onClick={onBack} className="flex-1">{t('crmStepSchedule.back')}</Button>
+          <Button variant="ghost" onClick={onSkip} className="flex-1">{t('crmStepSchedule.skip')}</Button>
           <Button onClick={handleSave} className="flex-1" disabled={loading}>
             {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Далее
+            {t('crmStepSchedule.next')}
           </Button>
         </div>
       </CardContent>

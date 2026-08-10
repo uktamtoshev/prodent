@@ -1,14 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { lazy, Suspense } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
-import { format, subDays, eachDayOfInterval, startOfDay } from 'date-fns';
-import { ru } from 'date-fns/locale';
-import { Eye, MousePointer, UserPlus, Calendar, TrendingUp, BarChart3, Building2, User } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { format } from 'date-fns';
+import { ru, uz, enUS } from 'date-fns/locale';
+import type { Locale } from 'date-fns';
+import { Eye, MousePointer, BarChart3, Building2, User } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useCampaignAnalyticsRows } from '@/hooks/useAdCampaigns';
+
+const CampaignPerformanceChart = lazy(() =>
+  import('./CampaignPerformanceChart').then((module) => ({
+    default: module.CampaignPerformanceChart,
+  })),
+);
 
 interface CampaignAnalyticsDialogProps {
   campaignId: string;
@@ -26,91 +33,50 @@ interface CampaignAnalyticsDialogProps {
   };
 }
 
-interface AnalyticsEvent {
-  id: string;
-  event_type: string;
-  created_at: string;
-  page_url: string | null;
-  referrer_url: string | null;
-}
+const DATE_LOCALES: Record<string, Locale> = {
+  ru,
+  uz,
+  en: enUS,
+};
 
 export function CampaignAnalyticsDialog({ campaignId, isOpen, onClose, campaign }: CampaignAnalyticsDialogProps) {
-  const { data: events, isLoading } = useQuery({
-    queryKey: ['campaign-analytics-detail', campaignId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('ad_analytics')
-        .select('*')
-        .eq('campaign_id', campaignId)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
-      return data as AnalyticsEvent[];
-    },
-    enabled: isOpen
-  });
+  const { t, language } = useLanguage();
+  const dateLocale = DATE_LOCALES[language] ?? ru;
 
-  // Calculate stats
-  const stats = {
-    impressions: events?.filter(e => e.event_type === 'impression').length || 0,
-    clicks: events?.filter(e => e.event_type === 'click').length || 0,
-    profile_views: events?.filter(e => e.event_type === 'profile_view').length || 0,
-    appointments: events?.filter(e => e.event_type === 'appointment_booking').length || 0,
-  };
+  // Consume the REST analytics endpoint (GET /api/v1/ads/campaigns/{id}/analytics)
+  // which returns one aggregated row per day. The old direct `ad_analytics`
+  // table query no longer exists server-side and 500'd.
+  const { data: rows, isLoading } = useCampaignAnalyticsRows(campaignId, isOpen);
+
+  // Aggregate totals across daily rows. Only impressions and clicks are tracked
+  // by the backend; profile_views / appointments are not, so they are omitted.
+  const stats = (() => {
+    let impressions = 0;
+    let clicks = 0;
+    for (const r of rows ?? []) {
+      impressions += Number(r.impressions ?? 0);
+      clicks += Number(r.clicks ?? 0);
+    }
+    return { impressions, clicks };
+  })();
 
   const ctr = stats.impressions > 0 ? ((stats.clicks / stats.impressions) * 100).toFixed(2) : '0';
-  const conversionRate = stats.profile_views > 0 ? ((stats.appointments / stats.profile_views) * 100).toFixed(2) : '0';
 
-  // Prepare chart data - last 14 days
+  // Chart data: one point per daily row, ordered chronologically.
   const chartData = (() => {
-    if (!events?.length) return [];
-    
-    const endDate = new Date();
-    const startDate = subDays(endDate, 13);
-    const days = eachDayOfInterval({ start: startDate, end: endDate });
-    
-    return days.map(day => {
-      const dayStart = startOfDay(day);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setDate(dayEnd.getDate() + 1);
-      
-      const dayEvents = events.filter(e => {
-        const eventDate = new Date(e.created_at);
-        return eventDate >= dayStart && eventDate < dayEnd;
+    if (!rows?.length) return [];
+    return [...rows]
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      .map(r => {
+        const parsed = new Date(r.date);
+        const label = isNaN(parsed.getTime()) ? r.date : format(parsed, 'd MMM', { locale: dateLocale });
+        return {
+          date: label,
+          impressions: Number(r.impressions ?? 0),
+          clicks: Number(r.clicks ?? 0),
+        };
       });
-      
-      return {
-        date: format(day, 'd MMM', { locale: ru }),
-        impressions: dayEvents.filter(e => e.event_type === 'impression').length,
-        clicks: dayEvents.filter(e => e.event_type === 'click').length,
-        profile_views: dayEvents.filter(e => e.event_type === 'profile_view').length,
-        appointments: dayEvents.filter(e => e.event_type === 'appointment_booking').length,
-      };
-    });
   })();
-
-  // Top referrers
-  const referrers = (() => {
-    if (!events?.length) return [];
-    const refMap = new Map<string, number>();
-    events.forEach(e => {
-      if (e.referrer_url) {
-        try {
-          const url = new URL(e.referrer_url);
-          const domain = url.hostname;
-          refMap.set(domain, (refMap.get(domain) || 0) + 1);
-        } catch {
-          refMap.set(e.referrer_url, (refMap.get(e.referrer_url) || 0) + 1);
-        }
-      }
-    });
-    return Array.from(refMap.entries())
-      .map(([domain, count]) => ({ domain, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
-  })();
-
-  const targetName = campaign.doctor?.profiles?.full_name || campaign.clinic?.name || 'Неизвестно';
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -118,7 +84,7 @@ export function CampaignAnalyticsDialog({ campaignId, isOpen, onClose, campaign 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3">
             <BarChart3 className="h-5 w-5 text-primary" />
-            Аналитика кампании
+            {t('adminCampaignAnalytics.title')}
           </DialogTitle>
         </DialogHeader>
 
@@ -149,25 +115,25 @@ export function CampaignAnalyticsDialog({ campaignId, isOpen, onClose, campaign 
                   </div>
                   <div>
                     <p className="font-semibold text-foreground">{campaign.clinic.name}</p>
-                    <p className="text-sm text-muted-foreground">Клиника</p>
+                    <p className="text-sm text-muted-foreground">{t('adminCampaignAnalytics.clinicLabel')}</p>
                   </div>
                 </>
               ) : null}
               <div className="ml-auto text-right">
                 <Badge variant="outline">{campaign.package?.name}</Badge>
                 <p className="text-xs text-muted-foreground mt-1">
-                  {format(new Date(campaign.start_date), 'd MMM', { locale: ru })} — {format(new Date(campaign.end_date), 'd MMM yyyy', { locale: ru })}
+                  {format(new Date(campaign.start_date), 'd MMM', { locale: dateLocale })} — {format(new Date(campaign.end_date), 'd MMM yyyy', { locale: dateLocale })}
                 </p>
               </div>
             </div>
 
-            {/* Stats grid */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {/* Stats grid — only impressions/clicks are tracked by the backend */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Card className="bg-blue-500/10 border-blue-500/20">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 text-blue-500 mb-2">
                     <Eye className="h-4 w-4" />
-                    <span className="text-xs font-medium">Показы</span>
+                    <span className="text-xs font-medium">{t('adminCampaignAnalytics.statImpressions')}</span>
                   </div>
                   <p className="text-2xl font-bold text-foreground">{stats.impressions.toLocaleString()}</p>
                 </CardContent>
@@ -177,31 +143,10 @@ export function CampaignAnalyticsDialog({ campaignId, isOpen, onClose, campaign 
                 <CardContent className="p-4">
                   <div className="flex items-center gap-2 text-green-500 mb-2">
                     <MousePointer className="h-4 w-4" />
-                    <span className="text-xs font-medium">Клики</span>
+                    <span className="text-xs font-medium">{t('adminCampaignAnalytics.statClicks')}</span>
                   </div>
                   <p className="text-2xl font-bold text-foreground">{stats.clicks.toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground mt-1">CTR: {ctr}%</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-purple-500/10 border-purple-500/20">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 text-purple-500 mb-2">
-                    <TrendingUp className="h-4 w-4" />
-                    <span className="text-xs font-medium">Просмотры профиля</span>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">{stats.profile_views.toLocaleString()}</p>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-orange-500/10 border-orange-500/20">
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-2 text-orange-500 mb-2">
-                    <Calendar className="h-4 w-4" />
-                    <span className="text-xs font-medium">Записи</span>
-                  </div>
-                  <p className="text-2xl font-bold text-foreground">{stats.appointments.toLocaleString()}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Конверсия: {conversionRate}%</p>
+                  <p className="text-xs text-muted-foreground mt-1">{t('adminCampaignAnalytics.statCtr')}{ctr}%</p>
                 </CardContent>
               </Card>
             </div>
@@ -210,105 +155,23 @@ export function CampaignAnalyticsDialog({ campaignId, isOpen, onClose, campaign 
             {chartData.length > 0 && (
               <Card>
                 <CardContent className="pt-6">
-                  <h3 className="text-sm font-semibold mb-4 text-foreground">Динамика за 14 дней</h3>
+                  <h3 className="text-sm font-semibold mb-4 text-foreground">{t('adminCampaignAnalytics.chartTitle')}</h3>
                   <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="colorImpressions" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                          </linearGradient>
-                          <linearGradient id="colorClicks" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0}/>
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                        <XAxis dataKey="date" className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                        <YAxis className="text-xs" tick={{ fill: 'hsl(var(--muted-foreground))' }} />
-                        <Tooltip 
-                          contentStyle={{ 
-                            backgroundColor: 'hsl(var(--card))', 
-                            border: '1px solid hsl(var(--border))',
-                            borderRadius: '8px'
-                          }}
-                          labelStyle={{ color: 'hsl(var(--foreground))' }}
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="impressions" 
-                          name="Показы"
-                          stroke="hsl(var(--primary))" 
-                          fillOpacity={1} 
-                          fill="url(#colorImpressions)" 
-                        />
-                        <Area 
-                          type="monotone" 
-                          dataKey="clicks" 
-                          name="Клики"
-                          stroke="#22c55e" 
-                          fillOpacity={1} 
-                          fill="url(#colorClicks)" 
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <Suspense fallback={<Skeleton className="h-full w-full" />}>
+                      <CampaignPerformanceChart
+                        data={chartData}
+                        impressionsLabel={t('adminCampaignAnalytics.statImpressions')}
+                        clicksLabel={t('adminCampaignAnalytics.statClicks')}
+                      />
+                    </Suspense>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Referrers */}
-            {referrers.length > 0 && (
-              <Card>
-                <CardContent className="pt-6">
-                  <h3 className="text-sm font-semibold mb-4 text-foreground">Источники трафика</h3>
-                  <div className="space-y-2">
-                    {referrers.map(ref => (
-                      <div key={ref.domain} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                        <span className="text-sm text-foreground">{ref.domain}</span>
-                        <Badge variant="secondary">{ref.count}</Badge>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Recent events */}
-            {events && events.length > 0 && (
-              <Card>
-                <CardContent className="pt-6">
-                  <h3 className="text-sm font-semibold mb-4 text-foreground">Последние события</h3>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {events.slice(0, 20).map(event => (
-                      <div key={event.id} className="flex items-center justify-between py-2 text-sm border-b border-border last:border-0">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-[10px]">
-                            {event.event_type === 'impression' && 'Показ'}
-                            {event.event_type === 'click' && 'Клик'}
-                            {event.event_type === 'profile_view' && 'Просмотр'}
-                            {event.event_type === 'appointment_booking' && 'Запись'}
-                          </Badge>
-                          {event.page_url && (
-                            <span className="text-muted-foreground text-xs truncate max-w-48">
-                              {event.page_url}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {format(new Date(event.created_at), 'd MMM HH:mm', { locale: ru })}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {events?.length === 0 && (
+            {(!rows || rows.length === 0) && (
               <div className="text-center py-8 text-muted-foreground">
-                Нет данных аналитики для этой кампании
+                {t('adminCampaignAnalytics.noData')}
               </div>
             )}
           </div>

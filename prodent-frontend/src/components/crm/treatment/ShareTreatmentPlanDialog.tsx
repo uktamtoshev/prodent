@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { MessageCircle, Phone, Copy, Check, ExternalLink, Send } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ShareTreatmentPlanDialogProps {
   open: boolean;
@@ -22,23 +23,24 @@ export function ShareTreatmentPlanDialog({
   publicToken,
   patientPhone,
 }: ShareTreatmentPlanDialogProps) {
+  const { t } = useLanguage();
   const [phone, setPhone] = useState(patientPhone || "");
   const [copied, setCopied] = useState(false);
   const [sending, setSending] = useState(false);
 
-  const publicUrl = `${window.location.origin}/treatment-plan/${publicToken}`;
+  const publicUrl = `${window.location.origin}/treatment-plan#t=${encodeURIComponent(publicToken)}`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(publicUrl);
     setCopied(true);
-    toast.success("Ссылка скопирована");
+    toast.success(t("crmTreatmentDialogs.linkCopied"));
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleWhatsApp = () => {
     const cleanPhone = phone.replace(/[^\d+]/g, "");
     const message = encodeURIComponent(
-      `Ваш план лечения "${planName}" готов. Просмотрите по ссылке:\n${publicUrl}`
+      `${t("crmTreatmentDialogs.yourPlanReady")} "${planName}" ${t("crmTreatmentDialogs.readyView")}\n${publicUrl}`
     );
     const whatsappUrl = cleanPhone
       ? `https://wa.me/${cleanPhone.replace("+", "")}?text=${message}`
@@ -49,7 +51,7 @@ export function ShareTreatmentPlanDialog({
   const handleSMS = async () => {
     const cleanPhone = phone.replace(/[^\d+]/g, "");
     if (!cleanPhone) {
-      toast.error("Введите номер телефона");
+      toast.error(t("crmTreatmentDialogs.enterPhoneNumber"));
       return;
     }
 
@@ -64,11 +66,11 @@ export function ShareTreatmentPlanDialog({
       });
 
       if (error) throw error;
-      toast.success("SMS отправлено");
+      toast.success(t("crmTreatmentDialogs.smsSent"));
       onOpenChange(false);
     } catch (err) {
       console.error("SMS error:", err);
-      toast.error("Ошибка отправки SMS");
+      toast.error(t("crmTreatmentDialogs.smsError"));
     } finally {
       setSending(false);
     }
@@ -80,14 +82,14 @@ export function ShareTreatmentPlanDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-foreground">
             <Send className="w-5 h-5 text-primary" />
-            Отправить план лечения
+            {t("crmTreatmentDialogs.sendPlanTitle")}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5">
           {/* Public Link */}
           <div className="space-y-2">
-            <Label className="text-muted-foreground text-xs">Публичная ссылка</Label>
+            <Label className="text-muted-foreground text-xs">{t("crmTreatmentDialogs.publicLink")}</Label>
             <div className="flex gap-2">
               <Input
                 value={publicUrl}
@@ -119,8 +121,8 @@ export function ShareTreatmentPlanDialog({
 
           {/* Phone */}
           <div className="space-y-2">
-            <Label className="text-muted-foreground text-xs">Номер телефона пациента</Label>
-            <Input
+            <Label className="text-muted-foreground text-xs" htmlFor="share-treatment-plan-dialog-field-1">{t("crmTreatmentDialogs.patientPhone")}</Label>
+            <Input id="share-treatment-plan-dialog-field-1"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="+998 90 123 45 67"
@@ -144,12 +146,12 @@ export function ShareTreatmentPlanDialog({
               className="gap-2"
             >
               <Phone className="w-4 h-4" />
-              {sending ? "Отправка..." : "SMS"}
+              {sending ? t("crmTreatmentDialogs.sendingShort") : "SMS"}
             </Button>
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            Пациент сможет просмотреть план лечения по ссылке без регистрации
+            {t("crmTreatmentDialogs.patientCanView")}
           </p>
         </div>
       </DialogContent>

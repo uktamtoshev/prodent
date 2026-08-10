@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
@@ -6,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { AlertTriangle, Shield, AlertCircle, Calendar, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ToothRiskIndicatorProps {
   patientId: string;
@@ -13,41 +15,41 @@ interface ToothRiskIndicatorProps {
   currentStatus?: string;
 }
 
-const RISK_CONFIG: Record<string, { 
-  label: string; 
-  color: string; 
+const buildRiskConfig = (t: (k: string) => string): Record<string, {
+  label: string;
+  color: string;
   bgColor: string;
   borderColor: string;
   icon: React.ComponentType<{ className?: string }>;
   progressColor: string;
-}> = {
-  low: { 
-    label: 'Низкий риск', 
+}> => ({
+  low: {
+    label: t("patientCabinet.riskLow"),
     color: 'text-emerald-600',
     bgColor: 'bg-emerald-500/10',
     borderColor: 'border-emerald-500/30',
     icon: Shield,
     progressColor: 'bg-emerald-500',
   },
-  medium: { 
-    label: 'Средний риск', 
+  medium: {
+    label: t("patientCabinet.riskMedium"),
     color: 'text-amber-600',
     bgColor: 'bg-amber-500/10',
     borderColor: 'border-amber-500/30',
     icon: AlertCircle,
     progressColor: 'bg-amber-500',
   },
-  high: { 
-    label: 'Высокий риск', 
+  high: {
+    label: t("patientCabinet.riskHigh"),
     color: 'text-red-600',
     bgColor: 'bg-red-500/10',
     borderColor: 'border-red-500/30',
     icon: AlertTriangle,
     progressColor: 'bg-red-500',
   },
-};
+});
 
-// Расчёт риска на основе статуса (используется если нет AI-прогноза)
+// Compute risk from status (used when no AI prediction)
 const calculateRiskFromStatus = (status?: string): { level: string; score: number } => {
   switch (status) {
     case 'healthy':
@@ -70,6 +72,8 @@ const calculateRiskFromStatus = (status?: string): { level: string; score: numbe
 };
 
 export function ToothRiskIndicator({ patientId, toothNumber, currentStatus }: ToothRiskIndicatorProps) {
+  const { t } = useLanguage();
+  const RISK_CONFIG = useMemo(() => buildRiskConfig(t), [t]);
   const { data: prediction } = useQuery({
     queryKey: ['tooth-prediction', patientId, toothNumber],
     queryFn: async () => {
@@ -119,20 +123,20 @@ export function ToothRiskIndicator({ patientId, toothNumber, currentStatus }: To
             <Icon className="h-4 w-4" />
           </div>
           <div>
-            <p className="text-sm font-medium">Уровень риска</p>
-            <Badge 
-              variant="outline" 
+            <p className="text-sm font-medium">{t("patientCabinet.riskLevel")}</p>
+            <Badge
+              variant="outline"
               className={cn("text-xs mt-0.5", config.color, config.borderColor)}
             >
               {config.label}
             </Badge>
           </div>
         </div>
-        
+
         {prediction && (
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
             <TrendingUp className="h-3 w-3" />
-            <span>AI-прогноз</span>
+            <span>{t("patientCabinet.aiPrediction")}</span>
           </div>
         )}
       </div>
@@ -140,7 +144,7 @@ export function ToothRiskIndicator({ patientId, toothNumber, currentStatus }: To
       {/* Risk score bar */}
       <div className="space-y-1 mb-3">
         <div className="flex justify-between text-xs">
-          <span className="text-muted-foreground">Индекс риска</span>
+          <span className="text-muted-foreground">{t("patientCabinet.riskIndex")}</span>
           <span className={cn("font-medium", config.color)}>{Math.round(riskData.score)}%</span>
         </div>
         <div className="h-2 rounded-full bg-muted overflow-hidden">
@@ -155,7 +159,7 @@ export function ToothRiskIndicator({ patientId, toothNumber, currentStatus }: To
       {riskData.nextCheckup && (
         <div className="flex items-center gap-2 text-xs mb-2">
           <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-muted-foreground">Следующий осмотр:</span>
+          <span className="text-muted-foreground">{t("patientCabinet.nextCheckup")}</span>
           <span className="font-medium">
             {format(new Date(riskData.nextCheckup), 'd MMMM yyyy', { locale: ru })}
           </span>
@@ -169,7 +173,7 @@ export function ToothRiskIndicator({ patientId, toothNumber, currentStatus }: To
           "bg-background/50 border border-border/50"
         )}>
           <p className="font-medium mb-1 flex items-center gap-1">
-            💡 Рекомендация
+            💡 {t("patientCabinet.recommendation")}
           </p>
           <p className="text-muted-foreground leading-relaxed">
             {riskData.recommendation}
@@ -180,13 +184,13 @@ export function ToothRiskIndicator({ patientId, toothNumber, currentStatus }: To
       {/* Fallback message when no prediction */}
       {!prediction && currentStatus && (
         <p className="text-xs text-muted-foreground mt-2">
-          {currentStatus === 'healthy' 
-            ? 'Рекомендуется профилактический осмотр каждые 6 месяцев'
+          {currentStatus === 'healthy'
+            ? t("patientCabinet.preventiveCheckup")
             : currentStatus === 'caries' || currentStatus === 'watch'
-            ? 'Требуется лечение в ближайшее время'
+            ? t("patientCabinet.treatmentSoon")
             : currentStatus === 'endo' || currentStatus === 'periodontitis'
-            ? 'Необходимо срочное лечение'
-            : 'Регулярный контроль состояния'}
+            ? t("patientCabinet.urgentTreatment")
+            : t("patientCabinet.regularControl")}
         </p>
       )}
     </div>

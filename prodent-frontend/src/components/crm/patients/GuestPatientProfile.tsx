@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { supabase } from "@/integrations/supabase/client";
+import { prepareGuestInvitation } from "@/lib/appointment-api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +19,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { 
-  Phone, 
-  Calendar, 
-  MessageSquare, 
-  Send, 
+import {
+  Phone,
+  Calendar,
+  MessageSquare,
+  Send,
   UserPlus,
   Clock,
   CheckCircle,
@@ -32,6 +32,7 @@ import {
   Stethoscope
 } from "lucide-react";
 import { GuestBadge } from "./GuestBadge";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface GuestPatient {
   id: string;
@@ -39,7 +40,7 @@ interface GuestPatient {
   phone: string;
   comment?: string | null;
   sms_consent: boolean;
-  status: "guest" | "invited" | "converted";
+  status: "guest" | "invitation_prepared" | "invited" | "converted";
   created_at: string;
   invitation_sent_at?: string | null;
 }
@@ -50,6 +51,7 @@ interface GuestPatientProfileProps {
 }
 
 export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfileProps) {
+  const { t } = useLanguage();
   const [sending, setSending] = useState(false);
 
   const getInitials = (name: string) => {
@@ -57,34 +59,19 @@ export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfilePr
     return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
 
-  const sendInvitation = async () => {
+  const prepareInvitation = async () => {
     setSending(true);
     try {
-      // Generate invitation token
-      const token = crypto.randomUUID();
-      
-      // Update guest patient with invitation info
-      const { error } = await supabase
-        .from("guest_patients")
-        .update({
-          status: "invited",
-          invitation_token: token,
-          invitation_sent_at: new Date().toISOString(),
-        })
-        .eq("id", patient.id);
+      await prepareGuestInvitation(patient.id);
 
-      if (error) throw error;
-
-      // TODO: Send actual SMS via Play Mobile
-      // For now, just show success message as a stub
-      toast.success("Приглашение отправлено", {
-        description: `SMS отправлено на номер ${patient.phone}`,
+      toast.success(t('crmGuestProfile.invitationSentToast'), {
+        description: `${t('crmGuestProfile.smsSentTo')} ${patient.phone}`,
       });
 
       onUpdate?.();
     } catch (error) {
-      console.error("Error sending invitation:", error);
-      toast.error("Ошибка отправки приглашения");
+      console.error("Error preparing invitation:", error);
+      toast.error(t('crmGuestProfile.sendError'));
     } finally {
       setSending(false);
     }
@@ -92,18 +79,19 @@ export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfilePr
 
   const getStatusBadge = () => {
     switch (patient.status) {
+      case "invitation_prepared":
       case "invited":
         return (
           <Badge className="bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800">
             <Send className="h-3 w-3 mr-1" />
-            Приглашён
+            {t('crmGuestProfile.invited')}
           </Badge>
         );
       case "converted":
         return (
           <Badge className="bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800">
             <CheckCircle className="h-3 w-3 mr-1" />
-            Зарегистрирован
+            {t('crmGuestProfile.registered')}
           </Badge>
         );
       default:
@@ -117,27 +105,27 @@ export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfilePr
       <Card>
         <CardContent className="p-6">
           <div className="flex items-start gap-4">
-            <Avatar className="h-16 w-16 border-2 border-slate-200 dark:border-slate-700">
-              <AvatarFallback className="text-lg font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+            <Avatar className="h-16 w-16 border-2 border-border dark:border-border">
+              <AvatarFallback className="text-lg font-semibold bg-muted dark:bg-slate-800 text-muted-foreground dark:text-muted-foreground">
                 {getInitials(patient.name)}
               </AvatarFallback>
             </Avatar>
-            
+
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h2 className="text-xl font-semibold">{patient.name}</h2>
                 {getStatusBadge()}
               </div>
-              
+
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Phone className="h-4 w-4" />
                 <span>{patient.phone}</span>
               </div>
-              
+
               <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
                 <Calendar className="h-4 w-4" />
                 <span>
-                  Добавлен {format(new Date(patient.created_at), "d MMMM yyyy", { locale: ru })}
+                  {t('crmGuestProfile.added')} {format(new Date(patient.created_at), "d MMMM yyyy", { locale: ru })}
                 </span>
               </div>
             </div>
@@ -148,53 +136,53 @@ export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfilePr
                 <AlertDialogTrigger asChild>
                   <Button className="gap-2">
                     <UserPlus className="h-4 w-4" />
-                    Пригласить создать аккаунт
+                    {t('crmGuestProfile.inviteToCreateAccount')}
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Отправить приглашение?</AlertDialogTitle>
+                    <AlertDialogTitle>{t('crmGuestProfile.sendInvitationQ')}</AlertDialogTitle>
                     <AlertDialogDescription className="space-y-3">
                       <p>
-                        Пациенту будет отправлено SMS с приглашением создать аккаунт:
+                        {t('crmGuestProfile.patientWillReceiveSms')}
                       </p>
                       <div className="bg-muted p-3 rounded-lg text-sm">
                         <p className="font-medium text-foreground">
                           {patient.phone}
                         </p>
                         <p className="text-muted-foreground mt-2">
-                          "Вы были на приёме в клинике. Хотите видеть историю лечения и записываться онлайн? Создайте аккаунт за 30 секунд."
+                          "{t('crmGuestProfile.smsTextSample')}"
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        После регистрации вся история пациента будет сохранена.
+                        {t('crmGuestProfile.afterRegistrationHistory')}
                       </p>
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel>Отмена</AlertDialogCancel>
-                    <AlertDialogAction onClick={sendInvitation} disabled={sending}>
+                    <AlertDialogCancel>{t('crmGuestProfile.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={prepareInvitation} disabled={sending}>
                       {sending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                      Отправить SMS
+                      {t('crmGuestProfile.sendSms')}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
             )}
 
-            {patient.status === "invited" && (
+            {(patient.status === "invitation_prepared" || patient.status === "invited") && (
               <div className="text-sm text-muted-foreground text-right">
                 <div className="flex items-center gap-1.5">
                   <Clock className="h-4 w-4" />
                   <span>
-                    Приглашение отправлено
+                    {t('crmGuestProfile.invitationSent')}
                     {patient.invitation_sent_at && (
                       <> {format(new Date(patient.invitation_sent_at), "d MMM в HH:mm", { locale: ru })}</>
                     )}
                   </span>
                 </div>
-                <Button variant="ghost" size="sm" className="mt-2" onClick={sendInvitation} disabled={sending}>
-                  {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : "Отправить повторно"}
+                <Button variant="ghost" size="sm" className="mt-2" onClick={prepareInvitation} disabled={sending}>
+                  {sending ? <Loader2 className="h-3 w-3 animate-spin" /> : t('crmGuestProfile.sendAgain')}
                 </Button>
               </div>
             )}
@@ -213,7 +201,7 @@ export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfilePr
 
           {/* SMS Consent */}
           <div className="mt-4 text-xs text-muted-foreground">
-            SMS-напоминания: {patient.sms_consent ? "✓ Согласен" : "✗ Не согласен"}
+            {t('crmGuestProfile.smsReminders')}: {patient.sms_consent ? `✓ ${t('crmGuestProfile.consentYes')}` : `✗ ${t('crmGuestProfile.consentNo')}`}
           </div>
         </CardContent>
       </Card>
@@ -223,18 +211,18 @@ export function GuestPatientProfile({ patient, onUpdate }: GuestPatientProfilePr
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <Stethoscope className="h-5 w-5 text-primary" />
-            Медицинская карта
+            {t('crmGuestProfile.medicalCard')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-8 text-muted-foreground">
             <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
-            <p>Медицинские записи гостевого пациента</p>
+            <p>{t('crmGuestProfile.guestRecords')}</p>
             <p className="text-sm mt-1">
-              Добавляйте диагнозы, заметки и файлы
+              {t('crmGuestProfile.addNotesAndFiles')}
             </p>
             <Button variant="outline" className="mt-4">
-              Добавить запись
+              {t('crmGuestProfile.addRecord')}
             </Button>
           </div>
         </CardContent>

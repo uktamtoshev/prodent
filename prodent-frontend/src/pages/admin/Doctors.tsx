@@ -15,14 +15,19 @@ import {
 } from '@/components/ui/table';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useAdmin } from '@/contexts/AdminContext';
+import { DeleteRowButton } from '@/components/admin/DeleteRowButton';
 
 export default function Doctors() {
   const [search, setSearch] = useState('');
+  const { t } = useLanguage();
+  const { isSuperAdmin } = useAdmin();
 
-  const { data: doctors, isLoading } = useQuery({
-    queryKey: ['admin-doctors', search],
+  const { data: doctors, isLoading, error } = useQuery({
+    queryKey: ['admin-doctors'],
     queryFn: async () => {
-      let query = supabase
+      const query = supabase
         .from('doctors')
         .select(`
           id,
@@ -31,6 +36,7 @@ export default function Doctors() {
           price_from,
           subscription_plan,
           verified,
+          is_verified,
           created_at,
           clinic_id,
           user_id,
@@ -39,27 +45,38 @@ export default function Doctors() {
         `)
         .order('created_at', { ascending: false });
 
-      if (search) {
-        query = query.ilike('profiles.full_name', `%${search}%`);
-      }
-
-      const { data } = await query;
+      // The verification approve-flow writes `is_verified` (the real DB column),
+      // so display/export must read it; keep `verified` as a legacy fallback.
+      const { data, error: queryError } = await query;
+      if (queryError) throw new Error(queryError.message || 'Failed to load doctors');
       return data;
     },
   });
 
+  // Search is a client-side filter over hydrated rows (full_name + phone).
+  // Filtering server-side via .ilike on the embedded profiles column is
+  // silently dropped by the data-proxy shim, so it must run here.
+  const term = search.trim().toLowerCase();
+  const filteredDoctors = term
+    ? doctors?.filter((d) => {
+        const name = (d.profiles?.full_name || '').toLowerCase();
+        const phone = (d.profiles?.phone || '').toLowerCase();
+        return name.includes(term) || phone.includes(term);
+      })
+    : doctors;
+
   const exportToCSV = () => {
-    if (!doctors) return;
+    if (!filteredDoctors) return;
     const csv = [
-      ['ID', 'ФИО', 'Город', 'Специальность', 'Тариф', 'Статус', 'Дата регистрации'].join(','),
-      ...doctors.map((d) =>
+      t('adminDoctors.csvHeader'),
+      ...filteredDoctors.map((d) =>
         [
           d.id,
           d.profiles?.full_name || '',
           d.clinics?.city || '',
           d.specialty,
           d.subscription_plan,
-          d.verified ? 'Активен' : 'На модерации',
+          (d.is_verified ?? d.verified) ? t('adminDoctors.statusActive') : t('adminDoctors.statusOnModeration'),
           new Date(d.created_at!).toLocaleDateString(),
         ].join(',')
       ),
@@ -78,56 +95,65 @@ export default function Doctors() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">Все врачи</h1>
-            <p className="text-slate-400 mt-2">Управление профилями врачей</p>
+            <h1 className="text-3xl font-bold text-foreground">{t('adminDoctors.title')}</h1>
+            <p className="text-muted-foreground mt-2">{t('adminDoctors.subtitle')}</p>
           </div>
           <Button onClick={exportToCSV} variant="outline" className="gap-2">
             <Download className="h-4 w-4" />
-            Экспорт CSV
+            {t('admin.exportCsv')}
           </Button>
         </div>
 
         <div className="flex gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Поиск по имени врача..."
+              placeholder={t('adminDoctors.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 bg-slate-900 border-slate-800 text-white"
+              className="pl-10 bg-card border-border text-foreground"
             />
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-lg">
+        <div className="bg-card border border-border rounded-lg">
           <Table>
             <TableHeader>
-              <TableRow className="border-slate-800 hover:bg-slate-800/50">
-                <TableHead className="text-slate-400">Врач</TableHead>
-                <TableHead className="text-slate-400">Специальность</TableHead>
-                <TableHead className="text-slate-400">Город</TableHead>
-                <TableHead className="text-slate-400">Тариф</TableHead>
-                <TableHead className="text-slate-400">Статус</TableHead>
-                <TableHead className="text-slate-400">Опыт</TableHead>
-                <TableHead className="text-slate-400">Дата регистрации</TableHead>
+              <TableRow className="border-border hover:bg-accent/50">
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colDoctor')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colSpecialty')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colCity')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colTariff')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colStatus')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colExperience')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminDoctors.colRegDate')}</TableHead>
+                {isSuperAdmin && (
+                  <TableHead className="text-muted-foreground text-right">{t('admin.actions')}</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-slate-400">
-                    Загрузка...
+                  <TableCell colSpan={isSuperAdmin ? 8 : 7} className="text-center text-muted-foreground">
+                    {t('admin.loading')}
                   </TableCell>
                 </TableRow>
-              ) : doctors?.length === 0 ? (
+              ) : error ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-slate-400">
-                    Врачи не найдены
+                  <TableCell colSpan={isSuperAdmin ? 8 : 7} className="text-center text-destructive">
+                    {(error as Error).message || 'Ошибка загрузки данных'}
+                  </TableCell>
+                </TableRow>
+              ) : filteredDoctors?.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={isSuperAdmin ? 8 : 7} className="text-center text-muted-foreground">
+                    {t('adminDoctors.notFound')}
                   </TableCell>
                 </TableRow>
               ) : (
-                doctors?.map((doctor) => (
-                  <TableRow key={doctor.id} className="border-slate-800 hover:bg-slate-800/50">
+                filteredDoctors?.map((doctor) => (
+                  <TableRow key={doctor.id} className="border-border hover:bg-accent/50">
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <Avatar>
@@ -137,27 +163,32 @@ export default function Doctors() {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="text-white font-medium">{doctor.profiles?.full_name || 'Без имени'}</p>
-                          <p className="text-sm text-slate-400">{doctor.profiles?.phone || 'N/A'}</p>
+                          <p className="text-foreground font-medium">{doctor.profiles?.full_name || t('admin.noName')}</p>
+                          <p className="text-sm text-muted-foreground">{doctor.profiles?.phone || 'N/A'}</p>
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="text-slate-300">{doctor.specialty}</TableCell>
-                    <TableCell className="text-slate-300">{doctor.clinics?.city || 'N/A'}</TableCell>
+                    <TableCell className="text-muted-foreground">{doctor.specialty}</TableCell>
+                    <TableCell className="text-muted-foreground">{doctor.clinics?.city || 'N/A'}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className="capitalize">
                         {doctor.subscription_plan}
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={doctor.verified ? 'default' : 'secondary'}>
-                        {doctor.verified ? 'Активен' : 'На модерации'}
+                      <Badge variant={(doctor.is_verified ?? doctor.verified) ? 'default' : 'secondary'}>
+                        {(doctor.is_verified ?? doctor.verified) ? t('adminDoctors.statusActive') : t('adminDoctors.statusOnModeration')}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-slate-300">{doctor.experience_years} лет</TableCell>
-                    <TableCell className="text-slate-300">
+                    <TableCell className="text-muted-foreground">{doctor.experience_years} {t('adminDoctors.yearsShort')}</TableCell>
+                    <TableCell className="text-muted-foreground">
                       {new Date(doctor.created_at!).toLocaleDateString()}
                     </TableCell>
+                    {isSuperAdmin && (
+                      <TableCell className="text-right">
+                        <DeleteRowButton table="doctors" id={doctor.id} label={doctor.profiles?.full_name || doctor.specialty} invalidateKey="admin-doctors" />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}

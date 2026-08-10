@@ -1,35 +1,38 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PatientLayout } from "@/components/patient/PatientLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  clearPatientDraft,
+  loadPatientDraft,
+  savePatientDraft,
+} from "@/lib/patient-cabinet";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { 
-  MessageCircle, 
-  Send, 
-  Search,
-  Check,
-  CheckCheck,
-  User,
+import {
   ArrowLeft,
   Building2,
+  CalendarDays,
+  Check,
+  CheckCheck,
+  MessageCircle,
+  MoreHorizontal,
+  Phone,
+  Search,
+  Send,
   Stethoscope,
-  FileHeart
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import { ru } from "date-fns/locale";
+import { InitialsAvatar as Avatar } from "@/components/shared/InitialsAvatar";
 import { cn } from "@/lib/utils";
-import { MessageAttachment, MessageFileDisplay, MessageFilePreview } from "@/components/crm/messages/MessageAttachment";
+import {
+  MessageAttachment,
+  MessageFileDisplay,
+  MessageFilePreview,
+} from "@/components/crm/messages/MessageAttachment";
 import { PatientAccessRequestMessage } from "@/components/medical/PatientAccessRequestMessage";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { useQuery } from "@tanstack/react-query";
+import { usePatientAccessRequests } from "@/hooks/useMedicalAccess";
 
 interface Doctor {
   id: string;
@@ -45,6 +48,13 @@ interface Doctor {
     created_at: string;
     sender_id: string;
   };
+}
+
+interface DoctorQueryRow {
+  id: string;
+  user_id: string;
+  specialty: string;
+  profiles: Doctor["profile"] | Doctor["profile"][];
 }
 
 interface Clinic {
@@ -76,177 +86,86 @@ interface Message {
 export default function PatientMessages() {
   const { user } = useAuth();
   const { t } = useLanguage();
-  const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'doctors' | 'clinics'>('doctors');
+  const savedDraft = loadPatientDraft<{
+    text: string;
+    pendingFile: { url: string; type: string; name: string } | null;
+  }>("message", user?.id, { text: "", pendingFile: null });
+  const [activeTab, setActiveTab] = useState<"doctors" | "clinics">("doctors");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedClinic, setSelectedClinic] = useState<Clinic | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState("");
+  const [newMessage, setNewMessage] = useState(savedDraft.text);
   const [loading, setLoading] = useState(true);
+  const [doctorsError, setDoctorsError] = useState<string | null>(null);
+  const [clinicsError, setClinicsError] = useState<string | null>(null);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [pendingFile, setPendingFile] = useState<{ url: string; type: string; name: string } | null>(null);
+  const [pendingFile, setPendingFile] = useState<{
+    url: string;
+    type: string;
+    name: string;
+  } | null>(savedDraft.pendingFile);
+  const draftUserRef = useRef<string | null>(user?.id ?? null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageRequestRef = useRef(0);
 
-  // Запросы доступа к медкарте от текущего врача (используем новую таблицу)
-  const { data: accessRequests } = useQuery({
-    queryKey: ['patient-chat-access-requests', user?.id, selectedDoctor?.id],
-    queryFn: async () => {
-      if (!user?.id || !selectedDoctor?.id) return [];
-      const { data } = await supabase
-        .from('medical_record_access')
-        .select('*')
-        .eq('patient_id', user.id)
-        .eq('doctor_id', selectedDoctor.id)
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false });
-      return data || [];
-    },
-    enabled: !!user?.id && !!selectedDoctor?.id,
-    refetchInterval: 5000,
-  });
+  const { data: allAccessRequests = [] } = usePatientAccessRequests();
 
-  // Мутация для ответа на запрос доступа (используем новую таблицу)
-  const respondToAccessMutation = useMutation({
-    mutationFn: async ({ requestId, approved }: { requestId: string; approved: boolean }) => {
-      const { error } = await supabase
-        .from('medical_record_access')
-        .update({
-          status: approved ? 'active' : 'revoked',
-          patient_consent: approved,
-          patient_consent_at: new Date().toISOString(),
-          granted_by: 'patient'
-        })
-        .eq('id', requestId);
-      if (error) throw error;
-    },
-    onSuccess: (_, { approved }) => {
-      toast.success(approved ? 'Доступ разрешён' : 'Запрос отклонён');
-      queryClient.invalidateQueries({ queryKey: ['patient-chat-access-requests'] });
-      queryClient.invalidateQueries({ queryKey: ['medical-access'] });
-    },
-    onError: () => {
-      toast.error('Ошибка обработки запроса');
-    },
-  });
-
-  // Load doctors and clinics
   useEffect(() => {
-    if (user) {
-      loadDoctors();
-      loadClinics();
+    if (!user?.id) return;
+    if (draftUserRef.current !== user.id) {
+      draftUserRef.current = user.id;
+      const restored = loadPatientDraft("message", user.id, {
+        text: "",
+        pendingFile: null,
+      });
+      setNewMessage(restored.text);
+      setPendingFile(restored.pendingFile);
+      return;
     }
-  }, [user]);
+    savePatientDraft("message", user?.id, {
+      text: newMessage,
+      pendingFile,
+    });
+  }, [newMessage, pendingFile, user?.id]);
+  const accessRequests = allAccessRequests.filter(
+    (request) =>
+      request.doctor_id === selectedDoctor?.id && request.status === "pending",
+  );
 
-  // Load messages when doctor or clinic is selected
-  useEffect(() => {
-    if (selectedDoctor && user) {
-      loadDoctorMessages(selectedDoctor.id);
-      markDoctorMessagesAsRead(selectedDoctor.id);
-    }
-  }, [selectedDoctor, user]);
-
-  useEffect(() => {
-    if (selectedClinic && user) {
-      loadClinicMessages(selectedClinic.id);
-      markClinicMessagesAsRead(selectedClinic.id);
-    }
-  }, [selectedClinic, user]);
-
-  // Subscribe to realtime messages
-  useEffect(() => {
-    if (!user) return;
-
-    const doctorChannel = supabase
-      .channel('patient-doctor-messages')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'doctor_messages',
-          filter: `patient_id=eq.${user.id}`
-        },
-        (payload) => {
-          const newMsg = payload.new as Message;
-          
-          if (selectedDoctor && newMsg.doctor_id === selectedDoctor.id) {
-            setMessages(prev => [...prev, newMsg]);
-            scrollToBottom();
-            if (newMsg.sender_id !== user.id) {
-              markDoctorMessagesAsRead(selectedDoctor.id);
-            }
-          }
-          updateDoctorLastMessage(newMsg);
-        }
-      )
-      .subscribe();
-
-    const clinicChannel = supabase
-      .channel('patient-clinic-messages')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'patient_messages',
-          filter: `patient_id=eq.${user.id}`
-        },
-        (payload) => {
-          const newMsg = payload.new as Message;
-          
-          if (selectedClinic && newMsg.clinic_id === selectedClinic.id) {
-            setMessages(prev => [...prev, newMsg]);
-            scrollToBottom();
-            if (newMsg.sender_type !== 'patient') {
-              markClinicMessagesAsRead(selectedClinic.id);
-            }
-          }
-          updateClinicLastMessage(newMsg);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(doctorChannel);
-      supabase.removeChannel(clinicChannel);
-    };
-  }, [user, selectedDoctor, selectedClinic]);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
-  const loadDoctors = async () => {
-    if (!user) return;
+  const loadDoctors = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) return;
     setLoading(true);
-
+    setDoctorsError(null);
     try {
-      // Get unique doctors from appointments
-      const { data: appointments } = await supabase
+      const { data: appointments, error: appointmentsError } = await supabase
         .from("appointments")
         .select("doctor_id")
-        .eq("patient_id", user.id);
+        .eq("patient_id", userId);
+      if (appointmentsError) throw appointmentsError;
+      const appointmentDoctorIds = appointments?.map((a) => a.doctor_id) || [];
 
-      const appointmentDoctorIds = appointments?.map(a => a.doctor_id) || [];
-
-      // Also get doctors from messages (in case patient wrote from public profile)
-      const { data: messagesWithDoctors } = await supabase
+      const { data: messagesWithDoctors, error: doctorMessagesError } = await supabase
         .from("doctor_messages")
         .select("doctor_id")
-        .eq("patient_id", user.id);
+        .eq("patient_id", userId);
+      if (doctorMessagesError) throw doctorMessagesError;
+      const messageDoctorIds =
+        messagesWithDoctors?.map((m) => m.doctor_id) || [];
 
-      const messageDoctorIds = messagesWithDoctors?.map(m => m.doctor_id) || [];
-
-      // Combine and deduplicate doctor IDs
-      const allDoctorIds = [...new Set([...appointmentDoctorIds, ...messageDoctorIds])];
+      const allDoctorIds = [
+        ...new Set([...appointmentDoctorIds, ...messageDoctorIds]),
+      ];
 
       if (allDoctorIds.length === 0) {
         setDoctors([]);
@@ -254,19 +173,14 @@ export default function PatientMessages() {
         return;
       }
 
-      // Get doctor info with profiles
-      const { data: doctorsData } = await supabase
+      const { data: doctorsData, error: doctorsError } = await supabase
         .from("doctors")
-        .select(`
-          id,
-          user_id,
-          specialty,
-          profiles:user_id (
-            full_name,
-            avatar_url
-          )
-        `)
+        .select(
+          `id, user_id, specialty,
+           profiles:user_id (full_name, avatar_url)`
+        )
         .in("id", allDoctorIds);
+      if (doctorsError) throw doctorsError;
 
       if (!doctorsData) {
         setDoctors([]);
@@ -274,89 +188,92 @@ export default function PatientMessages() {
         return;
       }
 
-      // Get last messages and unread counts for each doctor
+      const doctorRows = doctorsData as unknown as DoctorQueryRow[];
       const doctorsWithMessages = await Promise.all(
-        doctorsData.map(async (doctor) => {
-          // Get last message
+        doctorRows.map(async (doctor) => {
           const { data: lastMsgData } = await supabase
             .from("doctor_messages")
             .select("content, created_at, sender_id")
             .eq("doctor_id", doctor.id)
-            .eq("patient_id", user.id)
+            .eq("patient_id", userId)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
 
-          // Get unread count
           const { count } = await supabase
             .from("doctor_messages")
             .select("*", { count: "exact", head: true })
             .eq("doctor_id", doctor.id)
-            .eq("patient_id", user.id)
-            .neq("sender_id", user.id)
+            .eq("patient_id", userId)
+            .neq("sender_id", userId)
             .eq("is_read", false);
 
           return {
             ...doctor,
-            profile: Array.isArray(doctor.profiles) ? doctor.profiles[0] : doctor.profiles,
+            profile: Array.isArray(doctor.profiles)
+              ? doctor.profiles[0]
+              : doctor.profiles,
             lastMessage: lastMsgData || undefined,
-            unreadCount: count || 0
+            unreadCount: count || 0,
           };
         })
       );
 
-      // Sort by last message time
       doctorsWithMessages.sort((a, b) => {
         if (!a.lastMessage && !b.lastMessage) return 0;
         if (!a.lastMessage) return 1;
         if (!b.lastMessage) return -1;
-        return new Date(b.lastMessage.created_at).getTime() - new Date(a.lastMessage.created_at).getTime();
+        return (
+          new Date(b.lastMessage.created_at).getTime() -
+          new Date(a.lastMessage.created_at).getTime()
+        );
       });
 
       setDoctors(doctorsWithMessages);
     } catch (error) {
       console.error("Error loading doctors:", error);
+      setDoctorsError(error instanceof Error ? error.message : "Не удалось загрузить врачей");
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.id]);
 
-  const loadClinics = async () => {
-    if (!user) return;
-
+  const loadClinics = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) return;
+    setClinicsError(null);
     try {
-      // Get unique clinic IDs from messages
-      const { data: messagesData } = await supabase
+      const { data: messagesData, error: clinicMessagesError } = await supabase
         .from("patient_messages")
         .select("clinic_id")
-        .eq("patient_id", user.id);
+        .eq("patient_id", userId);
+      if (clinicMessagesError) throw clinicMessagesError;
 
-      const clinicIds = [...new Set(messagesData?.map(m => m.clinic_id) || [])];
-
+      const clinicIds = [
+        ...new Set(messagesData?.map((m) => m.clinic_id) || []),
+      ];
       if (clinicIds.length === 0) {
         setClinics([]);
         return;
       }
 
-      // Get clinic info
-      const { data: clinicsData } = await supabase
+      const { data: clinicsData, error: clinicsError } = await supabase
         .from("clinics")
         .select("id, name, images")
         .in("id", clinicIds);
-
+      if (clinicsError) throw clinicsError;
       if (!clinicsData) {
         setClinics([]);
         return;
       }
 
-      // Get last messages and unread counts
       const clinicsWithMessages = await Promise.all(
         clinicsData.map(async (clinic) => {
           const { data: lastMsgData } = await supabase
             .from("patient_messages")
             .select("content, created_at, sender_type")
             .eq("clinic_id", clinic.id)
-            .eq("patient_id", user.id)
+            .eq("patient_id", userId)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -365,14 +282,14 @@ export default function PatientMessages() {
             .from("patient_messages")
             .select("*", { count: "exact", head: true })
             .eq("clinic_id", clinic.id)
-            .eq("patient_id", user.id)
+            .eq("patient_id", userId)
             .eq("sender_type", "clinic")
             .eq("is_read", false);
 
           return {
             ...clinic,
             lastMessage: lastMsgData || undefined,
-            unreadCount: count || 0
+            unreadCount: count || 0,
           };
         })
       );
@@ -381,141 +298,264 @@ export default function PatientMessages() {
         if (!a.lastMessage && !b.lastMessage) return 0;
         if (!a.lastMessage) return 1;
         if (!b.lastMessage) return -1;
-        return new Date(b.lastMessage.created_at).getTime() - new Date(a.lastMessage.created_at).getTime();
+        return (
+          new Date(b.lastMessage.created_at).getTime() -
+          new Date(a.lastMessage.created_at).getTime()
+        );
       });
 
       setClinics(clinicsWithMessages);
     } catch (error) {
       console.error("Error loading clinics:", error);
+      setClinicsError(error instanceof Error ? error.message : "Не удалось загрузить клиники");
     }
-  };
+  }, [user?.id]);
 
-  const loadDoctorMessages = async (doctorId: string) => {
-    if (!user) return;
+  const loadDoctorMessages = useCallback(async (doctorId: string) => {
+    const userId = user?.id;
+    if (!userId) return;
+    const requestId = ++messageRequestRef.current;
+    setMessagesLoading(true);
+    setMessagesError(null);
+    try {
+      const { data, error } = await supabase
+        .from("doctor_messages")
+        .select("*")
+        .eq("doctor_id", doctorId)
+        .eq("patient_id", userId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      if (requestId === messageRequestRef.current) setMessages(data || []);
+    } catch (error) {
+      if (requestId === messageRequestRef.current) {
+        setMessages([]);
+        setMessagesError(error instanceof Error ? error.message : "Не удалось загрузить сообщения");
+      }
+    } finally {
+      if (requestId === messageRequestRef.current) setMessagesLoading(false);
+    }
+  }, [user?.id]);
 
-    const { data } = await supabase
-      .from("doctor_messages")
-      .select("*")
-      .eq("doctor_id", doctorId)
-      .eq("patient_id", user.id)
-      .order("created_at", { ascending: true });
+  const loadClinicMessages = useCallback(async (clinicId: string) => {
+    const userId = user?.id;
+    if (!userId) return;
+    const requestId = ++messageRequestRef.current;
+    setMessagesLoading(true);
+    setMessagesError(null);
+    try {
+      const { data, error } = await supabase
+        .from("patient_messages")
+        .select("*")
+        .eq("clinic_id", clinicId)
+        .eq("patient_id", userId)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      if (requestId === messageRequestRef.current) setMessages(data || []);
+    } catch (error) {
+      if (requestId === messageRequestRef.current) {
+        setMessages([]);
+        setMessagesError(error instanceof Error ? error.message : "Не удалось загрузить сообщения");
+      }
+    } finally {
+      if (requestId === messageRequestRef.current) setMessagesLoading(false);
+    }
+  }, [user?.id]);
 
-    setMessages(data || []);
-  };
-
-  const loadClinicMessages = async (clinicId: string) => {
-    if (!user) return;
-
-    const { data } = await supabase
-      .from("patient_messages")
-      .select("*")
-      .eq("clinic_id", clinicId)
-      .eq("patient_id", user.id)
-      .order("created_at", { ascending: true });
-
-    setMessages(data || []);
-  };
-
-  const markDoctorMessagesAsRead = async (doctorId: string) => {
-    if (!user) return;
-
+  const markDoctorMessagesAsRead = useCallback(async (doctorId: string) => {
+    const userId = user?.id;
+    if (!userId) return;
     await supabase
       .from("doctor_messages")
       .update({ is_read: true })
       .eq("doctor_id", doctorId)
-      .eq("patient_id", user.id)
-      .neq("sender_id", user.id)
+      .eq("patient_id", userId)
+      .neq("sender_id", userId)
       .eq("is_read", false);
-
-    setDoctors(prev => 
-      prev.map(d => 
-        d.id === doctorId ? { ...d, unreadCount: 0 } : d
-      )
+    setDoctors((prev) =>
+      prev.map((d) => (d.id === doctorId ? { ...d, unreadCount: 0 } : d))
     );
-  };
+  }, [user?.id]);
 
-  const markClinicMessagesAsRead = async (clinicId: string) => {
-    if (!user) return;
-
+  const markClinicMessagesAsRead = useCallback(async (clinicId: string) => {
+    const userId = user?.id;
+    if (!userId) return;
     await supabase
       .from("patient_messages")
       .update({ is_read: true })
       .eq("clinic_id", clinicId)
-      .eq("patient_id", user.id)
+      .eq("patient_id", userId)
       .eq("sender_type", "clinic")
       .eq("is_read", false);
-
-    setClinics(prev => 
-      prev.map(c => 
-        c.id === clinicId ? { ...c, unreadCount: 0 } : c
-      )
+    setClinics((prev) =>
+      prev.map((c) => (c.id === clinicId ? { ...c, unreadCount: 0 } : c))
     );
-  };
+  }, [user?.id]);
 
-  const updateDoctorLastMessage = (msg: Message) => {
-    setDoctors(prev => {
-      const updated = prev.map(d => {
+  const updateDoctorLastMessage = useCallback((msg: Message) => {
+    setDoctors((prev) => {
+      const updated = prev.map((d) => {
         if (d.id === msg.doctor_id) {
           return {
             ...d,
             lastMessage: {
               content: msg.content || "",
               created_at: msg.created_at,
-              sender_id: msg.sender_id
+              sender_id: msg.sender_id,
             },
-            unreadCount: msg.sender_id !== user?.id 
-              ? (d.unreadCount || 0) + 1 
-              : d.unreadCount
+            unreadCount:
+              msg.sender_id !== user?.id
+                ? (d.unreadCount || 0) + 1
+                : d.unreadCount,
           };
         }
         return d;
       });
-      
       return updated.sort((a, b) => {
         if (!a.lastMessage && !b.lastMessage) return 0;
         if (!a.lastMessage) return 1;
         if (!b.lastMessage) return -1;
-        return new Date(b.lastMessage.created_at).getTime() - new Date(a.lastMessage.created_at).getTime();
+        return (
+          new Date(b.lastMessage.created_at).getTime() -
+          new Date(a.lastMessage.created_at).getTime()
+        );
       });
     });
-  };
+  }, [user?.id]);
 
-  const updateClinicLastMessage = (msg: Message) => {
-    setClinics(prev => {
-      const updated = prev.map(c => {
+  const updateClinicLastMessage = useCallback((msg: Message) => {
+    setClinics((prev) => {
+      const updated = prev.map((c) => {
         if (c.id === msg.clinic_id) {
           return {
             ...c,
             lastMessage: {
               content: msg.content,
               created_at: msg.created_at,
-              sender_type: msg.sender_type || 'patient'
+              sender_type: msg.sender_type || "patient",
             },
-            unreadCount: msg.sender_type === 'clinic' 
-              ? (c.unreadCount || 0) + 1 
-              : c.unreadCount
+            unreadCount:
+              msg.sender_type === "clinic"
+                ? (c.unreadCount || 0) + 1
+                : c.unreadCount,
           };
         }
         return c;
       });
-      
       return updated.sort((a, b) => {
         if (!a.lastMessage && !b.lastMessage) return 0;
         if (!a.lastMessage) return 1;
         if (!b.lastMessage) return -1;
-        return new Date(b.lastMessage.created_at).getTime() - new Date(a.lastMessage.created_at).getTime();
+        return (
+          new Date(b.lastMessage.created_at).getTime() -
+          new Date(a.lastMessage.created_at).getTime()
+        );
       });
     });
-  };
+  }, []);
+
+  useEffect(() => {
+    if (user?.id) {
+      void loadDoctors();
+      void loadClinics();
+    }
+  }, [user?.id, loadClinics, loadDoctors]);
+
+  useEffect(() => {
+    const doctorId = selectedDoctor?.id;
+    if (doctorId && user?.id) {
+      void loadDoctorMessages(doctorId);
+      void markDoctorMessagesAsRead(doctorId);
+    }
+  }, [selectedDoctor?.id, user?.id, loadDoctorMessages, markDoctorMessagesAsRead]);
+
+  useEffect(() => {
+    const clinicId = selectedClinic?.id;
+    if (clinicId && user?.id) {
+      void loadClinicMessages(clinicId);
+      void markClinicMessagesAsRead(clinicId);
+    }
+  }, [selectedClinic?.id, user?.id, loadClinicMessages, markClinicMessagesAsRead]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    const selectedDoctorId = selectedDoctor?.id;
+    const selectedClinicId = selectedClinic?.id;
+    if (!userId) return;
+
+    const doctorChannel = supabase
+      .channel("patient-doctor-messages")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "doctor_messages",
+          filter: `patient_id=eq.${userId}`,
+        },
+        (payload) => {
+          const newMsg = payload.new as Message;
+          if (selectedDoctorId && newMsg.doctor_id === selectedDoctorId) {
+            setMessages((prev) => [...prev, newMsg]);
+            scrollToBottom();
+            if (newMsg.sender_id !== userId) {
+              void markDoctorMessagesAsRead(selectedDoctorId);
+            }
+          }
+          updateDoctorLastMessage(newMsg);
+        }
+      )
+      .subscribe();
+
+    const clinicChannel = supabase
+      .channel("patient-clinic-messages")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "patient_messages",
+          filter: `patient_id=eq.${userId}`,
+        },
+        (payload) => {
+          const newMsg = payload.new as Message;
+          if (selectedClinicId && newMsg.clinic_id === selectedClinicId) {
+            setMessages((prev) => [...prev, newMsg]);
+            scrollToBottom();
+            if (newMsg.sender_type !== "patient") {
+              void markClinicMessagesAsRead(selectedClinicId);
+            }
+          }
+          updateClinicLastMessage(newMsg);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(doctorChannel);
+      void supabase.removeChannel(clinicChannel);
+    };
+  }, [
+    user?.id,
+    selectedDoctor?.id,
+    selectedClinic?.id,
+    markClinicMessagesAsRead,
+    markDoctorMessagesAsRead,
+    scrollToBottom,
+    updateClinicLastMessage,
+    updateDoctorLastMessage,
+  ]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
 
   const sendDoctorMessage = async (fileUrl?: string, fileType?: string) => {
-    if ((!newMessage.trim() && !fileUrl) || !selectedDoctor || !user || sending) return;
-
+    if ((!newMessage.trim() && !fileUrl) || !selectedDoctor || !user || sending)
+      return;
     setSending(true);
+    setSendError(null);
     const messageContent = newMessage.trim();
     setNewMessage("");
-    setPendingFile(null);
-
     try {
       const { data, error } = await supabase
         .from("doctor_messages")
@@ -526,33 +566,33 @@ export default function PatientMessages() {
           content: messageContent || null,
           file_url: fileUrl || null,
           file_type: fileType || null,
-          is_read: false
+          is_read: false,
         })
         .select()
         .single();
-
       if (error) throw error;
-
       if (data) {
-        setMessages(prev => [...prev, data]);
+        setMessages((prev) => [...prev, data]);
         updateDoctorLastMessage(data);
+        setPendingFile(null);
+        clearPatientDraft("message", user.id);
       }
     } catch (error) {
       console.error("Error sending message:", error);
       setNewMessage(messageContent);
+      setSendError(error instanceof Error ? error.message : "Не удалось отправить сообщение");
     } finally {
       setSending(false);
     }
   };
 
   const sendClinicMessage = async (fileUrl?: string, fileType?: string) => {
-    if ((!newMessage.trim() && !fileUrl) || !selectedClinic || !user || sending) return;
-
+    if ((!newMessage.trim() && !fileUrl) || !selectedClinic || !user || sending)
+      return;
     setSending(true);
+    setSendError(null);
     const messageContent = newMessage.trim();
     setNewMessage("");
-    setPendingFile(null);
-
     try {
       const { data, error } = await supabase
         .from("patient_messages")
@@ -564,52 +604,53 @@ export default function PatientMessages() {
           content: messageContent || null,
           file_url: fileUrl || null,
           file_type: fileType || null,
-          is_read: false
+          is_read: false,
         })
         .select()
         .single();
-
       if (error) throw error;
-
       if (data) {
-        setMessages(prev => [...prev, data]);
+        setMessages((prev) => [...prev, data]);
         updateClinicLastMessage(data);
+        setPendingFile(null);
+        clearPatientDraft("message", user.id);
       }
     } catch (error) {
       console.error("Error sending message:", error);
       setNewMessage(messageContent);
+      setSendError(error instanceof Error ? error.message : "Не удалось отправить сообщение");
     } finally {
       setSending(false);
     }
   };
 
-  const handleFileSelected = (fileUrl: string, fileType: string, fileName: string) => {
+  const handleFileSelected = (
+    fileUrl: string,
+    fileType: string,
+    fileName: string
+  ) => {
     setPendingFile({ url: fileUrl, type: fileType, name: fileName });
   };
 
   const handleSendMessage = () => {
-    if (selectedDoctor) {
-      sendDoctorMessage(pendingFile?.url, pendingFile?.type);
-    } else if (selectedClinic) {
+    if (selectedDoctor) sendDoctorMessage(pendingFile?.url, pendingFile?.type);
+    else if (selectedClinic)
       sendClinicMessage(pendingFile?.url, pendingFile?.type);
-    }
   };
 
-  const formatMessageTime = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return format(date, "HH:mm", { locale: ru });
-  };
+  const formatMessageTime = (dateStr: string) =>
+    format(new Date(dateStr), "HH:mm", { locale: ru });
 
   const formatDateHeader = (dateStr: string) => {
     const date = new Date(dateStr);
-    if (isToday(date)) return "Сегодня";
-    if (isYesterday(date)) return "Вчера";
+    if (isToday(date)) return t("common.today");
+    if (isYesterday(date)) return t("common.yesterday");
     return format(date, "d MMMM yyyy", { locale: ru });
   };
 
   const groupMessagesByDate = (messages: Message[]) => {
     const groups: { [key: string]: Message[] } = {};
-    messages.forEach(msg => {
+    messages.forEach((msg) => {
       const dateKey = format(new Date(msg.created_at), "yyyy-MM-dd");
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(msg);
@@ -617,425 +658,599 @@ export default function PatientMessages() {
     return groups;
   };
 
-  const filteredDoctors = doctors.filter(d => 
-    d.profile?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    d.specialty?.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredDoctors = doctors.filter(
+    (d) =>
+      d.profile?.full_name
+        ?.toLowerCase()
+        .includes(searchQuery.toLowerCase()) ||
+      d.specialty?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredClinics = clinics.filter(c => 
+  const filteredClinics = clinics.filter((c) =>
     c.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const getInitials = (name: string | undefined) => {
-    if (!name) return "?";
-    return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
-  };
-
   const handleSelectDoctor = (doctor: Doctor) => {
+    messageRequestRef.current += 1;
     setSelectedClinic(null);
     setSelectedDoctor(doctor);
     setMessages([]);
   };
 
   const handleSelectClinic = (clinic: Clinic) => {
+    messageRequestRef.current += 1;
     setSelectedDoctor(null);
     setSelectedClinic(clinic);
     setMessages([]);
   };
 
   const handleBack = () => {
+    messageRequestRef.current += 1;
     setSelectedDoctor(null);
     setSelectedClinic(null);
     setMessages([]);
   };
 
   const selectedContact = selectedDoctor || selectedClinic;
+  const activeListError =
+    activeTab === "doctors" ? doctorsError : clinicsError;
+  const doctorsUnread = doctors.reduce(
+    (sum, d) => sum + (d.unreadCount || 0),
+    0
+  );
+  const clinicsUnread = clinics.reduce(
+    (sum, c) => sum + (c.unreadCount || 0),
+    0
+  );
 
   return (
     <PatientLayout>
-      <div className="h-[calc(100vh-4rem)] lg:h-screen flex flex-col">
-        <div className="p-4 lg:p-6 border-b border-border/50">
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <MessageCircle className="w-6 h-6 text-primary" />
-            {t('patient.messages')}
-          </h1>
-        </div>
+      <div className="h-dvh min-w-0">
+        <div
+          className={cn(
+            "grid h-full min-w-0 overflow-hidden",
+            "grid-cols-1 md:grid-cols-[320px_minmax(0,1fr)]"
+          )}
+        >
+          {/* Left: contacts */}
+          <aside
+            className={cn(
+              "flex min-h-0 min-w-0 flex-col border-r border-border bg-white",
+              selectedContact && "hidden md:flex"
+            )}
+          >
+            <div className="border-b border-slate-100 p-4">
+              <div className="font-heading text-[18px] font-bold tracking-tight text-slate-900">
+                {t("patient.messages") || t("patientCabinet.messagesTitle")}
+              </div>
 
-        <div className="flex-1 flex overflow-hidden">
-          {/* Contacts List */}
-          <div className={cn(
-            "w-full md:w-80 lg:w-96 border-r border-border/50 flex flex-col",
-            selectedContact && "hidden md:flex"
-          )}>
-            {/* Tabs */}
-            <div className="p-4 border-b border-border/50">
-              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'doctors' | 'clinics')}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="doctors" className="gap-2">
-                    <Stethoscope className="w-4 h-4" />
-                    Врачи
-                    {doctors.reduce((sum, d) => sum + (d.unreadCount || 0), 0) > 0 && (
-                      <Badge variant="destructive" className="ml-1 h-5 min-w-5">
-                        {doctors.reduce((sum, d) => sum + (d.unreadCount || 0), 0)}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                  <TabsTrigger value="clinics" className="gap-2">
-                    <Building2 className="w-4 h-4" />
-                    Клиники
-                    {clinics.reduce((sum, c) => sum + (c.unreadCount || 0), 0) > 0 && (
-                      <Badge variant="destructive" className="ml-1 h-5 min-w-5">
-                        {clinics.reduce((sum, c) => sum + (c.unreadCount || 0), 0)}
-                      </Badge>
-                    )}
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
+              {/* Tab toggle */}
+              <div className="mt-3 flex items-center gap-1 rounded-[10px] bg-slate-100 p-1">
+                <TabButton
+                  active={activeTab === "doctors"}
+                  onClick={() => setActiveTab("doctors")}
+                  icon={<Stethoscope className="h-3.5 w-3.5" />}
+                  label={t("patientCabinet.doctorsTab")}
+                  count={doctorsUnread}
+                />
+                <TabButton
+                  active={activeTab === "clinics"}
+                  onClick={() => setActiveTab("clinics")}
+                  icon={<Building2 className="h-3.5 w-3.5" />}
+                  label={t("patientCabinet.clinicsTab")}
+                  count={clinicsUnread}
+                />
+              </div>
 
-            {/* Search */}
-            <div className="p-4 border-b border-border/50">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder={activeTab === 'doctors' ? "Поиск врача..." : "Поиск клиники..."}
+              {/* Search */}
+              <div className="relative mt-3">
+                <label htmlFor="patient-message-search" className="sr-only">
+                  {activeTab === "doctors" ? t("patientCabinet.searchDoctor") : t("patientCabinet.searchClinic")}
+                </label>
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  id="patient-message-search"
+                  placeholder={
+                    activeTab === "doctors" ? t("patientCabinet.searchDoctor") : t("patientCabinet.searchClinic")
+                  }
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
+                  className="h-11 w-full rounded-[10px] border border-slate-200 bg-white pl-9 pr-3 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </div>
             </div>
 
-            {/* List */}
-            <ScrollArea className="flex-1">
+            <div className="min-h-0 flex-1 overflow-y-auto">
               {loading ? (
-                <div className="p-4 space-y-3">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="flex gap-3">
-                      <Skeleton className="w-12 h-12 rounded-full" />
-                      <div className="flex-1">
-                        <Skeleton className="h-4 w-32 mb-2" />
-                        <Skeleton className="h-3 w-48" />
+                <div className="space-y-3 p-4" role="status" aria-live="polite" aria-label={t("common.loading")}>
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex animate-pulse gap-3">
+                      <div className="h-10 w-10 rounded-full bg-slate-100" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-3 w-32 rounded bg-slate-100" />
+                        <div className="h-3 w-48 rounded bg-slate-100" />
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : activeTab === 'doctors' ? (
+              ) : activeListError ? (
+                <div className="flex flex-col items-center gap-3 p-8 text-center" role="alert">
+                  <p className="text-sm font-medium text-destructive">{t("common.error")}</p>
+                  <button
+                    type="button"
+                    className="min-h-11 rounded-[10px] border border-border px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => {
+                      if (activeTab === "doctors") void loadDoctors();
+                      else void loadClinics();
+                    }}
+                  >
+                    Повторить
+                  </button>
+                </div>
+              ) : activeTab === "doctors" ? (
                 filteredDoctors.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <User className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
-                    <p className="text-muted-foreground">
-                      {doctors.length === 0 
-                        ? "У вас пока нет врачей для переписки"
-                        : "Врачи не найдены"
-                      }
-                    </p>
-                  </div>
+                  <EmptyList
+                    icon={<Stethoscope className="h-10 w-10 text-slate-300" />}
+                    title={
+                      doctors.length === 0
+                        ? t("patientCabinet.noDoctorsForChat")
+                        : t("patientCabinet.notFound")
+                    }
+                  />
                 ) : (
-                  <div className="divide-y divide-border/50">
-                    {filteredDoctors.map(doctor => (
-                      <button
+                  filteredDoctors.map((doctor) => {
+                    const name = doctor.profile?.full_name || t("patientCabinet.doctor");
+                    return (
+                      <ThreadButton
                         key={doctor.id}
+                        active={selectedDoctor?.id === doctor.id}
                         onClick={() => handleSelectDoctor(doctor)}
-                        className={cn(
-                          "w-full p-4 flex gap-3 hover:bg-muted/50 transition-colors text-left",
-                          selectedDoctor?.id === doctor.id && "bg-muted"
-                        )}
-                      >
-                        <Avatar className="w-12 h-12">
-                          <AvatarImage src={doctor.profile?.avatar_url || undefined} />
-                          <AvatarFallback className="bg-primary/10 text-primary">
-                            {getInitials(doctor.profile?.full_name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="font-medium text-foreground truncate">
-                              {doctor.profile?.full_name || "Врач"}
-                            </h3>
-                            {doctor.lastMessage && (
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                {formatMessageTime(doctor.lastMessage.created_at)}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground truncate">
-                            {doctor.specialty}
-                          </p>
-                          {doctor.lastMessage && (
-                            <p className="text-sm text-muted-foreground truncate mt-1">
-                              {doctor.lastMessage.sender_id === user?.id && (
-                                <span className="text-primary">Вы: </span>
-                              )}
-                              {doctor.lastMessage.content}
-                            </p>
-                          )}
-                        </div>
-                        {(doctor.unreadCount || 0) > 0 && (
-                          <Badge className="bg-primary text-primary-foreground h-5 min-w-5 flex items-center justify-center">
-                            {doctor.unreadCount}
-                          </Badge>
-                        )}
-                      </button>
-                    ))}
-                  </div>
+                        avatar={
+                          <Avatar
+                            name={name}
+                            size={40}
+                            src={doctor.profile?.avatar_url}
+                          />
+                        }
+                        title={name}
+                        subtitle={doctor.specialty}
+                        last={
+                          doctor.lastMessage
+                            ? (doctor.lastMessage.sender_id === user?.id
+                                ? t("patientCabinet.youPrefix")
+                                : "") + (doctor.lastMessage.content || "")
+                            : undefined
+                        }
+                        time={
+                          doctor.lastMessage
+                            ? formatMessageTime(
+                                doctor.lastMessage.created_at
+                              )
+                            : undefined
+                        }
+                        unread={doctor.unreadCount || 0}
+                      />
+                    );
+                  })
                 )
+              ) : filteredClinics.length === 0 ? (
+                <EmptyList
+                  icon={<Building2 className="h-10 w-10 text-slate-300" />}
+                  title={
+                    clinics.length === 0
+                      ? t("patientCabinet.noClinicsForChat")
+                      : t("patientCabinet.notFound")
+                  }
+                />
               ) : (
-                filteredClinics.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Building2 className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
-                    <p className="text-muted-foreground">
-                      {clinics.length === 0 
-                        ? "У вас пока нет клиник для переписки"
-                        : "Клиники не найдены"
-                      }
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/50">
-                    {filteredClinics.map(clinic => (
-                      <button
-                        key={clinic.id}
-                        onClick={() => handleSelectClinic(clinic)}
-                        className={cn(
-                          "w-full p-4 flex gap-3 hover:bg-muted/50 transition-colors text-left",
-                          selectedClinic?.id === clinic.id && "bg-muted"
-                        )}
-                      >
-                        <Avatar className="w-12 h-12">
-                          <AvatarImage src={clinic.images?.[0] || undefined} />
-                          <AvatarFallback className="bg-secondary text-secondary-foreground">
-                            <Building2 className="w-5 h-5" />
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <h3 className="font-medium text-foreground truncate">
-                              {clinic.name}
-                            </h3>
-                            {clinic.lastMessage && (
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                {formatMessageTime(clinic.lastMessage.created_at)}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground truncate">Клиника</p>
-                          {clinic.lastMessage && (
-                            <p className="text-sm text-muted-foreground truncate mt-1">
-                              {clinic.lastMessage.sender_type === "patient" && (
-                                <span className="text-primary">Вы: </span>
-                              )}
-                              {clinic.lastMessage.content || "[Файл]"}
-                            </p>
-                          )}
-                        </div>
-                        {(clinic.unreadCount || 0) > 0 && (
-                          <Badge className="bg-primary text-primary-foreground h-5 min-w-5 flex items-center justify-center">
-                            {clinic.unreadCount}
-                          </Badge>
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                )
+                filteredClinics.map((clinic) => (
+                  <ThreadButton
+                    key={clinic.id}
+                    active={selectedClinic?.id === clinic.id}
+                    onClick={() => handleSelectClinic(clinic)}
+                    avatar={
+                      <Avatar
+                        name={clinic.name}
+                        size={40}
+                        src={clinic.images?.[0]}
+                        fallbackIcon={<Building2 className="h-4 w-4" />}
+                      />
+                    }
+                    title={clinic.name}
+                    subtitle={t("patientCabinet.clinic")}
+                    last={
+                      clinic.lastMessage
+                        ? (clinic.lastMessage.sender_type === "patient"
+                            ? t("patientCabinet.youPrefix")
+                            : "") +
+                          (clinic.lastMessage.content || t("patientCabinet.filePrefix"))
+                        : undefined
+                    }
+                    time={
+                      clinic.lastMessage
+                        ? formatMessageTime(clinic.lastMessage.created_at)
+                        : undefined
+                    }
+                    unread={clinic.unreadCount || 0}
+                  />
+                ))
               )}
-            </ScrollArea>
-          </div>
+            </div>
+          </aside>
 
-          {/* Chat Area */}
-          <div className={cn(
-            "flex-1 flex flex-col",
-            !selectedContact && "hidden md:flex"
-          )}>
+          {/* Right: chat */}
+          <section
+            className={cn(
+              "flex min-h-0 min-w-0 flex-col bg-slate-50",
+              !selectedContact && "hidden md:flex"
+            )}
+          >
             {selectedContact ? (
               <>
-                {/* Chat Header */}
-                <div className="p-4 border-b border-border/50 flex items-center gap-3">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="md:hidden"
+                {/* Header */}
+                <header className="flex min-h-16 min-w-0 items-center gap-2 border-b border-border bg-white px-2 sm:gap-3 sm:px-4 md:px-6">
+                  <button
+                    type="button"
                     onClick={handleBack}
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+                    aria-label={t("common.back")}
                   >
-                    <ArrowLeft className="w-5 h-5" />
-                  </Button>
-                  <Avatar className="w-10 h-10">
-                    {selectedDoctor ? (
-                      <>
-                        <AvatarImage src={selectedDoctor.profile?.avatar_url || undefined} />
-                        <AvatarFallback className="bg-primary/10 text-primary">
-                          {getInitials(selectedDoctor.profile?.full_name)}
-                        </AvatarFallback>
-                      </>
-                    ) : selectedClinic ? (
-                      <>
-                        <AvatarImage src={selectedClinic.images?.[0] || undefined} />
-                        <AvatarFallback className="bg-secondary text-secondary-foreground">
-                          <Building2 className="w-5 h-5" />
-                        </AvatarFallback>
-                      </>
-                    ) : null}
-                  </Avatar>
-                  <div>
-                    <h2 className="font-medium text-foreground">
-                      {selectedDoctor 
-                        ? selectedDoctor.profile?.full_name || "Врач"
-                        : selectedClinic?.name || "Клиника"
-                      }
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedDoctor ? selectedDoctor.specialty : "Клиника"}
-                    </p>
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  {selectedDoctor ? (
+                    <Avatar
+                      name={selectedDoctor.profile?.full_name || t("patientCabinet.doctor")}
+                      size={38}
+                      src={selectedDoctor.profile?.avatar_url}
+                    />
+                  ) : (
+                    <Avatar
+                      name={selectedClinic?.name || t("patientCabinet.clinic")}
+                      size={38}
+                      src={selectedClinic?.images?.[0]}
+                      fallbackIcon={<Building2 className="h-4 w-4" />}
+                    />
+                  )}
+                  <div className="min-w-0">
+                    <div className="truncate font-heading text-[14px] font-semibold text-slate-900">
+                      {selectedDoctor
+                        ? selectedDoctor.profile?.full_name || t("patientCabinet.doctor")
+                        : selectedClinic?.name || t("patientCabinet.clinic")}
+                    </div>
+                    <div className="truncate text-[11.5px] text-slate-500">
+                      {selectedDoctor
+                        ? selectedDoctor.specialty
+                        : t("patientCabinet.clinic")}
+                    </div>
                   </div>
-                </div>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button type="button" className="hidden min-h-11 items-center gap-1.5 rounded-[10px] border border-border bg-white px-3 py-1.5 text-[12.5px] font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:inline-flex">
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      {t("patientCabinet.bookFromChat")}
+                    </button>
+                    <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Позвонить">
+                      <Phone className="h-4 w-4" />
+                    </button>
+                    <button type="button" className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Другие действия">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </div>
+                </header>
 
                 {/* Messages */}
-                <ScrollArea className="flex-1 p-4">
-                  {messages.length === 0 ? (
-                    <div className="h-full flex items-center justify-center">
+                <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+                  {messagesLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status" aria-live="polite">
+                      {t("common.loading")}
+                    </div>
+                  ) : messagesError ? (
+                    <div className="flex h-full flex-col items-center justify-center gap-3 text-center" role="alert">
+                      <p className="text-sm font-medium text-destructive">{t("common.error")}</p>
+                      <button
+                        type="button"
+                        className="min-h-11 rounded-[10px] border border-border px-4 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => {
+                          if (selectedDoctor) void loadDoctorMessages(selectedDoctor.id);
+                          if (selectedClinic) void loadClinicMessages(selectedClinic.id);
+                        }}
+                      >
+                        Повторить
+                      </button>
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="flex h-full items-center justify-center">
                       <div className="text-center">
-                        <MessageCircle className="w-12 h-12 mx-auto mb-3 text-muted-foreground/50" />
-                        <p className="text-muted-foreground">
-                          {selectedDoctor ? "Начните переписку с врачом" : "Начните переписку с клиникой"}
-                        </p>
+                        <MessageCircle className="mx-auto mb-3 h-12 w-12 text-slate-300" />
+                        <div className="text-[13px] text-slate-500">
+                          {selectedDoctor
+                            ? t("patientCabinet.startChatDoctor")
+                            : t("patientCabinet.startChatClinic")}
+                        </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-4">
-                      {/* Показываем запросы доступа к медкарте */}
-                      {selectedDoctor && accessRequests && accessRequests.length > 0 && (
-                        <div className="space-y-2">
-                          {accessRequests.map(request => (
-                            <PatientAccessRequestMessage
-                              key={request.id}
-                              request={request}
-                              requesterName={selectedDoctor.profile?.full_name || 'Врач'}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      {Object.entries(groupMessagesByDate(messages)).map(([date, msgs]) => (
-                        <div key={date}>
-                          <div className="flex justify-center mb-4">
-                            <span className="px-3 py-1 bg-muted rounded-full text-xs text-muted-foreground">
-                              {formatDateHeader(msgs[0].created_at)}
-                            </span>
-                          </div>
+                    <div className="space-y-4" role="log" aria-live="polite" aria-relevant="additions text">
+                      {selectedDoctor &&
+                        accessRequests &&
+                        accessRequests.length > 0 && (
                           <div className="space-y-2">
-                            {msgs.map(msg => {
-                              const isOwn = selectedDoctor 
-                                ? msg.sender_id === user?.id 
-                                : msg.sender_type === 'patient';
-                              return (
-                                <div
-                                  key={msg.id}
-                                  className={cn(
-                                    "flex",
-                                    isOwn ? "justify-end" : "justify-start"
-                                  )}
-                                >
+                            {accessRequests.map((request) => (
+                              <PatientAccessRequestMessage
+                                key={request.id}
+                                request={request}
+                                requesterName={
+                                  selectedDoctor.profile?.full_name || t("patientCabinet.doctor")
+                                }
+                              />
+                            ))}
+                          </div>
+                        )}
+
+                      {Object.entries(groupMessagesByDate(messages)).map(
+                        ([date, msgs]) => (
+                          <div key={date}>
+                            <div className="mb-3 flex justify-center">
+                              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11.5px] text-slate-500">
+                                {formatDateHeader(msgs[0].created_at)}
+                              </span>
+                            </div>
+                            <div className="space-y-2">
+                              {msgs.map((msg) => {
+                                const isOwn = selectedDoctor
+                                  ? msg.sender_id === user?.id
+                                  : msg.sender_type === "patient";
+                                return (
                                   <div
+                                    key={msg.id}
                                     className={cn(
-                                      "max-w-[75%] px-4 py-2 rounded-2xl",
-                                      isOwn 
-                                        ? "bg-primary text-primary-foreground rounded-br-md" 
-                                        : "bg-muted text-foreground rounded-bl-md"
+                                      "flex",
+                                      isOwn ? "justify-end" : "justify-start"
                                     )}
                                   >
-                                    {msg.file_url && msg.file_type && (
-                                      <div className="mb-2">
-                                        <MessageFileDisplay 
-                                          fileUrl={msg.file_url} 
-                                          fileType={msg.file_type}
-                                          isOwn={isOwn}
-                                        />
-                                      </div>
-                                    )}
-                                    {msg.content && (
-                                      <p className="break-words">{msg.content}</p>
-                                    )}
-                                    <div className={cn(
-                                      "flex items-center gap-1 mt-1",
-                                      isOwn ? "justify-end" : "justify-start"
-                                    )}>
-                                      <span className={cn(
-                                        "text-xs",
-                                        isOwn ? "text-primary-foreground/70" : "text-muted-foreground"
-                                      )}>
-                                        {formatMessageTime(msg.created_at)}
-                                      </span>
-                                      {isOwn && (
-                                        msg.is_read 
-                                          ? <CheckCheck className="w-3.5 h-3.5 text-primary-foreground/70" />
-                                          : <Check className="w-3.5 h-3.5 text-primary-foreground/70" />
+                                    <div
+                                      className={cn(
+                                        "min-w-0 max-w-[85%] rounded-[14px] px-4 py-2.5 text-[13.5px] sm:max-w-[520px]",
+                                        isOwn
+                                          ? "rounded-br-[4px] bg-[hsl(var(--brand))] text-white"
+                                          : "rounded-bl-[4px] border border-slate-200 bg-white text-slate-800"
                                       )}
+                                    >
+                                      {msg.file_url && msg.file_type && (
+                                        <div className="mb-2">
+                                          <MessageFileDisplay
+                                            fileUrl={msg.file_url}
+                                            fileType={msg.file_type}
+                                            isOwn={isOwn}
+                                          />
+                                        </div>
+                                      )}
+                                      {msg.content && (
+                                        <div className="whitespace-pre-wrap break-words">
+                                          {msg.content}
+                                        </div>
+                                      )}
+                                      <div
+                                        className={cn(
+                                          "mt-1 flex items-center gap-1 text-[10.5px] tabular-nums",
+                                          isOwn
+                                            ? "justify-end text-white/70"
+                                            : "justify-start text-slate-400"
+                                        )}
+                                      >
+                                        {formatMessageTime(msg.created_at)}
+                                        {isOwn &&
+                                          (msg.is_read ? (
+                                            <CheckCheck className="h-3 w-3" />
+                                          ) : (
+                                            <Check className="h-3 w-3" />
+                                          ))}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      )}
                       <div ref={messagesEndRef} />
                     </div>
                   )}
-                </ScrollArea>
+                </div>
 
-                {/* File Preview */}
                 {pendingFile && (
-                  <MessageFilePreview 
-                    file={pendingFile} 
-                    onRemove={() => setPendingFile(null)} 
+                  <MessageFilePreview
+                    file={pendingFile}
+                    onRemove={() => setPendingFile(null)}
                   />
                 )}
 
-                {/* Message Input */}
-                <div className="p-4 border-t border-border/50">
-                  <form 
-                    onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }}
-                    className="flex items-center gap-2"
+                {/* Input */}
+                <div className="border-t border-border bg-white p-3 sm:p-4">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }}
+                    className="flex min-w-0 items-end gap-2"
+                    aria-busy={sending}
                   >
-                    <MessageAttachment 
+                    <MessageAttachment
                       onFileSelected={handleFileSelected}
                       pendingFile={pendingFile}
                       onClearFile={() => setPendingFile(null)}
                       disabled={sending}
                     />
-                    <Input
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      placeholder="Написать сообщение..."
-                      className="flex-1"
-                      disabled={sending}
-                    />
-                    <Button 
-                      type="submit" 
-                      size="icon"
+                    <div className="min-w-0 flex-1">
+                      <label htmlFor="patient-message-body" className="sr-only">
+                        {t("patientCabinet.writeMessagePlaceholder")}
+                      </label>
+                      <textarea
+                        id="patient-message-body"
+                        rows={1}
+                        value={newMessage}
+                        onChange={(e) => setNewMessage(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
+                        }}
+                        placeholder={t("patientCabinet.writeMessagePlaceholder")}
+                        disabled={sending}
+                        className="h-11 w-full resize-none rounded-[10px] border border-slate-200 px-3 py-2 text-[13.5px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-describedby="patient-message-send-status"
+                      />
+                    </div>
+                    <button
+                      type="submit"
                       disabled={(!newMessage.trim() && !pendingFile) || sending}
+                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-[hsl(var(--brand))] px-3 py-2 text-[13px] font-medium text-white hover:bg-[hsl(var(--brand-700))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:px-4"
+                      aria-label={t("patientCabinet.sendMessage")}
                     >
-                      <Send className="w-4 h-4" />
-                    </Button>
+                      <Send className="h-4 w-4" />
+                      {t("patientCabinet.sendMessage")}
+                    </button>
                   </form>
+                  <div
+                    id="patient-message-send-status"
+                    className={cn("mt-2 text-xs", sendError ? "text-destructive" : "sr-only")}
+                    role={sendError ? "alert" : "status"}
+                    aria-live={sendError ? "assertive" : "polite"}
+                  >
+                    {sendError || (sending ? t("common.loading") : "")}
+                  </div>
+                  <div className="mt-2 text-[11px] text-slate-400">
+                    {t("patientCabinet.replyTime")}
+                  </div>
                 </div>
               </>
             ) : (
-              <div className="h-full flex items-center justify-center">
+              <div className="flex h-full items-center justify-center">
                 <div className="text-center">
-                  <MessageCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
-                  <h2 className="text-xl font-medium text-foreground mb-2">
-                    Выберите контакт
-                  </h2>
-                  <p className="text-muted-foreground">
-                    Выберите врача или клинику из списка слева
-                  </p>
+                  <MessageCircle className="mx-auto mb-4 h-16 w-16 text-slate-300" />
+                  <div className="font-heading text-[16px] font-semibold text-slate-900">
+                    {t("patientCabinet.selectContact")}
+                  </div>
+                  <div className="mt-1 text-[13px] text-slate-500">
+                    {t("patientCabinet.selectContactDesc")}
+                  </div>
                 </div>
               </div>
             )}
-          </div>
+          </section>
         </div>
       </div>
     </PatientLayout>
   );
 }
+
+// ───────────────────────── TabButton ─────────────────────────
+const TabButton = ({
+  active,
+  onClick,
+  icon,
+  label,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  count?: number;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-[7px] px-2 py-1.5 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      active
+        ? "bg-white text-slate-900 shadow-sm"
+        : "text-slate-600 hover:text-slate-800"
+    )}
+  >
+    {icon}
+    {label}
+    {count ? (
+      <span
+        className={cn(
+          "rounded-full px-1.5 py-0.5 text-[10px] font-bold",
+          active
+            ? "bg-[hsl(var(--brand))] text-white"
+            : "bg-slate-300 text-white"
+        )}
+      >
+        {count > 99 ? "99+" : count}
+      </span>
+    ) : null}
+  </button>
+);
+
+// ───────────────────────── ThreadButton ─────────────────────────
+const ThreadButton = ({
+  active,
+  onClick,
+  avatar,
+  title,
+  subtitle,
+  last,
+  time,
+  unread,
+}: {
+  active: boolean;
+  onClick: () => void;
+  avatar: React.ReactNode;
+  title: string;
+  subtitle: string;
+  last?: string;
+  time?: string;
+  unread: number;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "flex min-h-11 w-full items-start gap-3 border-b border-slate-100 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+      active ? "bg-[hsl(var(--brand-50))]" : "hover:bg-slate-50"
+    )}
+  >
+    {avatar}
+    <div className="min-w-0 flex-1">
+      <div className="flex items-baseline gap-2">
+        <div className="truncate font-heading text-[13.5px] font-semibold text-slate-900">
+          {title}
+        </div>
+        {time && (
+          <div className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-400">
+            {time}
+          </div>
+        )}
+      </div>
+      <div className="truncate text-[11.5px] text-slate-500">{subtitle}</div>
+      {last && (
+        <div className="mt-0.5 truncate text-[12.5px] text-slate-600">
+          {last}
+        </div>
+      )}
+    </div>
+    {unread > 0 && (
+      <span className="mt-1 grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-[hsl(var(--brand))] px-1 text-[10px] font-bold text-white">
+        {unread > 99 ? "99+" : unread}
+      </span>
+    )}
+  </button>
+);
+
+// ───────────────────────── EmptyList ─────────────────────────
+const EmptyList = ({
+  icon,
+  title,
+}: {
+  icon: React.ReactNode;
+  title: string;
+}) => (
+  <div className="p-8 text-center">
+    <div className="mx-auto mb-3 grid h-10 w-10 place-items-center">{icon}</div>
+    <div className="text-[13px] text-slate-500">{title}</div>
+  </div>
+);

@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useClinic } from "@/contexts/ClinicContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -18,93 +21,98 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Plus, Loader2, Stethoscope, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createTreatmentPlan } from "@/lib/treatment-plans-api";
+import {
+  loadActiveClinicServiceOptions,
+  type ClinicServiceOption,
+} from "@/lib/clinic-services";
 
 interface QuickProcedureMenuProps {
   patientId: string;
   toothNumber: number;
-  treatmentPlanId?: string;
   doctorId?: string;
   onProcedureAdded?: () => void;
 }
 
-export function QuickProcedureMenu({ 
-  patientId, 
-  toothNumber, 
-  treatmentPlanId,
+export function QuickProcedureMenu({
+  patientId,
+  toothNumber,
   doctorId,
   onProcedureAdded
 }: QuickProcedureMenuProps) {
+  const { t, language } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [isOpen, setIsOpen] = useState(false);
+  const [patientConsentConfirmed, setPatientConsentConfirmed] = useState(false);
+  const consentId = useId();
 
-  // Получаем услуги клиники
-  const { data: services } = useQuery({
-    queryKey: ['clinic-services', currentClinic?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id) return [];
-      const { data } = await supabase
-        .from('services')
-        .select('*')
-        .eq('clinic_id', currentClinic.id)
-        .eq('is_active', true)
-        .order('category', { ascending: true });
-      return data || [];
-    },
+  // Fetch clinic services
+  const { data: services } = useQuery<ClinicServiceOption[]>({
+    queryKey: ['quick-procedure-service-options', currentClinic?.id, language],
+    queryFn: () => loadActiveClinicServiceOptions(currentClinic!.id, language),
     enabled: !!currentClinic?.id,
   });
 
-  // Получаем планы лечения пациента (treatment_plans - это отдельные записи процедур, группируем по service_name)
-  const { data: treatmentPlans } = useQuery({
-    queryKey: ['patient-treatment-plans-grouped', patientId, currentClinic?.id],
-    queryFn: async () => {
-      if (!patientId || !currentClinic?.id) return [];
-      const { data } = await supabase
-        .from('treatment_plans')
-        .select('*')
-        .eq('patient_id', patientId)
-        .eq('clinic_id', currentClinic.id)
-        .eq('status', 'planned')
-        .order('created_at', { ascending: false });
-      return data || [];
-    },
-    enabled: !!patientId && !!currentClinic?.id,
-  });
-
-  // Мутация для добавления в plan_items (treatment_plan_items)
   const addToPlanMutation = useMutation({
-    mutationFn: async ({ serviceName, price }: { 
-      serviceName: string;
-      price: number;
+    mutationFn: async ({
+      service,
+      consentConfirmed,
+    }: {
+      service: ClinicServiceOption;
+      consentConfirmed: boolean;
     }) => {
-      // Создаём запись в treatment_plans
-      const { error } = await supabase
-        .from('treatment_plans')
-        .insert({
-          patient_id: patientId,
-          doctor_id: doctorId,
-          clinic_id: currentClinic?.id,
-          service_name: serviceName,
-          tooth_number: toothNumber,
-          price,
-          status: 'planned',
-          planned_date: new Date().toISOString(),
-        });
-      if (error) throw error;
+      if (!consentConfirmed) {
+        throw new Error("CONSENT_REQUIRED");
+      }
+      const unitPrice = Number(service.price);
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new Error("INVALID_UNIT_PRICE");
+      }
+      if (!currentClinic?.id) {
+        throw new Error("CLINIC_REQUIRED");
+      }
+
+      return createTreatmentPlan({
+        patientId,
+        clinicId: currentClinic.id,
+        title: service.name,
+        description: null,
+        discountType: "PERCENT",
+        discountValue: 0,
+        discountComment: null,
+        patientConsentConfirmed: true,
+        items: [{
+          serviceId: service.id,
+          toothNumber,
+          description: service.name,
+          quantity: 1,
+          unitPrice,
+          stageName: null,
+          notes: null,
+        }],
+      });
     },
     onSuccess: () => {
-      toast.success(`Процедура добавлена для зуба #${toothNumber}`);
+      toast.success(`${t("patientCabinet.procedureAdded")} #${toothNumber}`);
       queryClient.invalidateQueries({ queryKey: ['treatment-plans'] });
-      queryClient.invalidateQueries({ queryKey: ['patient-treatment-plans-grouped'] });
+      queryClient.invalidateQueries({ queryKey: ['treatment-plan', patientId] });
       setIsOpen(false);
+      setPatientConsentConfirmed(false);
       onProcedureAdded?.();
     },
-    onError: () => {
-      toast.error('Ошибка добавления процедуры');
+    onError: (error: unknown) => {
+      toast.error(
+        error instanceof Error && error.message === "INVALID_UNIT_PRICE"
+          ? `${t("crmTreatmentDialogs.price")} > 0`
+          : error instanceof Error && error.message === "CONSENT_REQUIRED"
+            ? t("crmTreatmentForm.consentRequired")
+          : t("patientCabinet.procedureAddError"),
+      );
     },
   });
 
-  // Мутация для записи в историю зуба
+  // Mutation to write into tooth history
   const addToHistoryMutation = useMutation({
     mutationFn: async ({ serviceName, status }: { serviceName: string; status: string }) => {
       const { error } = await supabase
@@ -124,20 +132,17 @@ export function QuickProcedureMenu({
     },
   });
 
-  const handleAddProcedure = (service: any) => {
-    addToPlanMutation.mutate({
-      serviceName: service.name,
-      price: service.price || 0,
-    });
+  const handleAddProcedure = (service: ClinicServiceOption) => {
+    addToPlanMutation.mutate({ service, consentConfirmed: patientConsentConfirmed });
   };
 
-  // Группируем услуги по категориям
-  const servicesByCategory = services?.reduce((acc, service) => {
-    const category = service.category || 'Другое';
+  // Group services by category
+  const servicesByCategory: Record<string, ClinicServiceOption[]> = services?.reduce<Record<string, ClinicServiceOption[]>>((acc, service) => {
+    const category = service.category || t("patientCabinet.categoryOther");
     if (!acc[category]) acc[category] = [];
     acc[category].push(service);
     return acc;
-  }, {} as Record<string, any[]>) || {};
+  }, {}) || {};
 
   const isLoading = addToPlanMutation.isPending;
 
@@ -146,25 +151,51 @@ export function QuickProcedureMenu({
   }
 
   return (
-    <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+    <DropdownMenu
+      open={isOpen}
+      onOpenChange={(open) => {
+        setIsOpen(open);
+        if (!open) setPatientConsentConfirmed(false);
+      }}
+    >
       <DropdownMenuTrigger asChild>
-        <Button size="sm" variant="outline" className="gap-1.5">
+        <Button size="sm" variant="outline" className="gap-1.5" disabled={isLoading}>
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          В план лечения
+          {t("patientCabinet.addToTreatmentPlan")}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuLabel className="flex items-center gap-2">
           <Stethoscope className="h-4 w-4" />
-          Добавить процедуру для зуба #{toothNumber}
+          {t("patientCabinet.addProcedureForTooth")} #{toothNumber}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
 
-        {/* Услуги для добавления */}
+        <div className="px-2 py-2">
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id={consentId}
+              checked={patientConsentConfirmed}
+              onCheckedChange={(checked) => setPatientConsentConfirmed(checked === true)}
+              aria-describedby={!patientConsentConfirmed ? `${consentId}-hint` : undefined}
+            />
+            <Label htmlFor={consentId} className="cursor-pointer text-xs leading-4">
+              {t("crmTreatmentForm.planExplained")}
+            </Label>
+          </div>
+          {!patientConsentConfirmed && (
+            <p id={`${consentId}-hint`} className="mt-1.5 pl-6 text-xs text-destructive">
+              {t("crmTreatmentForm.consentRequired")}
+            </p>
+          )}
+        </div>
+        <DropdownMenuSeparator />
+
+        {/* Services available to add */}
         {services && services.length > 0 ? (
           Object.entries(servicesByCategory).map(([category, categoryServices]) => (
             <div key={category}>
@@ -175,11 +206,12 @@ export function QuickProcedureMenu({
                 <DropdownMenuItem
                   key={service.id}
                   onClick={() => handleAddProcedure(service)}
+                  disabled={!patientConsentConfirmed || isLoading}
                   className="flex items-center justify-between cursor-pointer"
                 >
                   <span className="truncate">{service.name}</span>
                   <span className="text-xs text-muted-foreground whitespace-nowrap ml-2">
-                    {service.price?.toLocaleString()} сум
+                    {service.price?.toLocaleString()} {t("patientCabinet.sumLabel")}
                   </span>
                 </DropdownMenuItem>
               ))}
@@ -187,21 +219,21 @@ export function QuickProcedureMenu({
           ))
         ) : (
           <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-            <p>Нет активных планов лечения</p>
-            <p className="text-xs mt-1">Сначала создайте план лечения для пациента</p>
+            <p>{t("patientCabinet.noActivePlans")}</p>
+            <p className="text-xs mt-1">{t("patientCabinet.createPlanFirst")}</p>
           </div>
         )}
 
-        {/* Быстрые действия без плана */}
+        {/* Quick actions without a plan */}
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Быстрые статусы
+          {t("patientCabinet.quickStatuses")}
         </DropdownMenuLabel>
         {[
-          { status: 'filling', label: 'Пломба установлена', icon: '🔵' },
-          { status: 'crown', label: 'Коронка установлена', icon: '👑' },
-          { status: 'endo', label: 'Эндодонтия', icon: '🔴' },
-          { status: 'healthy', label: 'Вылечен', icon: '✅' },
+          { status: 'filling', label: t("patientCabinet.fillingInstalled"), icon: '🔵' },
+          { status: 'crown', label: t("patientCabinet.crownInstalled"), icon: '👑' },
+          { status: 'endo', label: t("patientCabinet.endoStatus"), icon: '🔴' },
+          { status: 'healthy', label: t("patientCabinet.cured"), icon: '✅' },
         ].map(item => (
           <DropdownMenuItem
             key={item.status}

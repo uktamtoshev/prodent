@@ -11,6 +11,14 @@ interface ClinicReviewsProps {
   clinicId: string;
 }
 
+interface ClinicReview {
+  id: string;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+  patient?: { full_name?: string | null; avatar_url?: string | null } | null;
+}
+
 export function ClinicReviews({ clinicId }: ClinicReviewsProps) {
   const { data: reviews, isLoading } = useQuery({
     queryKey: ['clinic-reviews', clinicId],
@@ -26,7 +34,7 @@ export function ClinicReviews({ clinicId }: ClinicReviewsProps) {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data;
+      return (data || []) as ClinicReview[];
     },
   });
 
@@ -130,7 +138,7 @@ export function ClinicReviews({ clinicId }: ClinicReviewsProps) {
         </div>
       ) : (
         <div className="space-y-4">
-          {reviews?.map((review: any, index: number) => (
+          {reviews?.map((review, index) => (
             <Card 
               key={review.id} 
               className="border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-lg transition-all duration-300"

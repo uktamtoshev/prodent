@@ -13,6 +13,9 @@ import { Button } from "@/components/ui/button";
 
 type ToothStatus = 'healthy' | 'caries' | 'filling' | 'crown' | 'implant' | 'removed' | 'watch' | 'endo' | 'periodontitis';
 
+const isToothStatus = (value: unknown): value is ToothStatus =>
+  typeof value === 'string' && value in STATUS_CONFIG;
+
 const STATUS_CONFIG: Record<ToothStatus, { label: string; color: string; glowColor: string }> = {
   healthy: { label: 'Здоровый', color: '#FFFFFF', glowColor: 'transparent' },
   caries: { label: 'Кариес', color: '#FCD34D', glowColor: '#FCD34D' },
@@ -447,13 +450,25 @@ export function Realistic3DDentalChart({ patientId, birthDate }: { patientId?: s
   });
 
   const teethMap = useMemo(() => {
-    const m = new Map<number, any>();
+    type ToothRow = NonNullable<typeof teethData>[number];
+    type ToothWithDoctor = ToothRow & { doctor_name?: string | null };
+    const m = new Map<number, ToothWithDoctor>();
     teethData?.forEach(t => m.set(t.tooth_number, { ...t, doctor_name: t.doctors?.profiles?.full_name }));
     return m;
   }, [teethData]);
 
-  const getStatus = (n: number): ToothStatus => teethMap.get(n)?.status || 'healthy';
-  const getToothData = (n: number) => ({ tooth_number: n, ...teethMap.get(n) });
+  const getStatus = (n: number): ToothStatus => {
+    const status = teethMap.get(n)?.status;
+    return isToothStatus(status) ? status : 'healthy';
+  };
+  const getToothData = (n: number) => {
+    const tooth = teethMap.get(n);
+    return {
+      ...tooth,
+      tooth_number: n,
+      status: isToothStatus(tooth?.status) ? tooth.status : 'healthy',
+    };
+  };
 
   const problemCount = teethData?.filter(t => !['healthy', 'filling', 'crown', 'implant'].includes(t.status)).length || 0;
 

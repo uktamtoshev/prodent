@@ -8,10 +8,13 @@ import { ru } from "date-fns/locale";
 import { DayView } from "./calendar/DayView";
 import { WeekView } from "./calendar/WeekView";
 import { MonthView } from "./calendar/MonthView";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { a11yLabel } from "@/lib/a11y-labels";
 
 type ViewType = "day" | "week" | "month";
 
 export function CalendarSchedule() {
+  const { t } = useLanguage();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<ViewType>("week");
 
@@ -52,7 +55,7 @@ export function CalendarSchedule() {
   };
 
   return (
-    <Card className="bg-slate-800/50 border-slate-700">
+    <Card className="bg-slate-800/50 border-border">
       <CardHeader>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -60,8 +63,8 @@ export function CalendarSchedule() {
               variant="outline"
               size="icon"
               onClick={handlePrevious}
-              className="border-slate-600 hover:bg-slate-700"
-            >
+              className="border-border hover:bg-slate-700"
+             aria-label={a11yLabel("prev")}>
               <ChevronLeft className="w-4 h-4" />
             </Button>
             <div className="min-w-[200px] text-center">
@@ -73,25 +76,25 @@ export function CalendarSchedule() {
               variant="outline"
               size="icon"
               onClick={handleNext}
-              className="border-slate-600 hover:bg-slate-700"
-            >
+              className="border-border hover:bg-slate-700"
+             aria-label={a11yLabel("next")}>
               <ChevronRight className="w-4 h-4" />
             </Button>
             <Button
               variant="outline"
               onClick={handleToday}
-              className="border-slate-600 hover:bg-slate-700"
+              className="border-border hover:bg-slate-700"
             >
               <CalendarIcon className="w-4 h-4 mr-2" />
-              Сегодня
+              {t('crmTopLevel.today')}
             </Button>
           </div>
 
           <Tabs value={view} onValueChange={(v) => setView(v as ViewType)}>
             <TabsList className="bg-slate-700">
-              <TabsTrigger value="day">День</TabsTrigger>
-              <TabsTrigger value="week">Неделя</TabsTrigger>
-              <TabsTrigger value="month">Месяц</TabsTrigger>
+              <TabsTrigger value="day">{t('crmTopLevel.day')}</TabsTrigger>
+              <TabsTrigger value="week">{t('crmTopLevel.week')}</TabsTrigger>
+              <TabsTrigger value="month">{t('crmTopLevel.month')}</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>

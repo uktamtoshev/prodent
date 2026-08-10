@@ -4,12 +4,14 @@ import { Badge } from '@/components/ui/badge';
 import { Star, Award, Users, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import type { ClinicDoctor } from './types';
 
 interface ClinicDoctorsProps {
-  doctors: any[];
+  doctors: ClinicDoctor[];
+  promotionId?: string | null;
 }
 
-export function ClinicDoctors({ doctors }: ClinicDoctorsProps) {
+export function ClinicDoctors({ doctors, promotionId }: ClinicDoctorsProps) {
   if (!doctors || doctors.length === 0) {
     return (
       <div className="text-center py-16">
@@ -37,8 +39,14 @@ export function ClinicDoctors({ doctors }: ClinicDoctorsProps) {
       </div>
       
       <div className="grid md:grid-cols-2 gap-4">
-        {doctors.map((doctor: any) => (
-          <Link key={doctor.id} to={`/doctor/${doctor.id}`} className="group">
+        {doctors.map((doctor) => (
+          <Link
+            key={doctor.id}
+            to={promotionId
+              ? `/book/${doctor.id}?${new URLSearchParams({ promo: promotionId })}`
+              : `/doctor/${doctor.id}`}
+            className="group"
+          >
             <Card className="h-full overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-xl hover:border-primary/30 transition-all duration-300 hover:-translate-y-1">
               <CardContent className="p-5">
                 <div className="flex items-start gap-4">

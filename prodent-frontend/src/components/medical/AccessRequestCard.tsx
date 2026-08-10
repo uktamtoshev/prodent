@@ -3,22 +3,20 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { 
-  Shield, 
-  Clock, 
-  Check, 
-  X, 
+import {
+  Clock,
+  Check,
+  X,
   AlertCircle,
   User,
   Building2,
   Loader2,
-  ChevronDown,
-  Plus,
-  Timer
+  ChevronDown
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
-import { useRespondToAccess, useRevokeAccess, useExtendAccess, getReasonLabel } from "@/hooks/useMedicalAccess";
+import { useRespondToAccess, useRevokeAccess, getReasonLabel } from "@/hooks/useMedicalAccess";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,28 +60,27 @@ interface AccessRequestCardProps {
   showActions?: boolean;
 }
 
-const DURATION_OPTIONS = [
-  { label: "1 час", hours: 1 },
-  { label: "6 часов", hours: 6 },
-  { label: "24 часа", hours: 24 },
-  { label: "3 дня", hours: 72 },
-  { label: "7 дней", hours: 168 },
-];
-
 export function AccessRequestCard({ request, showActions = true }: AccessRequestCardProps) {
+  const { t } = useLanguage();
+
+  const DURATION_OPTIONS = [
+    { label: t('medicalAccess.hour1'), hours: 1 },
+    { label: t('medicalAccess.hours6'), hours: 6 },
+    { label: t('medicalAccess.hours24'), hours: 24 },
+    { label: t('medicalAccess.days3'), hours: 72 },
+    { label: t('medicalAccess.days7'), hours: 168 },
+  ];
+
   const [showRevokeDialog, setShowRevokeDialog] = useState(false);
   const [showApproveDialog, setShowApproveDialog] = useState(false);
-  const [showExtendDialog, setShowExtendDialog] = useState(false);
-  const [extendDuration, setExtendDuration] = useState(24);
   const respondToAccess = useRespondToAccess();
   const revokeAccess = useRevokeAccess();
-  const extendAccess = useExtendAccess();
-  
+
   // Calculate remaining hours
   const requestedDuration = Math.max(1, Math.round(
     (new Date(request.valid_to).getTime() - Date.now()) / (1000 * 60 * 60)
   ));
-  
+
   const [selectedDuration, setSelectedDuration] = useState<number>(
     requestedDuration > 0 ? requestedDuration : 24
   );
@@ -92,26 +89,22 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
   const isPending = request.status === 'pending';
   const isExpired = request.status === 'expired';
   const isRevoked = request.status === 'revoked';
-  
-  // Check if expiring soon (less than 2 hours remaining)
-  const hoursRemaining = (new Date(request.valid_to).getTime() - Date.now()) / (1000 * 60 * 60);
-  const isExpiringSoon = isActive && hoursRemaining > 0 && hoursRemaining < 2;
 
-  const requesterName = request.doctors?.profiles?.full_name || request.clinics?.name || 'Неизвестно';
-  const requesterAvatar = request.doctors?.profiles?.avatar_url || 
+  const requesterName = request.doctors?.profiles?.full_name || request.clinics?.name || t('medicalAccess.unknown');
+  const requesterAvatar = request.doctors?.profiles?.avatar_url ||
     (request.clinics?.images?.[0] ? request.clinics.images[0] : null);
   const isClinic = !!request.clinics;
 
   const getStatusBadge = () => {
     if (isActive) {
-      const expiresIn = formatDistanceToNow(new Date(request.valid_to), { 
-        locale: ru, 
-        addSuffix: true 
+      const expiresIn = formatDistanceToNow(new Date(request.valid_to), {
+        locale: ru,
+        addSuffix: true
       });
       return (
         <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
           <Clock className="w-3 h-3 mr-1" />
-          Истекает {expiresIn}
+          {t('medicalAccess.expiresIn')} {expiresIn}
         </Badge>
       );
     }
@@ -119,21 +112,21 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
       return (
         <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20">
           <AlertCircle className="w-3 h-3 mr-1" />
-          Ожидает решения
+          {t('medicalAccess.pendingDecision')}
         </Badge>
       );
     }
     if (isExpired) {
       return (
         <Badge variant="secondary">
-          Истёк
+          {t('medicalAccess.expired')}
         </Badge>
       );
     }
     if (isRevoked) {
       return (
         <Badge variant="destructive">
-          Отозван
+          {t('medicalAccess.revoked')}
         </Badge>
       );
     }
@@ -142,12 +135,12 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
 
   const getSelectedLabel = () => {
     const option = DURATION_OPTIONS.find(o => o.hours === selectedDuration);
-    return option?.label || `${selectedDuration} ч.`;
+    return option?.label || `${selectedDuration} ${t('medicalAccess.hourShort')}`;
   };
 
   const handleApprove = () => {
-    respondToAccess.mutate({ 
-      requestId: request.id, 
+    respondToAccess.mutate({
+      requestId: request.id,
       approve: true,
       customDurationHours: selectedDuration
     });
@@ -161,16 +154,6 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
   const handleRevoke = () => {
     revokeAccess.mutate(request.id);
     setShowRevokeDialog(false);
-  };
-
-  const handleExtend = () => {
-    extendAccess.mutate({ requestId: request.id, additionalHours: extendDuration });
-    setShowExtendDialog(false);
-  };
-
-  const getExtendLabel = () => {
-    const option = DURATION_OPTIONS.find(o => o.hours === extendDuration);
-    return option?.label || `${extendDuration} ч.`;
   };
 
   return (
@@ -203,12 +186,12 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
               </div>
 
               <p className="text-xs text-muted-foreground mt-2">
-                Запрос от {format(new Date(request.created_at), "d MMMM, HH:mm", { locale: ru })}
+                {t('medicalAccess.requestFrom')} {format(new Date(request.created_at), "d MMMM, HH:mm", { locale: ru })}
               </p>
 
               {isActive && (
                 <p className="text-xs text-muted-foreground">
-                  Доступ до {format(new Date(request.valid_to), "d MMMM, HH:mm", { locale: ru })}
+                  {t('medicalAccess.accessUntil')} {format(new Date(request.valid_to), "d MMMM, HH:mm", { locale: ru })}
                 </p>
               )}
             </div>
@@ -239,39 +222,20 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
                       ) : (
                         <>
                           <Check className="h-4 w-4 mr-1" />
-                          Одобрить
+                          {t('medicalAccess.approveBtn')}
                         </>
                       )}
                     </Button>
                   </>
                 )}
                 {isActive && (
-                  <div className="flex items-center gap-2">
-                    {/* Show extend button if expiring soon or always allow extension */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowExtendDialog(true)}
-                      disabled={extendAccess.isPending}
-                      className={isExpiringSoon ? "border-amber-500 text-amber-600 hover:bg-amber-50" : ""}
-                    >
-                      {extendAccess.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <>
-                          <Plus className="h-4 w-4 mr-1" />
-                          Продлить
-                        </>
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => setShowRevokeDialog(true)}
-                    >
-                      Отозвать
-                    </Button>
-                  </div>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setShowRevokeDialog(true)}
+                  >
+                    {t('medicalAccess.revokeBtn')}
+                  </Button>
                 )}
               </div>
             )}
@@ -283,14 +247,14 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
       <AlertDialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Предоставить доступ?</AlertDialogTitle>
+            <AlertDialogTitle>{t('medicalAccess.grantAccessQuestion')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {requesterName} получит доступ к вашей медицинской карте на выбранный срок.
+              {t('medicalAccess.grantAccessDesc').replace('{name}', requesterName)}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          
+
           <div className="py-4">
-            <label className="text-sm font-medium mb-2 block">Срок доступа</label>
+            <label className="text-sm font-medium mb-2 block">{t('medicalAccess.accessDuration')}</label>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="w-full justify-between">
@@ -303,7 +267,7 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-[200px]">
                 {DURATION_OPTIONS.map(option => (
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     key={option.hours}
                     onClick={() => setSelectedDuration(option.hours)}
                     className={selectedDuration === option.hours ? "bg-accent" : ""}
@@ -314,12 +278,12 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          
+
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleApprove}>
               <Check className="h-4 w-4 mr-1" />
-              Одобрить
+              {t('medicalAccess.approveBtn')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -329,65 +293,15 @@ export function AccessRequestCard({ request, showActions = true }: AccessRequest
       <AlertDialog open={showRevokeDialog} onOpenChange={setShowRevokeDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Отозвать доступ?</AlertDialogTitle>
+            <AlertDialogTitle>{t('medicalAccess.revokeAccessQuestion')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {requesterName} потеряет доступ к вашей медицинской карте. 
-              Это действие нельзя отменить.
+              {t('medicalAccess.revokeAccessDesc').replace('{name}', requesterName)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleRevoke} className="bg-destructive text-destructive-foreground">
-              Отозвать доступ
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Extend Dialog */}
-      <AlertDialog open={showExtendDialog} onOpenChange={setShowExtendDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <Timer className="h-5 w-5 text-primary" />
-              Продлить доступ
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              Выберите на сколько продлить доступ для {requesterName}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          
-          <div className="py-4">
-            <label className="text-sm font-medium mb-2 block">Добавить время</label>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="w-full justify-between">
-                  <span className="flex items-center">
-                    <Plus className="h-4 w-4 mr-2" />
-                    + {getExtendLabel()}
-                  </span>
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[200px]">
-                {DURATION_OPTIONS.map(option => (
-                  <DropdownMenuItem 
-                    key={option.hours}
-                    onClick={() => setExtendDuration(option.hours)}
-                    className={extendDuration === option.hours ? "bg-accent" : ""}
-                  >
-                    + {option.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          
-          <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleExtend}>
-              <Plus className="h-4 w-4 mr-1" />
-              Продлить
+              {t('medicalAccess.revokeAccessBtn')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

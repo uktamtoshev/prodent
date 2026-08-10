@@ -18,6 +18,30 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+interface DebtorPatient {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  avatar_url?: string | null;
+}
+
+interface UnpaidInvoice {
+  patient_id: string;
+  final_amount: number | null;
+  created_at: string;
+  patient: DebtorPatient | DebtorPatient[] | null;
+}
+
+interface Debtor {
+  patient: DebtorPatient | null;
+  totalDebt: number;
+  invoicesCount: number;
+  lastInvoiceDate: string;
+}
+
+const firstPatient = (patient: DebtorPatient | DebtorPatient[] | null): DebtorPatient | null =>
+  Array.isArray(patient) ? patient[0] ?? null : patient;
+
 export default function AccountantDebtors() {
   const { currentClinic } = useClinic();
 
@@ -41,13 +65,13 @@ export default function AccountantDebtors() {
       if (!unpaidInvoices) return [];
 
       // Группируем по пациентам
-      const debtorMap = new Map();
+      const debtorMap = new Map<string, Debtor>();
 
-      unpaidInvoices.forEach((invoice) => {
+      (unpaidInvoices as UnpaidInvoice[]).forEach((invoice) => {
         const patientId = invoice.patient_id;
         if (!debtorMap.has(patientId)) {
           debtorMap.set(patientId, {
-            patient: invoice.patient,
+            patient: firstPatient(invoice.patient),
             totalDebt: 0,
             invoicesCount: 0,
             lastInvoiceDate: invoice.created_at,
@@ -55,7 +79,8 @@ export default function AccountantDebtors() {
         }
 
         const debtor = debtorMap.get(patientId);
-        debtor.totalDebt += invoice.final_amount;
+        if (!debtor) return;
+        debtor.totalDebt += invoice.final_amount ?? 0;
         debtor.invoicesCount += 1;
         if (new Date(invoice.created_at) > new Date(debtor.lastInvoiceDate)) {
           debtor.lastInvoiceDate = invoice.created_at;
@@ -124,12 +149,12 @@ export default function AccountantDebtors() {
                   {debtors.map((debtor, index) => (
                     <TableRow key={index} className="border-slate-700 hover:bg-slate-700/30">
                       <TableCell className="text-white font-medium">
-                        {(debtor.patient as any)?.full_name || "Не указан"}
+                        {debtor.patient?.full_name || "Не указан"}
                       </TableCell>
                       <TableCell className="text-slate-300">
                         <div className="flex items-center gap-2">
                           <Phone className="w-4 h-4" />
-                          {(debtor.patient as any)?.phone || "-"}
+                          {debtor.patient?.phone || "-"}
                         </div>
                       </TableCell>
                       <TableCell className="text-center">

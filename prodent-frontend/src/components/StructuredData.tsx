@@ -145,6 +145,42 @@ export function ArticleSchema({
   return <JsonLd data={data} />;
 }
 
+// ─── BreadcrumbList (for detail pages — Главная > раздел > название) ──
+
+interface BreadcrumbItem {
+  name: string;
+  url: string;
+}
+
+export function BreadcrumbListSchema({ items }: { items: BreadcrumbItem[] }) {
+  return (
+    <JsonLd data={{
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: items.map((item, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        name: item.name,
+        item: item.url,
+      })),
+    }} />
+  );
+}
+
+// ─── Organization (for landing page — knowledge-panel / brand entity) ──
+
+export function OrganizationSchema() {
+  return (
+    <JsonLd data={{
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "PRODENT",
+      url: "https://prodent.uz",
+      logo: "https://prodent.uz/og-image.png",
+    }} />
+  );
+}
+
 // ─── WebSite (for landing page — enables Sitelinks search box) ──
 
 export function WebSiteSchema() {

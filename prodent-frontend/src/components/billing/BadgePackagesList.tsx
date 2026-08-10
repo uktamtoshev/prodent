@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Award, Check, Clock, Sparkles } from 'lucide-react';
+import { Check, Clock, Sparkles } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useLanguage } from '@/contexts/LanguageContext';
 import { format, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import * as LucideIcons from 'lucide-react';
+import { resolveBillingIcon } from './billingIconMap';
 
 interface BadgeType {
   id: string;
@@ -32,12 +32,6 @@ interface BadgePackagesListProps {
   isLoading?: boolean;
 }
 
-const BADGE_PRICES = [
-  { days: 3, price: 49000, label: '3 дня' },
-  { days: 7, price: 99000, label: '7 дней' },
-  { days: 10, price: 129000, label: '10 дней' },
-];
-
 export function BadgePackagesList({
   targetType,
   entityId,
@@ -45,7 +39,14 @@ export function BadgePackagesList({
   onPurchase,
   isLoading,
 }: BadgePackagesListProps) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
+
+  const BADGE_PRICES = [
+    { days: 3, price: 49000, label: `3 ${t('billingDialogs.days')}` },
+    { days: 7, price: 99000, label: t('billingDialogs.duration7Days') },
+    { days: 10, price: 129000, label: `10 ${t('billingDialogs.days')}` },
+  ];
+
   const [selectedBadge, setSelectedBadge] = useState<BadgeType | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number>(3);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
@@ -95,7 +96,6 @@ export function BadgePackagesList({
 
   const getBadgeName = (badge: BadgeType) => {
     if (language === 'uz' && badge.name_uz) return badge.name_uz;
-    if (language === 'en' && badge.name_en) return badge.name_en;
     return badge.name;
   };
 
@@ -121,7 +121,7 @@ export function BadgePackagesList({
   };
 
   const renderIcon = (iconName: string, color: string) => {
-    const IconComponent = (LucideIcons as any)[iconName] || LucideIcons.Award;
+    const IconComponent = resolveBillingIcon(iconName);
     return <IconComponent className="w-6 h-6" style={{ color }} />;
   };
 
@@ -142,7 +142,7 @@ export function BadgePackagesList({
         <div className="space-y-3">
           <h3 className="font-semibold flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
-            Активные бейджи
+            {t('billingDialogs.activeBadges')}
           </h3>
           <div className="flex flex-wrap gap-2">
             {activeAssignments.map((assignment) => {
@@ -160,7 +160,7 @@ export function BadgePackagesList({
                   {renderIcon(badge.icon, badge.color)}
                   {getBadgeName(badge)}
                   <span className="text-xs opacity-75">
-                    до {format(new Date(assignment.end_date), 'd MMM', { locale: ru })}
+                    {t('billingDialogs.until')} {format(new Date(assignment.end_date), 'd MMM', { locale: ru })}
                   </span>
                 </Badge>
               );
@@ -173,7 +173,7 @@ export function BadgePackagesList({
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {badges?.map((badge) => {
           const isActive = activeAssignments?.some(a => a.badge_id === badge.id);
-          
+
           return (
             <Card
               key={badge.id}
@@ -186,7 +186,7 @@ export function BadgePackagesList({
                 <div className="absolute top-2 right-2">
                   <Badge variant="secondary" className="gap-1">
                     <Check className="w-3 h-3" />
-                    Активен
+                    {t('billingDialogs.activeBtn')}
                   </Badge>
                 </div>
               )}
@@ -208,7 +208,7 @@ export function BadgePackagesList({
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">от</span>
+                  <span className="text-sm text-muted-foreground">{t('billingDialogs.from')}</span>
                   <span className="font-bold text-primary">
                     {formatAmount(BADGE_PRICES[0].price)} UZS
                   </span>
@@ -232,10 +232,10 @@ export function BadgePackagesList({
                   {renderIcon(selectedBadge.icon, selectedBadge.color)}
                 </div>
               )}
-              Купить бейдж "{selectedBadge && getBadgeName(selectedBadge)}"
+              {t('billingDialogs.buyBadgeTitle')} "{selectedBadge && getBadgeName(selectedBadge)}"
             </DialogTitle>
             <DialogDescription>
-              Выберите длительность отображения бейджа
+              {t('billingDialogs.chooseBadgeDuration')}
             </DialogDescription>
           </DialogHeader>
 
@@ -263,7 +263,7 @@ export function BadgePackagesList({
 
             <div className="p-4 rounded-lg bg-muted space-y-2">
               <div className="flex justify-between text-sm">
-                <span>Период</span>
+                <span>{t('billingDialogs.period')}</span>
                 <span className="flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {format(new Date(), 'd MMM', { locale: ru })} -{' '}
@@ -271,31 +271,31 @@ export function BadgePackagesList({
                 </span>
               </div>
               <div className="flex justify-between font-medium">
-                <span>Стоимость</span>
+                <span>{t('billingDialogs.costLabel')}</span>
                 <span className="text-primary">{formatAmount(getSelectedPrice())} UZS</span>
               </div>
               <div className="flex justify-between text-sm text-muted-foreground">
-                <span>Ваш баланс</span>
+                <span>{t('billingDialogs.yourBalance')}</span>
                 <span>{formatAmount(balance)} UZS</span>
               </div>
             </div>
 
             {balance < getSelectedPrice() && (
               <p className="text-sm text-destructive">
-                Недостаточно средств. Пополните баланс.
+                {t('billingDialogs.insufficientReplenish')}
               </p>
             )}
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsConfirmOpen(false)}>
-              Отмена
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleConfirm}
               disabled={isLoading || balance < getSelectedPrice()}
             >
-              {isLoading ? 'Покупка...' : 'Купить бейдж'}
+              {isLoading ? t('billingDialogs.buying') : t('billingDialogs.buyBadge')}
             </Button>
           </DialogFooter>
         </DialogContent>

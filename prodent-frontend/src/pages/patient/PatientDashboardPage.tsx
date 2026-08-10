@@ -4,9 +4,7 @@ import { PatientDashboard } from "@/components/patient/PatientDashboard";
 const PatientDashboardPage = () => {
   return (
     <PatientLayout>
-      <div className="p-6 lg:p-8">
-        <PatientDashboard />
-      </div>
+      <PatientDashboard />
     </PatientLayout>
   );
 };

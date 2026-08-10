@@ -23,6 +23,18 @@ interface ClinicChatProps {
   onClose: () => void;
 }
 
+interface ClinicChatMessage {
+  id: string;
+  sender_id: string;
+  sender_type?: string | null;
+  content: string | null;
+  file_url: string | null;
+  file_type: string | null;
+  created_at: string;
+  is_read: boolean;
+  sender?: { full_name?: string | null; avatar_url?: string | null } | null;
+}
+
 export function ClinicChat({ clinicId, patientId, onClose }: ClinicChatProps) {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
@@ -43,7 +55,7 @@ export function ClinicChat({ clinicId, patientId, onClose }: ClinicChatProps) {
         .order('created_at', { ascending: true });
 
       if (error) throw error;
-      return data;
+      return (data || []) as ClinicChatMessage[];
     },
     refetchInterval: 3000,
   });
@@ -114,8 +126,8 @@ export function ClinicChat({ clinicId, patientId, onClose }: ClinicChatProps) {
     setPendingFile({ url: fileUrl, type: fileType, name: fileName });
   };
 
-  const groupMessagesByDate = (msgs: any[]) => {
-    const groups: { [key: string]: any[] } = {};
+  const groupMessagesByDate = (msgs: ClinicChatMessage[]) => {
+    const groups: Record<string, ClinicChatMessage[]> = {};
     msgs.forEach((msg) => {
       const date = format(new Date(msg.created_at), 'yyyy-MM-dd');
       if (!groups[date]) {
@@ -184,7 +196,7 @@ export function ClinicChat({ clinicId, patientId, onClose }: ClinicChatProps) {
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {msgs.map((msg: any) => {
+                  {msgs.map((msg) => {
                     const isOwn = msg.sender_id === patientId;
                     return (
                       <div

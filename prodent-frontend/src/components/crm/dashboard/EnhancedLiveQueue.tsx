@@ -1,359 +1,172 @@
-import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Activity, CheckCircle2, Clock, Play, Users } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { 
-  Users, 
-  Bell, 
-  Clock, 
-  Play, 
-  CheckCircle2, 
-  MapPin,
-  ChevronRight,
-  Timer
-} from "lucide-react";
-import { format, differenceInMinutes } from "date-fns";
-import { ru } from "date-fns/locale";
-import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  CrmApiError,
+  clearPersistentClientRequestId,
+  getClinicQueue,
+  getPersistentClientRequestId,
+  queueCommand,
+  type QueueAction,
+} from "@/lib/crm-operations-api";
 
 interface EnhancedLiveQueueProps {
   doctorId?: string;
   clinicId?: string;
 }
 
-type QueueStatus = "waiting" | "arrived" | "in_progress" | "completed";
-
-const statusConfig: Record<QueueStatus, { 
-  label: string; 
-  bg: string; 
-  text: string; 
-  icon: typeof Clock;
-  next?: QueueStatus;
-  nextLabel?: string;
-}> = {
-  waiting: { 
-    label: "Ожидает", 
-    bg: "bg-amber-500/10", 
-    text: "text-amber-600 dark:text-amber-400",
-    icon: Clock,
-    next: "arrived",
-    nextLabel: "Отметить прибытие"
-  },
-  arrived: { 
-    label: "Прибыл", 
-    bg: "bg-blue-500/10", 
-    text: "text-blue-600 dark:text-blue-400",
-    icon: MapPin,
-    next: "in_progress",
-    nextLabel: "Начать приём"
-  },
-  in_progress: { 
-    label: "На приёме", 
-    bg: "bg-primary/10", 
-    text: "text-primary",
-    icon: Play,
-    next: "completed",
-    nextLabel: "Завершить"
-  },
-  completed: { 
-    label: "Завершён", 
-    bg: "bg-emerald-500/10", 
-    text: "text-emerald-600 dark:text-emerald-400",
-    icon: CheckCircle2
-  },
-};
-
-// Mock rooms - in real app would come from clinic_settings
-const rooms = [
-  { id: "1", name: "Кабинет 1" },
-  { id: "2", name: "Кабинет 2" },
-  { id: "3", name: "Кабинет 3" },
-];
-
-function WaitingTimer({ arrivalTime }: { arrivalTime: string }) {
-  const [minutes, setMinutes] = useState(0);
-
-  useEffect(() => {
-    const calculate = () => {
-      const mins = differenceInMinutes(new Date(), new Date(arrivalTime));
-      setMinutes(Math.max(0, mins));
-    };
-    
-    calculate();
-    const interval = setInterval(calculate, 60000);
-    return () => clearInterval(interval);
-  }, [arrivalTime]);
-
-  return (
-    <div className={cn(
-      "flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full",
-      minutes > 15 
-        ? "bg-red-500/10 text-red-600 dark:text-red-400" 
-        : minutes > 5 
-          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-          : "bg-muted text-muted-foreground"
-    )}>
-      <Timer className="w-3 h-3" />
-      {minutes} мин
-    </div>
-  );
+interface QueueRow {
+  id: string;
+  appointment_id: string;
+  queue_number: number;
+  status: "WAITING" | "CALLED" | "IN_SERVICE" | "COMPLETED" | "CANCELLED";
+  patient_name: string;
+  appointment_start_time?: string | null;
+  version: number;
 }
 
-export function EnhancedLiveQueue({ doctorId, clinicId }: EnhancedLiveQueueProps) {
-  const { toast } = useToast();
+const nextAction = (status: QueueRow["status"]): QueueAction | null => {
+  if (status === "WAITING") return "call";
+  if (status === "CALLED") return "start";
+  if (status === "IN_SERVICE") return "complete";
+  return null;
+};
+
+export function EnhancedLiveQueue({ clinicId }: EnhancedLiveQueueProps) {
+  const { language } = useLanguage();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const date = new Date().toLocaleDateString("en-CA");
+  const uz = language === "uz";
+  const key = ["s7-clinic-queue", clinicId, date];
 
-  const { data: queue, isLoading } = useQuery({
-    queryKey: ["enhanced-queue", clinicId, doctorId],
-    queryFn: async () => {
-      if (!clinicId) return [];
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      let query = supabase
-        .from("appointments_queue")
-        .select(`
-          id,
-          status,
-          arrival_time,
-          called_time,
-          queue_number,
-          patient_id,
-          profiles:patient_id (
-            full_name,
-            phone,
-            avatar_url
-          ),
-          appointments:appointment_id (
-            service,
-            appointment_date
-          )
-        `)
-        .eq("clinic_id", clinicId)
-        .gte("created_at", today.toISOString())
-        .in("status", ["waiting", "arrived", "in_progress"])
-        .order("queue_number", { ascending: true });
-
-      if (doctorId) {
-        query = query.eq("doctor_id", doctorId);
-      }
-
-      const { data } = await query;
-      return data || [];
-    },
+  const { data = [], isLoading, isError, refetch } = useQuery({
+    queryKey: key,
+    queryFn: () => getClinicQueue(clinicId!, date) as Promise<QueueRow[]>,
     enabled: !!clinicId,
-    refetchInterval: 5000,
+    refetchInterval: 5_000,
   });
 
-  const updateStatus = async (id: string, newStatus: QueueStatus) => {
-    const updates: Record<string, any> = { status: newStatus };
-    
-    if (newStatus === "arrived") {
-      updates.arrival_time = new Date().toISOString();
-    } else if (newStatus === "in_progress") {
-      updates.called_time = new Date().toISOString();
-    } else if (newStatus === "completed") {
-      updates.completed_time = new Date().toISOString();
-    }
-
-    const { error } = await supabase
-      .from("appointments_queue")
-      .update(updates)
-      .eq("id", id);
-
-    if (error) {
-      toast({
-        title: "Ошибка",
-        description: "Не удалось обновить статус",
-        variant: "destructive",
+  const command = useMutation({
+    mutationFn: async ({
+      row,
+      action,
+    }: {
+      row: QueueRow;
+      action: QueueAction;
+    }) => {
+      const actionKey = `queue:${row.id}:${action}:v${row.version}`;
+      const clientRequestId = getPersistentClientRequestId(
+        user?.id ?? "anonymous",
+        clinicId!,
+        actionKey,
+      );
+      const result = await queueCommand(clinicId!, action, {
+        clientRequestId,
+        queueEntryId: row.id,
+        expectedVersion: row.version,
       });
-    } else {
-      queryClient.invalidateQueries({ queryKey: ["enhanced-queue"] });
-      toast({
-        title: "Статус обновлён",
-        description: `Статус изменён на "${statusConfig[newStatus].label}"`,
-      });
-    }
-  };
-
-  const callNextPatient = () => {
-    const arrivedPatient = queue?.find(q => q.status === "arrived");
-    if (arrivedPatient) {
-      updateStatus(arrivedPatient.id, "in_progress");
-    } else {
-      toast({
-        title: "Нет пациентов",
-        description: "В очереди нет прибывших пациентов",
-      });
-    }
-  };
-
-  const arrivedCount = queue?.filter(q => q.status === "arrived").length || 0;
-  const inProgressCount = queue?.filter(q => q.status === "in_progress").length || 0;
+      clearPersistentClientRequestId(
+        user?.id ?? "anonymous",
+        clinicId!,
+        actionKey,
+      );
+      return result;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: key });
+      toast.success(uz ? "Navbat yangilandi" : "Очередь обновлена");
+    },
+    onError: (error: Error) => {
+      toast.error(
+        error instanceof CrmApiError && error.status === 409
+          ? uz
+            ? "Navbat allaqachon o‘zgargan. Ro‘yxat yangilandi."
+            : "Очередь уже изменилась. Список обновлён."
+          : error.message,
+      );
+      void refetch();
+    },
+  });
 
   return (
-    <Card className="border-border/50 bg-card/80 backdrop-blur-sm h-full flex flex-col">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-foreground flex items-center gap-2">
-            <Users className="w-5 h-5 text-primary" />
-            Живая очередь
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {arrivedCount > 0 && (
-              <Badge className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20">
-                {arrivedCount} прибыло
-              </Badge>
-            )}
-            {inProgressCount > 0 && (
-              <Badge className="bg-primary/10 text-primary border-primary/20">
-                {inProgressCount} на приёме
-              </Badge>
-            )}
-          </div>
-        </div>
+    <Card className="h-full border-border/50 bg-card/80 shadow-soft">
+      {/* Шапка панели по макету: 11px/14px, заголовок 14px/700, снизу граница —
+          та же форма, что у расписания рядом. */}
+      <CardHeader className="border-b border-border/50 px-card-x py-card-y">
+        <CardTitle className="flex items-center gap-2 text-base font-bold">
+          <Users className="h-4 w-4 text-primary" />
+          {uz ? "Jonli navbat" : "Живая очередь"}
+          <Badge variant="secondary" className="ml-auto">
+            {data.filter((row) => row.status !== "COMPLETED").length}
+          </Badge>
+        </CardTitle>
       </CardHeader>
-      
-      <CardContent className="flex-1 flex flex-col">
-        {/* Call Next Button */}
-        {queue && queue.length > 0 && arrivedCount > 0 && (
-          <Button
-            onClick={callNextPatient}
-            className="w-full mb-4 bg-primary hover:bg-primary/90 gap-2"
-            size="lg"
-          >
-            <Bell className="w-4 h-4" />
-            Вызвать следующего
-          </Button>
-        )}
-
-        {/* Queue List */}
+      <CardContent className="space-y-3 p-card-x">
         {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-20 w-full bg-muted" />
-            ))}
+          <>
+            <Skeleton className="h-20" />
+            <Skeleton className="h-20" />
+          </>
+        ) : isError ? (
+          <div className="rounded-xl border border-destructive/30 p-4 text-sm">
+            <p>{uz ? "Navbat yuklanmadi" : "Очередь не загрузилась"}</p>
+            <Button size="sm" variant="outline" className="mt-3" onClick={() => void refetch()}>
+              {uz ? "Qayta urinish" : "Повторить"}
+            </Button>
           </div>
-        ) : queue && queue.length > 0 ? (
-          <div className="space-y-3 flex-1 overflow-auto">
-            {queue.map((item) => {
-              const status = statusConfig[item.status as QueueStatus] || statusConfig.waiting;
-              const patient = item.profiles as any;
-              const appointment = item.appointments as any;
-              const StatusIcon = status.icon;
-
-              return (
-                <div
-                  key={item.id}
-                  className={cn(
-                    "p-4 rounded-xl border transition-all duration-200",
-                    status.bg,
-                    "border-border/50 hover:shadow-soft"
-                  )}
-                >
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className={cn(
-                        "w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg",
-                        "bg-primary/10 text-primary"
-                      )}>
-                        {item.queue_number}
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {patient?.full_name || "Пациент"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {appointment?.service || "Консультация"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {item.arrival_time && item.status !== "completed" && (
-                        <WaitingTimer arrivalTime={item.arrival_time} />
-                      )}
-                      <Badge variant="outline" className={cn("text-xs", status.text)}>
-                        <StatusIcon className="w-3 h-3 mr-1" />
-                        {status.label}
-                      </Badge>
-                    </div>
-                  </div>
-
-                  {/* Time info */}
-                  {appointment?.appointment_date && (
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground mb-3">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        Запись: {format(new Date(appointment.appointment_date), "HH:mm")}
-                      </span>
-                      {item.arrival_time && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          Прибыл: {format(new Date(item.arrival_time), "HH:mm")}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2">
-                    {/* Room selector for in_progress */}
-                    {item.status === "in_progress" && (
-                      <Select defaultValue="1">
-                        <SelectTrigger className="w-32 h-8 text-xs">
-                          <SelectValue placeholder="Кабинет" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {rooms.map((room) => (
-                            <SelectItem key={room.id} value={room.id}>
-                              {room.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-
-                    {/* Status change button */}
-                    {status.next && (
-                      <Button
-                        variant={item.status === "arrived" ? "default" : "outline"}
-                        size="sm"
-                        className={cn(
-                          "flex-1 gap-1 text-xs",
-                          item.status === "arrived" && "bg-primary hover:bg-primary/90"
-                        )}
-                        onClick={() => updateStatus(item.id, status.next!)}
-                      >
-                        {status.nextLabel}
-                        <ChevronRight className="w-3 h-3" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+        ) : data.length === 0 ? (
+          <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+            <Activity className="mx-auto mb-3 h-8 w-8" />
+            {uz ? "Bugun navbat bo‘sh" : "Сегодня очередь пуста"}
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center py-8 text-muted-foreground">
-              <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-medium">Очередь пуста</p>
-              <p className="text-xs mt-1">Пациенты появятся после регистрации</p>
-            </div>
-          </div>
+          data.map((row) => {
+            const action = nextAction(row.status);
+            const Icon =
+              row.status === "IN_SERVICE"
+                ? Play
+                : row.status === "COMPLETED"
+                  ? CheckCircle2
+                  : Clock;
+            const actionLabel =
+              action === "call"
+                ? uz ? "Chaqirish" : "Вызвать"
+                : action === "start"
+                  ? uz ? "Boshlash" : "Начать"
+                  : uz ? "Yakunlash" : "Завершить";
+            return (
+              <div key={row.id} className="rounded-xl border bg-background/70 p-3">
+                <div className="flex items-start gap-3">
+                  <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-primary/10 font-semibold text-primary">
+                    {row.queue_number}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{row.patient_name || "—"}</p>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                      <Icon className="h-3.5 w-3.5" />
+                      {row.status}
+                    </p>
+                  </div>
+                  {action && (
+                    <Button
+                      size="sm"
+                      disabled={command.isPending}
+                      onClick={() => command.mutate({ row, action })}
+                    >
+                      {actionLabel}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })
         )}
       </CardContent>
     </Card>

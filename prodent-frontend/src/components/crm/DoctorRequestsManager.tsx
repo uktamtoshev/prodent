@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
@@ -46,6 +47,11 @@ import {
 } from '@/components/ui/dialog';
 import { InviteDoctorDialog } from './InviteDoctorDialog';
 import { RemoveDoctorDialog } from './RemoveDoctorDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  decideDoctorClinicRequest,
+  normalizeDoctorClinicRequestStatus,
+} from '@/lib/doctor-clinic-requests-api';
 
 interface DoctorRequest {
   id: string;
@@ -69,6 +75,7 @@ interface DoctorRequest {
 }
 
 export function DoctorRequestsManager() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -166,79 +173,36 @@ export function DoctorRequestsManager() {
   const approveMutation = useMutation({
     mutationFn: async (requestId: string) => {
       const request = incomingRequests?.find(r => r.id === requestId);
-      if (!request) throw new Error('Запрос не найден');
+      if (!request) throw new Error(t('crmDoctorRequestsMgr.requestNotFound'));
 
-      // Update request status
-      const { error: updateError } = await supabase
-        .from('doctor_clinic_requests')
-        .update({
-          status: 'approved',
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', requestId);
-      
-      if (updateError) throw updateError;
-
-      // Add doctor to clinic_members
-      const { data: doctorData, error: doctorError } = await supabase
-        .from('doctors')
-        .select('user_id')
-        .eq('id', request.doctor_id)
-        .single();
-      
-      if (doctorError) throw doctorError;
-
-      const { error: memberError } = await supabase
-        .from('clinic_members')
-        .insert({
-          user_id: doctorData.user_id,
-          clinic_id: currentClinic!.id,
-          role: 'doctor',
-        });
-      
-      // Ignore duplicate error
-      if (memberError && memberError.code !== '23505') throw memberError;
-
-      // Update doctor's clinic_id
-      const { error: updateDoctorError } = await supabase
-        .from('doctors')
-        .update({ clinic_id: currentClinic!.id })
-        .eq('id', request.doctor_id);
-      
-      if (updateDoctorError) throw updateDoctorError;
+      await decideDoctorClinicRequest(requestId, 'accept');
     },
     onSuccess: () => {
-      toast.success('Врач добавлен в клинику');
+      toast.success(t('crmDoctorRequestsMgr.doctorAdded'));
       queryClient.invalidateQueries({ queryKey: ['clinic-doctor-requests'] });
       queryClient.invalidateQueries({ queryKey: ['clinic-doctors'] });
+      queryClient.invalidateQueries({ queryKey: ['clinic-members'] });
+      queryClient.invalidateQueries({ queryKey: ['service-doctor-assignments'] });
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Ошибка при одобрении запроса');
+      toast.error(error.message || t('crmDoctorRequestsMgr.approveError'));
     },
   });
 
   const rejectMutation = useMutation({
     mutationFn: async ({ requestId, reason }: { requestId: string; reason: string }) => {
-      const { error } = await supabase
-        .from('doctor_clinic_requests')
-        .update({
-          status: 'rejected',
-          rejection_reason: reason,
-          reviewed_at: new Date().toISOString(),
-        })
-        .eq('id', requestId);
-      
-      if (error) throw error;
+      await decideDoctorClinicRequest(requestId, 'reject', reason);
     },
     onSuccess: () => {
-      toast.success('Запрос отклонён');
+      toast.success(t('crmDoctorRequestsMgr.requestRejected'));
       queryClient.invalidateQueries({ queryKey: ['clinic-doctor-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['clinic-doctor-leave-requests'] });
       setRejectDialogOpen(false);
       setSelectedRequest(null);
       setRejectionReason('');
     },
     onError: () => {
-      toast.error('Ошибка при отклонении запроса');
+      toast.error(t('crmDoctorRequestsMgr.rejectError'));
     },
   });
 
@@ -246,74 +210,20 @@ export function DoctorRequestsManager() {
   const approveLeaveRequestMutation = useMutation({
     mutationFn: async (requestId: string) => {
       const request = leaveRequests?.find(r => r.id === requestId);
-      if (!request) throw new Error('Запрос не найден');
+      if (!request) throw new Error(t('crmDoctorRequestsMgr.requestNotFound'));
 
-      const user = (await supabase.auth.getUser()).data.user;
-      if (!user) throw new Error('Не авторизован');
-
-      // Import and use doctor departure logic
-      const { handleDoctorDeparture, deactivateDoctorAffiliation } = await import('@/lib/doctor-departure');
-      
-      // Handle patient ownership based on cooperation type
-      const departureResult = await handleDoctorDeparture(request.doctor_id, currentClinic!.id);
-      console.log('Departure result:', departureResult);
-
-      // Update request status
-      const { error: updateError } = await supabase
-        .from('doctor_clinic_requests')
-        .update({
-          status: 'approved',
-          reviewed_at: new Date().toISOString(),
-          reviewed_by: user.id,
-        })
-        .eq('id', requestId);
-      
-      if (updateError) throw updateError;
-
-      // Get doctor's user_id
-      const { data: doctorData, error: doctorError } = await supabase
-        .from('doctors')
-        .select('user_id, clinic_id')
-        .eq('id', request.doctor_id)
-        .single();
-      
-      if (doctorError) throw doctorError;
-
-      // Deactivate affiliation instead of hard delete
-      await deactivateDoctorAffiliation(request.doctor_id, currentClinic!.id);
-
-      // Remove doctor from clinic_members
-      const { error: memberError } = await supabase
-        .from('clinic_members')
-        .delete()
-        .eq('user_id', doctorData.user_id)
-        .eq('clinic_id', currentClinic!.id)
-        .eq('role', 'doctor');
-      
-      if (memberError) throw memberError;
-
-      // Clear doctor's clinic_id if it matches this clinic
-      if (doctorData.clinic_id === currentClinic!.id) {
-        await supabase
-          .from('doctors')
-          .update({ clinic_id: null })
-          .eq('id', request.doctor_id);
-      }
-
-      return departureResult;
+      await decideDoctorClinicRequest(requestId, 'accept');
     },
-    onSuccess: (result) => {
-      const message = result?.message 
-        ? `Врач удален из клиники. ${result.message}`
-        : 'Врач удален из клиники';
-      toast.success(message);
+    onSuccess: () => {
+      toast.success(t('crmDoctorRequestsMgr.doctorRemoved'));
       queryClient.invalidateQueries({ queryKey: ['clinic-doctor-leave-requests'] });
       queryClient.invalidateQueries({ queryKey: ['clinic-doctors'] });
       queryClient.invalidateQueries({ queryKey: ['clinic-members'] });
       queryClient.invalidateQueries({ queryKey: ['patients-list'] });
+      queryClient.invalidateQueries({ queryKey: ['service-doctor-assignments'] });
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Ошибка при одобрении запроса');
+      toast.error(error.message || t('crmDoctorRequestsMgr.approveError'));
     },
   });
 
@@ -332,13 +242,13 @@ export function DoctorRequestsManager() {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch (normalizeDoctorClinicRequestStatus(status)) {
       case 'pending':
-        return <Badge variant="outline" className="text-warning-amber border-warning-amber"><Clock className="w-3 h-3 mr-1" />Ожидает</Badge>;
+        return <Badge variant="outline" className="text-status-warning border-status-warning"><Clock className="w-3 h-3 mr-1" />{t('crmDoctorRequestsMgr.pending')}</Badge>;
       case 'approved':
-        return <Badge variant="outline" className="text-green-500 border-green-500"><CheckCircle className="w-3 h-3 mr-1" />Одобрено</Badge>;
+        return <Badge variant="outline" className="text-status-success border-status-success"><CheckCircle className="w-3 h-3 mr-1" />{t('crmDoctorRequestsMgr.approved')}</Badge>;
       case 'rejected':
-        return <Badge variant="outline" className="text-destructive border-destructive"><XCircle className="w-3 h-3 mr-1" />Отклонено</Badge>;
+        return <Badge variant="outline" className="text-destructive border-destructive"><XCircle className="w-3 h-3 mr-1" />{t('crmDoctorRequestsMgr.rejected')}</Badge>;
       default:
         return null;
     }
@@ -350,17 +260,16 @@ export function DoctorRequestsManager() {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20 cursor-help gap-1 text-xs">
+              <Badge className="bg-status-info/10 text-status-info border-status-info/30 hover:bg-status-info/20 cursor-help gap-1 text-xs">
                 <Building2 className="w-3 h-3" />
-                Штатный
+                {t('crmDoctorRequestsMgr.staff')}
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <div className="space-y-1">
-                <p className="font-semibold">Штатный врач</p>
+                <p className="font-semibold">{t('crmDoctorRequestsMgr.staffDoctor')}</p>
                 <p className="text-xs text-muted-foreground">
-                  Работает на клинику. Получает процент от услуг. 
-                  Пациенты учитываются в кассе клиники.
+                  {t('crmDoctorRequestsMgr.staffDoctorDesc')}
                 </p>
               </div>
             </TooltipContent>
@@ -374,17 +283,16 @@ export function DoctorRequestsManager() {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20 cursor-help gap-1 text-xs">
+              <Badge className="bg-status-neutral/10 text-status-neutral border-status-neutral/30 hover:bg-status-neutral/20 cursor-help gap-1 text-xs">
                 <Armchair className="w-3 h-3" />
-                Арендатор
+                {t('crmDoctorRequestsMgr.tenant')}
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <div className="space-y-1">
-                <p className="font-semibold">Арендатор кресла</p>
+                <p className="font-semibold">{t('crmDoctorRequestsMgr.chairTenant')}</p>
                 <p className="text-xs text-muted-foreground">
-                  Арендует рабочее место. Ведёт своих пациентов. 
-                  Доходы вне кассы клиники.
+                  {t('crmDoctorRequestsMgr.chairTenantDesc')}
                 </p>
               </div>
             </TooltipContent>
@@ -396,18 +304,35 @@ export function DoctorRequestsManager() {
     return null;
   };
 
-  const pendingIncoming = incomingRequests?.filter(r => r.status === 'pending') || [];
-  const processedIncoming = incomingRequests?.filter(r => r.status !== 'pending') || [];
-  const pendingOutgoing = outgoingInvitations?.filter(r => r.status === 'pending') || [];
-  const processedOutgoing = outgoingInvitations?.filter(r => r.status !== 'pending') || [];
-  const pendingLeave = leaveRequests?.filter(r => r.status === 'pending') || [];
-  const processedLeave = leaveRequests?.filter(r => r.status !== 'pending') || [];
+  const pendingIncoming = incomingRequests?.filter(
+    (request) => normalizeDoctorClinicRequestStatus(request.status) === 'pending',
+  ) || [];
+  const processedIncoming = incomingRequests?.filter(
+    (request) => normalizeDoctorClinicRequestStatus(request.status) !== 'pending',
+  ) || [];
+  const pendingOutgoing = outgoingInvitations?.filter(
+    (request) => normalizeDoctorClinicRequestStatus(request.status) === 'pending',
+  ) || [];
+  const processedOutgoing = outgoingInvitations?.filter(
+    (request) => normalizeDoctorClinicRequestStatus(request.status) !== 'pending',
+  ) || [];
+  const pendingLeave = leaveRequests?.filter(
+    (request) => normalizeDoctorClinicRequestStatus(request.status) === 'pending',
+  ) || [];
+  const processedLeave = leaveRequests?.filter(
+    (request) => normalizeDoctorClinicRequestStatus(request.status) !== 'pending',
+  ) || [];
 
   if (isLoading) {
     return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <Card className="overflow-hidden border-border/50 bg-card/80 shadow-soft backdrop-blur-sm">
+        <CardHeader className="border-b border-border/50 bg-surface-2 px-card-x py-card-y">
+          <Skeleton className="h-8 w-56" />
+        </CardHeader>
+        <CardContent className="space-y-3 p-4 sm:p-6">
+          {[1, 2, 3].map((item) => (
+            <Skeleton key={item} className="h-24 w-full rounded-2xl" />
+          ))}
         </CardContent>
       </Card>
     );
@@ -415,45 +340,59 @@ export function DoctorRequestsManager() {
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
-          <CardTitle className="flex items-center gap-2">
+      <Card className="overflow-hidden border-border/50 bg-card/80 shadow-soft backdrop-blur-sm">
+        <CardHeader className="flex flex-col gap-4 border-b border-border/50 bg-muted/20 sm:flex-row sm:items-center sm:justify-between">
+          <CardTitle className="flex items-center gap-2 text-base font-bold">
             <UserPlus className="h-5 w-5" />
-            Управление врачами
+            {t('crmDoctorRequestsMgr.doctorsManagement')}
           </CardTitle>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setRemoveDialogOpen(true)}>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <Button variant="outline" onClick={() => setRemoveDialogOpen(true)} className="w-full sm:w-auto">
               <UserMinus className="mr-2 h-4 w-4" />
-              Удалить врача
+              {t('crmDoctorRequestsMgr.removeDoctor')}
             </Button>
-            <Button onClick={() => setInviteDialogOpen(true)}>
+            <Button onClick={() => setInviteDialogOpen(true)} className="w-full sm:w-auto">
               <Send className="mr-2 h-4 w-4" />
-              Пригласить врача
+              {t('crmDoctorRequestsMgr.inviteDoctor')}
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-card-x">
+          {/* Показатели заявок. Считаются из уже загруженных списков: новых
+              запросов не нужно. Двух эталонных показателей здесь нет —
+              «Средний стаж кандидатов» и «Свободных кресел» требуют полей,
+              которых в заявке не приходит. */}
+          <div className="mb-section grid grid-cols-2 gap-section sm:max-w-md">
+            <div className="rounded-panel border border-border bg-card px-card-x py-3">
+              <p className="text-meta font-medium text-muted-foreground">{t('crmDoctorRequestsMgr.newRequests')}</p>
+              <p className="text-kpi tabular-nums font-heading">{pendingIncoming.length}</p>
+            </div>
+            <div className="rounded-panel border border-border bg-card px-card-x py-3">
+              <p className="text-meta font-medium text-muted-foreground">{t('crmDoctorRequestsMgr.requestHistory')}</p>
+              <p className="text-kpi tabular-nums font-heading">{processedIncoming.length}</p>
+            </div>
+          </div>
           <Tabs defaultValue="incoming" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="incoming" className="flex items-center gap-2">
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-0.5">
+              <TabsTrigger value="incoming" className="flex items-center gap-2 rounded-lg py-2">
                 <Inbox className="h-4 w-4" />
-                <span className="hidden sm:inline">Входящие</span>
+                <span className="hidden sm:inline">{t('crmDoctorRequestsMgr.tabIncoming')}</span>
                 {pendingIncoming.length > 0 && (
-                  <Badge variant="secondary" className="ml-1">{pendingIncoming.length}</Badge>
+                  <Badge variant="secondary" className="ml-1 rounded-full">{pendingIncoming.length}</Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="outgoing" className="flex items-center gap-2">
+              <TabsTrigger value="outgoing" className="flex items-center gap-2 rounded-lg py-2">
                 <Send className="h-4 w-4" />
-                <span className="hidden sm:inline">Приглашения</span>
+                <span className="hidden sm:inline">{t('crmDoctorRequestsMgr.tabInvitations')}</span>
                 {pendingOutgoing.length > 0 && (
-                  <Badge variant="secondary" className="ml-1">{pendingOutgoing.length}</Badge>
+                  <Badge variant="secondary" className="ml-1 rounded-full">{pendingOutgoing.length}</Badge>
                 )}
               </TabsTrigger>
-              <TabsTrigger value="leave" className="flex items-center gap-2">
+              <TabsTrigger value="leave" className="flex items-center gap-2 rounded-lg py-2">
                 <LogOut className="h-4 w-4" />
-                <span className="hidden sm:inline">Уход</span>
+                <span className="hidden sm:inline">{t('crmDoctorRequestsMgr.tabLeave')}</span>
                 {pendingLeave.length > 0 && (
-                  <Badge variant="destructive" className="ml-1">{pendingLeave.length}</Badge>
+                  <Badge variant="destructive" className="ml-1 rounded-full">{pendingLeave.length}</Badge>
                 )}
               </TabsTrigger>
             </TabsList>
@@ -462,28 +401,28 @@ export function DoctorRequestsManager() {
             <TabsContent value="incoming" className="space-y-6">
               {pendingIncoming.length > 0 && (
                 <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground">Новые запросы</h4>
+                  <h4 className="text-base font-bold text-foreground">{t('crmDoctorRequestsMgr.newRequests')}</h4>
                   {pendingIncoming.map((request) => (
-                    <div key={request.id} className="p-4 border rounded-lg space-y-3">
-                      <div className="flex items-start gap-4">
+                    <div key={request.id} className="space-y-3 rounded-panel border border-border/50 p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                         <Avatar className="h-12 w-12">
                           <AvatarImage src={request.doctor?.profile?.avatar_url || ''} />
                           <AvatarFallback>
                             <User className="h-6 w-6" />
                           </AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
-                          <h4 className="font-semibold">{request.doctor?.profile?.full_name || 'Врач'}</h4>
-                          <div className="flex flex-wrap gap-2 mt-1 text-sm text-muted-foreground">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-semibold">{request.doctor?.profile?.full_name || t('crmDoctorRequestsMgr.defaultDoctor')}</h4>
+                          <div className="mt-1 flex flex-wrap gap-2 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Stethoscope className="h-3 w-3" />
                               {request.doctor?.specialty}
                             </span>
-                            <span>•</span>
-                            <span>Опыт: {request.doctor?.experience_years} лет</span>
+                            <span aria-hidden="true">·</span>
+                            <span>{t('crmDoctorRequestsMgr.experience')} {request.doctor?.experience_years} {t('crmDoctorRequestsMgr.years')}</span>
                             {request.doctor?.cooperation_type && (
                               <>
-                                <span>•</span>
+                                <span aria-hidden="true">·</span>
                                 {getCooperationTypeBadge(request.doctor.cooperation_type)}
                               </>
                             )}
@@ -497,13 +436,13 @@ export function DoctorRequestsManager() {
                       </div>
 
                       {request.message && (
-                        <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+                        <div className="flex items-start gap-2 rounded-2xl bg-muted/50 p-3">
                           <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5" />
                           <p className="text-sm">{request.message}</p>
                         </div>
                       )}
 
-                      <div className="flex gap-2 pt-2">
+                      <div className="flex flex-col gap-2 pt-2 sm:flex-row">
                         <Button
                           onClick={() => approveMutation.mutate(request.id)}
                           disabled={approveMutation.isPending}
@@ -514,7 +453,7 @@ export function DoctorRequestsManager() {
                           ) : (
                             <CheckCircle className="h-4 w-4 mr-2" />
                           )}
-                          Принять
+                          {t('crmDoctorRequestsMgr.accept')}
                         </Button>
                         <Button
                           variant="outline"
@@ -523,7 +462,7 @@ export function DoctorRequestsManager() {
                           className="flex-1"
                         >
                           <XCircle className="h-4 w-4 mr-2" />
-                          Отклонить
+                          {t('crmDoctorRequestsMgr.reject')}
                         </Button>
                       </div>
                     </div>
@@ -533,9 +472,9 @@ export function DoctorRequestsManager() {
 
               {processedIncoming.length > 0 && (
                 <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground">История запросов</h4>
+                  <h4 className="text-base font-bold text-foreground">{t('crmDoctorRequestsMgr.requestHistory')}</h4>
                   {processedIncoming.map((request) => (
-                    <div key={request.id} className="p-4 border rounded-lg flex items-center justify-between bg-muted/30">
+                    <div key={request.id} className="flex flex-col gap-3 rounded-panel border border-border/50 bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={request.doctor?.profile?.avatar_url || ''} />
@@ -544,10 +483,10 @@ export function DoctorRequestsManager() {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{request.doctor?.profile?.full_name || 'Врач'}</p>
+                          <p className="font-medium">{request.doctor?.profile?.full_name || t('crmDoctorRequestsMgr.defaultDoctor')}</p>
                           <p className="text-sm text-muted-foreground">{request.doctor?.specialty}</p>
                           {request.rejection_reason && (
-                            <p className="text-xs text-destructive mt-1">Причина: {request.rejection_reason}</p>
+                            <p className="text-xs text-destructive mt-1">{t('crmDoctorRequestsMgr.reason')} {request.rejection_reason}</p>
                           )}
                         </div>
                       </div>
@@ -558,9 +497,9 @@ export function DoctorRequestsManager() {
               )}
 
               {incomingRequests?.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-8 text-center text-muted-foreground">
                   <Inbox className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>Нет входящих запросов от врачей</p>
+                  <p>{t('crmDoctorRequestsMgr.noIncoming')}</p>
                 </div>
               )}
             </TabsContent>
@@ -569,9 +508,9 @@ export function DoctorRequestsManager() {
             <TabsContent value="outgoing" className="space-y-6">
               {pendingOutgoing.length > 0 && (
                 <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground">Ожидают ответа</h4>
+                  <h4 className="text-base font-bold text-foreground">{t('crmDoctorRequestsMgr.waitingResponse')}</h4>
                   {pendingOutgoing.map((invitation) => (
-                    <div key={invitation.id} className="p-4 border rounded-lg flex items-center justify-between">
+                    <div key={invitation.id} className="flex flex-col gap-3 rounded-panel border border-border/50 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={invitation.doctor?.profile?.avatar_url || ''} />
@@ -580,7 +519,7 @@ export function DoctorRequestsManager() {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{invitation.doctor?.profile?.full_name || 'Врач'}</p>
+                          <p className="font-medium">{invitation.doctor?.profile?.full_name || t('crmDoctorRequestsMgr.defaultDoctor')}</p>
                           <p className="text-sm text-muted-foreground">{invitation.doctor?.specialty}</p>
                           <div className="flex items-center gap-1 mt-1 text-xs text-muted-foreground">
                             <Calendar className="h-3 w-3" />
@@ -588,9 +527,9 @@ export function DoctorRequestsManager() {
                           </div>
                         </div>
                       </div>
-                      <Badge variant="outline" className="text-warning-amber border-warning-amber">
+                      <Badge variant="outline" className="text-status-warning border-status-warning">
                         <Clock className="w-3 h-3 mr-1" />
-                        Ожидает
+                        {t('crmDoctorRequestsMgr.pending')}
                       </Badge>
                     </div>
                   ))}
@@ -599,9 +538,9 @@ export function DoctorRequestsManager() {
 
               {processedOutgoing.length > 0 && (
                 <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground">История приглашений</h4>
+                  <h4 className="text-base font-bold text-foreground">{t('crmDoctorRequestsMgr.invitationsHistory')}</h4>
                   {processedOutgoing.map((invitation) => (
-                    <div key={invitation.id} className="p-4 border rounded-lg flex items-center justify-between bg-muted/30">
+                    <div key={invitation.id} className="flex flex-col gap-3 rounded-panel border border-border/50 bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={invitation.doctor?.profile?.avatar_url || ''} />
@@ -610,7 +549,7 @@ export function DoctorRequestsManager() {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{invitation.doctor?.profile?.full_name || 'Врач'}</p>
+                          <p className="font-medium">{invitation.doctor?.profile?.full_name || t('crmDoctorRequestsMgr.defaultDoctor')}</p>
                           <p className="text-sm text-muted-foreground">{invitation.doctor?.specialty}</p>
                         </div>
                       </div>
@@ -621,16 +560,16 @@ export function DoctorRequestsManager() {
               )}
 
               {outgoingInvitations?.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-8 text-center text-muted-foreground">
                   <Send className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>Вы ещё не отправляли приглашения врачам</p>
-                  <Button 
-                    variant="outline" 
+                  <p>{t('crmDoctorRequestsMgr.noInvitationsSent')}</p>
+                  <Button
+                    variant="outline"
                     className="mt-4"
                     onClick={() => setInviteDialogOpen(true)}
                   >
                     <UserPlus className="mr-2 h-4 w-4" />
-                    Пригласить врача
+                    {t('crmDoctorRequestsMgr.inviteDoctor')}
                   </Button>
                 </div>
               )}
@@ -640,21 +579,21 @@ export function DoctorRequestsManager() {
             <TabsContent value="leave" className="space-y-6">
               {pendingLeave.length > 0 && (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-3 bg-warning-amber/10 border border-warning-amber/20 rounded-lg">
-                    <AlertTriangle className="h-4 w-4 text-warning-amber" />
-                    <p className="text-sm">Эти врачи хотят покинуть клинику. Подтвердите их уход.</p>
+                  <div className="flex items-center gap-2 rounded-2xl border border-status-warning/20 bg-status-warning/10 p-3">
+                    <AlertTriangle className="h-4 w-4 text-status-warning" />
+                    <p className="text-sm">{t('crmDoctorRequestsMgr.doctorsWantLeave')}</p>
                   </div>
                   {pendingLeave.map((request) => (
-                    <div key={request.id} className="p-4 border rounded-lg space-y-3 border-warning-amber/30">
-                      <div className="flex items-start gap-4">
+                    <div key={request.id} className="space-y-3 rounded-2xl border border-status-warning/30 p-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                         <Avatar className="h-12 w-12">
                           <AvatarImage src={request.doctor?.profile?.avatar_url || ''} />
                           <AvatarFallback>
                             <User className="h-6 w-6" />
                           </AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
-                          <h4 className="font-semibold">{request.doctor?.profile?.full_name || 'Врач'}</h4>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-semibold">{request.doctor?.profile?.full_name || t('crmDoctorRequestsMgr.defaultDoctor')}</h4>
                           <div className="flex flex-wrap gap-2 mt-1 text-sm text-muted-foreground">
                             <span className="flex items-center gap-1">
                               <Stethoscope className="h-3 w-3" />
@@ -666,20 +605,20 @@ export function DoctorRequestsManager() {
                             {format(new Date(request.created_at), 'd MMMM yyyy', { locale: ru })}
                           </div>
                         </div>
-                        <Badge variant="outline" className="text-warning-amber border-warning-amber">
+                        <Badge variant="outline" className="text-status-warning border-status-warning">
                           <LogOut className="w-3 h-3 mr-1" />
-                          Хочет уйти
+                          {t('crmDoctorRequestsMgr.wantsToLeave')}
                         </Badge>
                       </div>
 
                       {request.message && (
-                        <div className="flex items-start gap-2 p-3 bg-muted/50 rounded-lg">
+                        <div className="flex items-start gap-2 rounded-2xl bg-muted/50 p-3">
                           <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5" />
                           <p className="text-sm">{request.message}</p>
                         </div>
                       )}
 
-                      <div className="flex gap-2 pt-2">
+                      <div className="flex flex-col gap-2 pt-2 sm:flex-row">
                         <Button
                           variant="destructive"
                           onClick={() => approveLeaveRequestMutation.mutate(request.id)}
@@ -691,7 +630,7 @@ export function DoctorRequestsManager() {
                           ) : (
                             <CheckCircle className="h-4 w-4 mr-2" />
                           )}
-                          Подтвердить уход
+                          {t('crmDoctorRequestsMgr.confirmLeave')}
                         </Button>
                         <Button
                           variant="outline"
@@ -700,7 +639,7 @@ export function DoctorRequestsManager() {
                           className="flex-1"
                         >
                           <XCircle className="h-4 w-4 mr-2" />
-                          Отклонить
+                          {t('crmDoctorRequestsMgr.reject')}
                         </Button>
                       </div>
                     </div>
@@ -710,9 +649,9 @@ export function DoctorRequestsManager() {
 
               {processedLeave.length > 0 && (
                 <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground">История</h4>
+                  <h4 className="text-base font-bold text-foreground">{t('crmDoctorRequestsMgr.history')}</h4>
                   {processedLeave.map((request) => (
-                    <div key={request.id} className="p-4 border rounded-lg flex items-center justify-between bg-muted/30">
+                    <div key={request.id} className="flex flex-col gap-3 rounded-panel border border-border/50 bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={request.doctor?.profile?.avatar_url || ''} />
@@ -721,7 +660,7 @@ export function DoctorRequestsManager() {
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium">{request.doctor?.profile?.full_name || 'Врач'}</p>
+                          <p className="font-medium">{request.doctor?.profile?.full_name || t('crmDoctorRequestsMgr.defaultDoctor')}</p>
                           <p className="text-sm text-muted-foreground">{request.doctor?.specialty}</p>
                         </div>
                       </div>
@@ -732,9 +671,9 @@ export function DoctorRequestsManager() {
               )}
 
               {leaveRequests?.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
+                <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-8 text-center text-muted-foreground">
                   <LogOut className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                  <p>Нет запросов на уход от врачей</p>
+                  <p>{t('crmDoctorRequestsMgr.noLeaveRequests')}</p>
                 </div>
               )}
             </TabsContent>
@@ -761,28 +700,28 @@ export function DoctorRequestsManager() {
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Отклонить запрос</DialogTitle>
+            <DialogTitle>{t('crmDoctorRequestsMgr.rejectRequest')}</DialogTitle>
             <DialogDescription>
-              Укажите причину отклонения запроса от {selectedRequest?.doctor?.profile?.full_name}
+              {t('crmDoctorRequestsMgr.rejectReasonFor')} {selectedRequest?.doctor?.profile?.full_name}
             </DialogDescription>
           </DialogHeader>
           <Textarea
-            placeholder="Причина отклонения (необязательно)"
+            placeholder={t('crmDoctorRequestsMgr.rejectReasonPlaceholder')}
             value={rejectionReason}
             onChange={(e) => setRejectionReason(e.target.value)}
             rows={3}
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
-              Отмена
+              {t('crmDoctorRequestsMgr.cancel')}
             </Button>
-            <Button 
-              variant="destructive" 
+            <Button
+              variant="destructive"
               onClick={confirmReject}
               disabled={rejectMutation.isPending}
             >
               {rejectMutation.isPending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Отклонить
+              {t('crmDoctorRequestsMgr.reject')}
             </Button>
           </DialogFooter>
         </DialogContent>

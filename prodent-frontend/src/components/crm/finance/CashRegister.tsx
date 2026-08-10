@@ -10,12 +10,14 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Wallet, TrendingUp, TrendingDown, Lock, DollarSign } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface CashRegisterProps {
   currency: string;
 }
 
 export function CashRegister({ currency }: CashRegisterProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const today = format(new Date(), "yyyy-MM-dd");
@@ -65,10 +67,10 @@ export function CashRegister({ currency }: CashRegisterProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cash-register"] });
-      toast.success("Касса открыта");
+      toast.success(t('crmFinanceComponents.cashOpened'));
     },
     onError: () => {
-      toast.error("Ошибка открытия кассы");
+      toast.error(t('crmFinanceComponents.cashOpenError'));
     },
   });
 
@@ -90,10 +92,10 @@ export function CashRegister({ currency }: CashRegisterProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cash-register"] });
-      toast.success("Касса закрыта");
+      toast.success(t('crmFinanceComponents.cashClosed'));
     },
     onError: () => {
-      toast.error("Ошибка закрытия кассы");
+      toast.error(t('crmFinanceComponents.cashCloseError'));
     },
   });
 
@@ -109,14 +111,14 @@ export function CashRegister({ currency }: CashRegisterProps) {
       <Card className="bg-card/80 border-border/50">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-foreground flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
               <Wallet className="w-5 h-5" />
-              Касса на {format(new Date(), "dd MMMM yyyy", { locale: ru })}
+              {t('crmFinanceComponents.cashRegisterFor')} {format(new Date(), "dd MMMM yyyy", { locale: ru })}
             </CardTitle>
-            <Badge variant="outline" className={cashRegister?.status === "open" 
-              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/50" 
+            <Badge variant="outline" className={cashRegister?.status === "open"
+              ? "bg-status-success/20 text-status-success border-status-success/50"
               : "bg-muted text-muted-foreground"}>
-              {cashRegister?.status === "open" ? "Открыта" : cashRegister ? "Закрыта" : "Не открыта"}
+              {cashRegister?.status === "open" ? t('crmFinanceComponents.statusOpened') : cashRegister ? t('crmFinanceComponents.statusClosed') : t('crmFinanceComponents.statusNotOpened')}
             </Badge>
           </div>
         </CardHeader>
@@ -125,25 +127,25 @@ export function CashRegister({ currency }: CashRegisterProps) {
             <div className="p-4 bg-muted/30 rounded-lg">
               <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
                 <DollarSign className="w-4 h-4" />
-                Начальный баланс
+                {t('crmFinanceComponents.openingBalance')}
               </div>
               <div className="text-xl font-bold text-foreground">
                 {(cashRegister?.opening_balance || 0).toLocaleString()} {currency}
               </div>
             </div>
-            <div className="p-4 bg-emerald-500/10 rounded-lg">
-              <div className="flex items-center gap-2 text-emerald-400 text-sm mb-1">
+            <div className="p-4 bg-status-success/10 rounded-lg">
+              <div className="flex items-center gap-2 text-status-success text-sm mb-1">
                 <TrendingUp className="w-4 h-4" />
-                Приход за день
+                {t('crmFinanceComponents.dailyIncome')}
               </div>
-              <div className="text-xl font-bold text-emerald-400">
+              <div className="text-xl font-bold text-status-success">
                 +{totalIncome.toLocaleString()} {currency}
               </div>
             </div>
             <div className="p-4 bg-primary/10 rounded-lg">
               <div className="flex items-center gap-2 text-primary text-sm mb-1">
                 <Wallet className="w-4 h-4" />
-                Текущий баланс
+                {t('crmFinanceComponents.currentBalance')}
               </div>
               <div className="text-xl font-bold text-primary">
                 {currentBalance.toLocaleString()} {currency}
@@ -155,16 +157,16 @@ export function CashRegister({ currency }: CashRegisterProps) {
             {!cashRegister ? (
               <Button onClick={() => openCashMutation.mutate()} disabled={openCashMutation.isPending}>
                 <Wallet className="w-4 h-4 mr-2" />
-                Открыть кассу
+                {t('crmFinanceComponents.openCash')}
               </Button>
             ) : cashRegister.status === "open" ? (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 onClick={() => closeCashMutation.mutate()}
                 disabled={closeCashMutation.isPending}
               >
                 <Lock className="w-4 h-4 mr-2" />
-                Закрыть кассу
+                {t('crmFinanceComponents.closeCash')}
               </Button>
             ) : null}
           </div>
@@ -174,7 +176,7 @@ export function CashRegister({ currency }: CashRegisterProps) {
       {/* Recent payments */}
       <Card className="bg-card/80 border-border/50">
         <CardHeader>
-          <CardTitle className="text-foreground text-lg">Платежи сегодня</CardTitle>
+          <CardTitle className="text-foreground text-lg">{t('crmFinanceComponents.todayPayments')}</CardTitle>
         </CardHeader>
         <CardContent>
           {todayPayments && todayPayments.length > 0 ? (
@@ -182,19 +184,19 @@ export function CashRegister({ currency }: CashRegisterProps) {
               {todayPayments.slice(0, 10).map((payment) => (
                 <div key={payment.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
                   <div>
-                    <p className="text-foreground font-medium">{payment.description || "Оплата"}</p>
+                    <p className="text-foreground font-medium">{payment.description || t('crmFinanceComponents.paymentDefault')}</p>
                     <p className="text-sm text-muted-foreground">
                       {format(new Date(payment.created_at), "HH:mm", { locale: ru })} • {payment.payment_method}
                     </p>
                   </div>
-                  <span className="text-emerald-400 font-semibold">
+                  <span className="text-status-success font-semibold">
                     +{payment.amount.toLocaleString()} {currency}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-muted-foreground text-center py-4">Платежей сегодня нет</p>
+            <p className="text-muted-foreground text-center py-4">{t('crmFinanceComponents.noTodayPayments')}</p>
           )}
         </CardContent>
       </Card>

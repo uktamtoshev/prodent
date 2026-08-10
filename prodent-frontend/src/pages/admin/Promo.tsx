@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function Promo() {
   const [isOpen, setIsOpen] = useState(false);
@@ -25,36 +26,46 @@ export default function Promo() {
   const [maxUses, setMaxUses] = useState('');
   const [description, setDescription] = useState('');
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
 
-  const { data: promoCodes, isLoading } = useQuery({
+  const { data: promoCodes, isLoading, error: listError } = useQuery({
     queryKey: ['promo-codes'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('promo_codes')
         .select('*')
         .order('created_at', { ascending: false });
+      if (error) throw error;
       return data;
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const discountValue = parseInt(discountPercent, 10);
+      if (!discountPercent.trim() || Number.isNaN(discountValue)) {
+        throw new Error(t('adminPromo.invalidDiscount'));
+      }
       const { error } = await supabase.from('promo_codes').insert({
         code: code.toUpperCase(),
-        discount_percent: parseInt(discountPercent),
-        max_uses: parseInt(maxUses),
+        discount_type: 'PERCENT',
+        discount_value: discountValue,
+        max_uses: maxUses ? parseInt(maxUses) : null,
         description,
       });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['promo-codes'] });
-      toast.success('Промокод создан');
+      toast.success(t('adminPromo.created'));
       setIsOpen(false);
       setCode('');
       setDiscountPercent('');
       setMaxUses('');
       setDescription('');
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : t('adminPromo.error'));
     },
   });
 
@@ -65,7 +76,10 @@ export default function Promo() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['promo-codes'] });
-      toast.success('Промокод удалён');
+      toast.success(t('adminPromo.deleted'));
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : t('adminPromo.error'));
     },
   });
 
@@ -74,61 +88,61 @@ export default function Promo() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">Промокоды и акции</h1>
-            <p className="text-slate-400 mt-2">Управление скидками и спецпредложениями</p>
+            <h1 className="text-3xl font-bold text-foreground">{t('adminPromo.title')}</h1>
+            <p className="text-muted-foreground mt-2">{t('adminPromo.subtitle')}</p>
           </div>
           <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2 bg-[#00C6BB] hover:bg-[#00C6BB]/90">
                 <Plus className="h-4 w-4" />
-                Создать промокод
+                {t('adminPromo.createBtn')}
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-slate-900 border-slate-800 text-white">
+            <DialogContent className="bg-card border-border text-foreground">
               <DialogHeader>
-                <DialogTitle>Новый промокод</DialogTitle>
+                <DialogTitle>{t('adminPromo.newDialogTitle')}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="code">Код</Label>
+                  <Label htmlFor="code">{t('adminPromo.labelCode')}</Label>
                   <Input
                     id="code"
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     placeholder="PRO2025"
-                    className="bg-slate-800 border-slate-700"
+                    className="bg-muted border-border"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="discount">Скидка %</Label>
+                  <Label htmlFor="discount">{t('adminPromo.labelDiscount')}</Label>
                   <Input
                     id="discount"
                     type="number"
                     value={discountPercent}
                     onChange={(e) => setDiscountPercent(e.target.value)}
                     placeholder="50"
-                    className="bg-slate-800 border-slate-700"
+                    className="bg-muted border-border"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="maxUses">Максимум использований</Label>
+                  <Label htmlFor="maxUses">{t('adminPromo.labelMaxUses')}</Label>
                   <Input
                     id="maxUses"
                     type="number"
                     value={maxUses}
                     onChange={(e) => setMaxUses(e.target.value)}
                     placeholder="100"
-                    className="bg-slate-800 border-slate-700"
+                    className="bg-muted border-border"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="description">Описание</Label>
+                  <Label htmlFor="description">{t('adminPromo.labelDescription')}</Label>
                   <Input
                     id="description"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Скидка 50% на год"
-                    className="bg-slate-800 border-slate-700"
+                    placeholder={t('adminPromo.placeholderDescription')}
+                    className="bg-muted border-border"
                   />
                 </div>
                 <Button
@@ -136,58 +150,68 @@ export default function Promo() {
                   disabled={createMutation.isPending}
                   className="w-full bg-[#00C6BB] hover:bg-[#00C6BB]/90"
                 >
-                  Создать
+                  {t('admin.create')}
                 </Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-lg">
+        <div className="bg-card border border-border rounded-lg">
           <Table>
             <TableHeader>
-              <TableRow className="border-slate-800 hover:bg-slate-800/50">
-                <TableHead className="text-slate-400">Код</TableHead>
-                <TableHead className="text-slate-400">Скидка</TableHead>
-                <TableHead className="text-slate-400">Использовано</TableHead>
-                <TableHead className="text-slate-400">Статус</TableHead>
-                <TableHead className="text-slate-400">Описание</TableHead>
-                <TableHead className="text-slate-400">Действия</TableHead>
+              <TableRow className="border-border hover:bg-accent/50">
+                <TableHead className="text-muted-foreground">{t('adminPromo.colCode')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminPromo.colDiscount')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminPromo.colUsed')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminPromo.colStatus')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminPromo.colDescription')}</TableHead>
+                <TableHead className="text-muted-foreground">{t('adminPromo.colActions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-slate-400">
-                    Загрузка...
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    {t('admin.loading')}
+                  </TableCell>
+                </TableRow>
+              ) : listError ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-red-400">
+                    {t('adminPromo.loadError') + (listError instanceof Error ? listError.message : '')}
                   </TableCell>
                 </TableRow>
               ) : promoCodes?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-slate-400">
-                    Промокоды не найдены
+                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                    {t('adminPromo.notFound')}
                   </TableCell>
                 </TableRow>
               ) : (
                 promoCodes?.map((promo) => (
-                  <TableRow key={promo.id} className="border-slate-800 hover:bg-slate-800/50">
-                    <TableCell className="text-white font-mono font-bold">{promo.code}</TableCell>
-                    <TableCell className="text-white">{promo.discount_percent}%</TableCell>
-                    <TableCell className="text-slate-300">
+                  <TableRow key={promo.id} className="border-border hover:bg-accent/50">
+                    <TableCell className="text-foreground font-mono font-bold">{promo.code}</TableCell>
+                    <TableCell className="text-foreground">{promo.discount_value}%</TableCell>
+                    <TableCell className="text-muted-foreground">
                       {promo.current_uses} / {promo.max_uses || '∞'}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={promo.active ? 'default' : 'secondary'}>
-                        {promo.active ? 'Активен' : 'Неактивен'}
+                      <Badge variant={promo.is_active ? 'default' : 'secondary'}>
+                        {promo.is_active ? t('adminPromo.statusActive') : t('adminPromo.statusInactive')}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-slate-300">{promo.description || 'N/A'}</TableCell>
+                    <TableCell className="text-muted-foreground">{promo.description || 'N/A'}</TableCell>
                     <TableCell>
                       <Button
                         size="sm"
                         variant="ghost"
                         className="text-red-400 hover:text-red-300"
-                        onClick={() => deleteMutation.mutate(promo.id)}
+                        onClick={() => {
+                          if (window.confirm(t('adminPromo.confirmDelete'))) {
+                            deleteMutation.mutate(promo.id);
+                          }
+                        }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

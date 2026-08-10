@@ -20,6 +20,13 @@ import { cn } from "@/lib/utils";
 
 type FormulaType = 'child' | 'adult' | 'mixed';
 type ToothStatus = 'healthy' | 'caries' | 'filling' | 'crown' | 'implant' | 'removed' | 'watch' | 'endo' | 'periodontitis';
+type ViewMode = 'planning' | 'history';
+
+const isViewMode = (value: string): value is ViewMode =>
+  value === 'planning' || value === 'history';
+
+const isToothStatus = (value: unknown): value is ToothStatus =>
+  typeof value === 'string' && value in STATUS_CONFIG;
 
 const STATUS_CONFIG: Record<ToothStatus, { gradient: string; label: string; ring?: string }> = {
   healthy: { gradient: 'from-[#E8E0F0] via-[#D8D0E8] to-[#C8C0D8]', label: 'Здоровый' },
@@ -281,7 +288,7 @@ export function BeautifulDentalChart({ patientId, birthDate }: BeautifulDentalCh
 
   const [formulaType, setFormulaType] = useState<FormulaType>('adult');
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<'planning' | 'history'>('planning');
+  const [viewMode, setViewMode] = useState<ViewMode>('planning');
 
   const { data: teethData, isLoading } = useQuery({
     queryKey: ['teeth-beautiful', effectivePatientId],
@@ -297,23 +304,31 @@ export function BeautifulDentalChart({ patientId, birthDate }: BeautifulDentalCh
   });
 
   const teethMap = useMemo(() => {
-    const map = new Map<number, any>();
+    type ToothRow = NonNullable<typeof teethData>[number];
+    type ToothWithDoctor = ToothRow & { doctor_name?: string | null };
+    const map = new Map<number, ToothWithDoctor>();
     teethData?.forEach(t => map.set(t.tooth_number, { ...t, doctor_name: t.doctors?.profiles?.full_name }));
     return map;
   }, [teethData]);
 
-  const getStatus = (n: number): ToothStatus => teethMap.get(n)?.status || 'healthy';
+  const getStatus = (n: number): ToothStatus => {
+    const status = teethMap.get(n)?.status;
+    return isToothStatus(status) ? status : 'healthy';
+  };
 
-  const getToothData = (n: number) => ({
-    tooth_number: n,
-    status: teethMap.get(n)?.status || 'healthy',
-    notes: teethMap.get(n)?.notes,
-    images: teethMap.get(n)?.images,
-    materials: teethMap.get(n)?.materials,
-    recommendations: teethMap.get(n)?.recommendations,
-    doctor_name: teethMap.get(n)?.doctor_name,
-    updated_at: teethMap.get(n)?.updated_at,
-  });
+  const getToothData = (n: number) => {
+    const tooth = teethMap.get(n);
+    return {
+      tooth_number: n,
+      status: isToothStatus(tooth?.status) ? tooth.status : 'healthy',
+      notes: tooth?.notes,
+      images: tooth?.images,
+      materials: tooth?.materials,
+      recommendations: tooth?.recommendations,
+      doctor_name: tooth?.doctor_name,
+      updated_at: tooth?.updated_at,
+    };
+  };
 
   const problemCount = useMemo(() => 
     teethData?.filter(t => !['healthy', 'filling', 'crown', 'implant'].includes(t.status)).length || 0
@@ -359,7 +374,12 @@ export function BeautifulDentalChart({ patientId, birthDate }: BeautifulDentalCh
           )}
         </div>
         
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => {
+            if (isViewMode(value)) setViewMode(value);
+          }}
+        >
           <TabsList className="h-8 bg-muted/40">
             <TabsTrigger value="planning" className="text-xs h-7 px-3">Planning</TabsTrigger>
             <TabsTrigger value="history" className="text-xs h-7 px-3">History</TabsTrigger>

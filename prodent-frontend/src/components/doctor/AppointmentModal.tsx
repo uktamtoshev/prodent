@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { format, addDays, setHours, setMinutes } from "date-fns";
 import { ru } from "date-fns/locale";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { createAppointment } from "@/lib/appointment-api";
 import {
   Dialog,
   DialogContent,
@@ -15,11 +17,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CalendarIcon, Clock, CreditCard } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { cn, formatPriceFrom } from "@/lib/utils";
-import { useCreateAppointmentAccess } from "@/hooks/useMedicalAccess";
 
 interface Doctor {
   id: string;
@@ -41,18 +41,6 @@ interface AppointmentModalProps {
   doctor: Doctor;
 }
 
-const services = [
-  "Консультация",
-  "Лечение кариеса",
-  "Чистка зубов",
-  "Отбеливание",
-  "Установка брекетов",
-  "Имплантация",
-  "Протезирование",
-  "Удаление зуба",
-  "Лечение десен",
-];
-
 const timeSlots = [
   "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
   "12:00", "12:30", "14:00", "14:30", "15:00", "15:30",
@@ -60,6 +48,18 @@ const timeSlots = [
 ];
 
 const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps) => {
+  const { t } = useLanguage();
+  const services = useMemo(() => [
+    t('doctorAppointmentModal.svcConsultation'),
+    t('doctorAppointmentModal.svcCariesTreatment'),
+    t('doctorAppointmentModal.svcCleaning'),
+    t('doctorAppointmentModal.svcWhitening'),
+    t('doctorAppointmentModal.svcBraces'),
+    t('doctorAppointmentModal.svcImplantation'),
+    t('doctorAppointmentModal.svcProsthetics'),
+    t('doctorAppointmentModal.svcExtraction'),
+    t('doctorAppointmentModal.svcGumTreatment'),
+  ], [t]);
   const { user } = useAuth();
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -69,13 +69,12 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
   const [time, setTime] = useState("");
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const createAppointmentAccess = useCreateAppointmentAccess();
 
   const handleSubmit = async () => {
     if (!user || !date || !time || !service) {
       toast({
-        title: "Заполните все поля",
-        description: "Выберите услугу, дату и время приема",
+        title: t('doctorAppointmentModal.fillAllFields'),
+        description: t('doctorAppointmentModal.selectServiceDateTime'),
         variant: "destructive",
       });
       return;
@@ -88,47 +87,28 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
       const [hours, minutes] = time.split(":").map(Number);
       const appointmentDate = setMinutes(setHours(date, hours), minutes);
 
-      const { error } = await supabase.from("appointments").insert({
-        patient_id: user.id,
-        doctor_id: doctor.id,
-        clinic_id: null, // Will be set if doctor has clinic
-        appointment_date: appointmentDate.toISOString(),
-        service,
-        notes: notes.trim() || null,
-        price: doctor.price_from,
-        status: "pending",
+      await createAppointment({
+        patientId: user.id,
+        doctorId: doctor.id,
+        clinicId: doctor.clinic?.id || undefined,
+        serviceName: service,
+        appointmentDate: format(appointmentDate, "yyyy-MM-dd"),
+        startTime: time,
+        notes: notes.trim() || undefined,
       });
 
-      if (error) throw error;
-
-      // Create auto medical access for appointment (1 hour default duration)
-      const appointmentEnd = new Date(appointmentDate.getTime() + 60 * 60 * 1000);
-      
-      try {
-        await createAppointmentAccess.mutateAsync({
-          patientId: user.id,
-          doctorId: doctor.id,
-          clinicId: doctor.clinic?.id || undefined,
-          appointmentStart: appointmentDate,
-          appointmentEnd: appointmentEnd
-        });
-      } catch (accessError) {
-        console.error("Error creating medical access:", accessError);
-        // Don't fail the whole booking if access creation fails
-      }
-
       toast({
-        title: "Запись успешна!",
-        description: `Вы записаны на ${format(appointmentDate, "d MMMM в HH:mm", { locale: ru })}`,
+        title: t('doctorAppointmentModal.bookingSuccess'),
+        description: `${t('doctorAppointmentModal.bookedFor')} ${format(appointmentDate, "d MMMM", { locale: ru })} ${t('doctorAppointmentModal.atTime')} ${format(appointmentDate, "HH:mm")}`,
       });
 
       onOpenChange(false);
       resetForm();
       navigate("/appointments");
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
-        title: "Ошибка записи",
-        description: error.message,
+        title: t('doctorAppointmentModal.bookingError'),
+        description: error instanceof Error ? error.message : t('doctorAppointmentModal.bookingError'),
         variant: "destructive",
       });
     } finally {
@@ -152,7 +132,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-2xl">Запись к врачу</DialogTitle>
+          <DialogTitle className="text-2xl">{t('doctorAppointmentModal.bookTitle')}</DialogTitle>
           <DialogDescription>
             {doctor.profile?.full_name} • {doctor.specialty}
           </DialogDescription>
@@ -188,10 +168,10 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <Label>Выберите услугу</Label>
+              <Label>{t('doctorAppointmentModal.selectService')}</Label>
               <Select value={service} onValueChange={setService}>
                 <SelectTrigger className="mt-2">
-                  <SelectValue placeholder="Выберите услугу" />
+                  <SelectValue placeholder={t('doctorAppointmentModal.selectService')} />
                 </SelectTrigger>
                 <SelectContent>
                   {services.map((s) => (
@@ -206,7 +186,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
             <div className="flex items-center gap-2 p-4 bg-secondary rounded-lg">
               <CreditCard className="w-5 h-5 text-primary" />
               <div>
-                <p className="text-sm font-medium">Стоимость приема</p>
+                <p className="text-sm font-medium">{t('doctorAppointmentModal.visitCost')}</p>
                 <p className="text-lg font-bold text-primary">
                   {formatPriceFrom(doctor.price_from)}
                 </p>
@@ -219,7 +199,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
               disabled={!canProceedToStep2}
               onClick={() => setStep(2)}
             >
-              Выбрать дату и время
+              {t('doctorAppointmentModal.pickDateTime')}
             </Button>
           </div>
         )}
@@ -230,7 +210,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
             <div>
               <Label className="flex items-center gap-2 mb-2">
                 <CalendarIcon className="w-4 h-4" />
-                Выберите дату
+                {t('doctorAppointmentModal.pickDate')}
               </Label>
               <Calendar
                 mode="single"
@@ -247,7 +227,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
               <div>
                 <Label className="flex items-center gap-2 mb-2">
                   <Clock className="w-4 h-4" />
-                  Выберите время
+                  {t('doctorAppointmentModal.pickTime')}
                 </Label>
                 <div className="grid grid-cols-4 gap-2">
                   {timeSlots.map((slot) => (
@@ -267,7 +247,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
 
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setStep(1)} className="flex-1">
-                Назад
+                {t('doctorAppointmentModal.back')}
               </Button>
               <Button
                 variant="hero"
@@ -275,7 +255,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
                 onClick={() => setStep(3)}
                 className="flex-1"
               >
-                Продолжить
+                {t('doctorAppointmentModal.continue')}
               </Button>
             </div>
           </div>
@@ -286,34 +266,34 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
           <div className="space-y-4">
             <div className="p-4 bg-secondary rounded-lg space-y-3">
               <div>
-                <p className="text-sm text-muted-foreground">Врач</p>
+                <p className="text-sm text-muted-foreground">{t('doctorAppointmentModal.doctorLabel')}</p>
                 <p className="font-semibold">{doctor.profile?.full_name}</p>
                 <p className="text-sm text-primary">{doctor.specialty}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Услуга</p>
+                <p className="text-sm text-muted-foreground">{t('doctorAppointmentModal.serviceLabel')}</p>
                 <p className="font-semibold">{service}</p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Дата и время</p>
+                <p className="text-sm text-muted-foreground">{t('doctorAppointmentModal.dateTimeLabel')}</p>
                 <p className="font-semibold">
-                  {date && format(date, "d MMMM yyyy", { locale: ru })} в {time}
+                  {date && format(date, "d MMMM yyyy", { locale: ru })} {t('doctorAppointmentModal.atTime')} {time}
                 </p>
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Стоимость</p>
+                <p className="text-sm text-muted-foreground">{t('doctorAppointmentModal.costLabel')}</p>
                 <p className="text-lg font-bold text-primary">
-                  от {doctor.price_from.toLocaleString()} сум
+                  {t('doctorAppointmentModal.fromPriceSum')} {doctor.price_from.toLocaleString()} {t('doctorAppointmentModal.sumSuffix')}
                 </p>
               </div>
             </div>
 
             <div>
-              <Label>Дополнительные пожелания (необязательно)</Label>
-              <Textarea
+              <Label htmlFor="appointment-modal-field-1">{t('doctorAppointmentModal.additionalWishes')}</Label>
+              <Textarea id="appointment-modal-field-1"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Опишите ваши симптомы или пожелания..."
+                placeholder={t('doctorAppointmentModal.wishesPh')}
                 rows={3}
                 className="mt-2"
               />
@@ -321,7 +301,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
 
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => setStep(2)} className="flex-1">
-                Назад
+                {t('doctorAppointmentModal.back')}
               </Button>
               <Button
                 variant="hero"
@@ -329,7 +309,7 @@ const AppointmentModal = ({ open, onOpenChange, doctor }: AppointmentModalProps)
                 onClick={handleSubmit}
                 className="flex-1"
               >
-                {isSubmitting ? "Запись..." : "Подтвердить запись"}
+                {isSubmitting ? t('doctorAppointmentModal.booking') : t('doctorAppointmentModal.confirmBooking')}
               </Button>
             </div>
           </div>

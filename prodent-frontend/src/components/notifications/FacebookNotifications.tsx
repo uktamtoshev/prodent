@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Check, CheckCheck, Clock, Calendar, CreditCard, FlaskConical, Package, X, MessageCircle, UserPlus, Star, Heart, MoreHorizontal, Settings } from "lucide-react";
+import { Bell, Check, CheckCheck, Clock, Calendar, CreditCard, FlaskConical, Package, X, MessageCircle, UserPlus, Star, Heart, MoreHorizontal, Settings, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -20,8 +19,9 @@ import { useNotifications, Notification } from "@/hooks/useNotifications";
 import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
-const typeIcons: Record<string, any> = {
+const typeIcons: Record<string, LucideIcon> = {
   appointment_new: Calendar,
   appointment_rescheduled: Calendar,
   appointment_cancelled: X,
@@ -60,6 +60,7 @@ interface FacebookNotificationsProps {
 }
 
 export function FacebookNotifications({ notificationsPath = "/crm/notifications" }: FacebookNotificationsProps) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const [open, setOpen] = useState(false);
@@ -68,7 +69,7 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
     if (!notification.read) {
       markAsRead(notification.id);
     }
-    
+
     // Navigate based on notification metadata
     if (notification.metadata?.link) {
       navigate(notification.metadata.link);
@@ -84,9 +85,9 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          variant="ghost"
+          size="icon"
           className="relative h-10 w-10 rounded-full bg-muted/50 hover:bg-muted"
         >
           <Bell className="w-5 h-5" />
@@ -100,17 +101,17 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
       <PopoverContent className="w-[380px] p-0 shadow-2xl" align="end" sideOffset={8}>
         {/* Facebook-style header */}
         <div className="flex items-center justify-between px-4 py-3">
-          <h4 className="text-xl font-bold text-foreground">Уведомления</h4>
+          <h4 className="text-xl font-bold text-foreground">{t('notifsCenter.title')}</h4>
           <div className="flex items-center gap-1">
             {unreadCount > 0 && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={markAllAsRead} 
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={markAllAsRead}
                 className="text-sm h-8 text-primary hover:bg-primary/10"
               >
                 <CheckCheck className="w-4 h-4 mr-1" />
-                Прочитать все
+                {t('notifsCenter.readAll')}
               </Button>
             )}
             <DropdownMenu>
@@ -122,42 +123,42 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleViewAll}>
                   <Settings className="w-4 h-4 mr-2" />
-                  Все уведомления
+                  {t('notifsCenter.allNotifsBtn')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
-        
+
         {/* Filter tabs */}
         <div className="flex px-4 gap-2 pb-2">
-          <Button 
-            variant="secondary" 
-            size="sm" 
+          <Button
+            variant="secondary"
+            size="sm"
             className="rounded-full h-8 px-4 text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20"
           >
-            Все
+            {t('notifsCenter.filterAll')}
           </Button>
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             className="rounded-full h-8 px-4 text-sm font-medium"
           >
-            Непрочитанные
+            {t('notifsCenter.unreadFilter')}
           </Button>
         </div>
-        
+
         <ScrollArea className="h-[420px]">
           {notifications.length > 0 ? (
             <div className="py-2">
               {/* Earlier / New sections could be added here */}
               <div className="px-4 py-2">
-                <span className="text-sm font-semibold text-foreground">Новые</span>
+                <span className="text-sm font-semibold text-foreground">{t('notifsCenter.newSection')}</span>
               </div>
               {notifications.map((notification) => {
                 const Icon = typeIcons[notification.type] || Bell;
                 const colors = typeColors[notification.type] || typeColors.general;
-                
+
                 return (
                   <div
                     key={notification.id}
@@ -183,7 +184,7 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
                         <Icon className={cn("w-3.5 h-3.5", colors.icon)} />
                       </div>
                     </div>
-                    
+
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <p className={cn(
@@ -198,13 +199,13 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
                         "text-xs mt-1",
                         !notification.read ? "text-primary font-medium" : "text-muted-foreground"
                       )}>
-                        {formatDistanceToNow(new Date(notification.created_at), { 
-                          addSuffix: true, 
-                          locale: ru 
+                        {formatDistanceToNow(new Date(notification.created_at), {
+                          addSuffix: true,
+                          locale: ru
                         })}
                       </p>
                     </div>
-                    
+
                     {/* Unread indicator */}
                     {!notification.read && (
                       <div className="flex items-center shrink-0">
@@ -220,21 +221,21 @@ export function FacebookNotifications({ notificationsPath = "/crm/notifications"
               <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-4">
                 <Bell className="w-10 h-10 opacity-50" />
               </div>
-              <p className="text-base font-medium text-foreground">Нет уведомлений</p>
-              <p className="text-sm text-muted-foreground mt-1">Когда появятся новые события, вы увидите их здесь</p>
+              <p className="text-base font-medium text-foreground">{t('notifsCenter.noNotifs')}</p>
+              <p className="text-sm text-muted-foreground mt-1">{t('notifsCenter.newEventsHere')}</p>
             </div>
           )}
         </ScrollArea>
-        
+
         {/* Footer */}
         {notifications.length > 0 && (
           <div className="border-t border-border p-2">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               className="w-full text-primary hover:bg-primary/10 font-medium"
               onClick={handleViewAll}
             >
-              Посмотреть все
+              {t('notifsCenter.viewAll')}
             </Button>
           </div>
         )}

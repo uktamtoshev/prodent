@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useClinic } from '@/contexts/ClinicContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,16 +11,16 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { Plus, Trash2, Edit, DoorOpen } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
-
-interface Room {
-  id: string;
-  name: string;
-  description: string | null;
-  is_active: boolean;
-  equipment: string[];
-}
+import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  fetchClinicSetting,
+  readClinicRooms,
+  saveClinicSetting,
+  type ClinicRoom as Room,
+} from '@/lib/clinic-settings';
 
 export function RoomsManager() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -32,80 +31,38 @@ export function RoomsManager() {
     equipment: '',
   });
 
-  const { data: rooms, isLoading } = useQuery({
-    queryKey: ['clinic-rooms', currentClinic?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id) return [];
-      
-      // Use raw query since table might not be in types yet
-      const { data, error } = await supabase
-        .rpc('get_clinic_rooms' as never, { p_clinic_id: currentClinic.id } as never);
-
-      // Fallback to direct query
-      if (error) {
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('clinic_settings')
-          .select('value')
-          .eq('clinic_id', currentClinic.id)
-          .eq('key', 'rooms')
-          .single();
-        
-        if (fallbackError && fallbackError.code !== 'PGRST116') throw fallbackError;
-        return ((fallbackData?.value as unknown) as Room[]) || [];
-      }
-      return (data as unknown as Room[]) || [];
-    },
-    enabled: !!currentClinic?.id,
-  });
-
   const [localRooms, setLocalRooms] = useState<Room[]>([]);
 
-  // Initialize local rooms from settings
-  const { data: roomsSettings } = useQuery({
+  const { data: roomsSettings = [], isLoading } = useQuery({
     queryKey: ['clinic-rooms-settings', currentClinic?.id],
     queryFn: async () => {
-      if (!currentClinic?.id) return null;
-      
-      const { data, error } = await supabase
-        .from('clinic_settings')
-        .select('*')
-        .eq('clinic_id', currentClinic.id)
-        .eq('key', 'rooms')
-        .single();
-
-      if (error && error.code !== 'PGRST116') throw error;
-      if (data?.value) {
-        setLocalRooms((data.value as unknown as Room[]) || []);
-      }
-      return data;
+      if (!currentClinic?.id) return [];
+      return readClinicRooms(await fetchClinicSetting(currentClinic.id, 'rooms'));
     },
     enabled: !!currentClinic?.id,
   });
+
+  useEffect(() => {
+    setLocalRooms(roomsSettings);
+  }, [roomsSettings]);
 
   const saveMutation = useMutation({
     mutationFn: async (updatedRooms: Room[]) => {
       if (!currentClinic?.id) throw new Error('No clinic');
 
-      const { error } = await supabase
-        .from('clinic_settings')
-        .upsert([{
-          clinic_id: currentClinic.id,
-          key: 'rooms',
-          value: updatedRooms as unknown as Json,
-          description: 'Кабинеты клиники',
-        }], {
-          onConflict: 'clinic_id,key',
-        });
-
-      if (error) throw error;
+      await saveClinicSetting(
+        currentClinic.id,
+        'rooms',
+        updatedRooms as unknown as Json,
+      );
       setLocalRooms(updatedRooms);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clinic-rooms-settings'] });
-      toast.success('Сохранено');
+      toast.success(t('crmRoomsManager.roomUpdated'));
     },
     onError: () => {
-      toast.error('Ошибка при сохранении');
+      toast.error(t('crmRoomsManager.saveError'));
     },
   });
 
@@ -166,50 +123,50 @@ export function RoomsManager() {
 
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle>Кабинеты</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
+        <CardTitle>{t('crmRoomsManager.title')}</CardTitle>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" onClick={() => { setEditingRoom(null); setFormData({ name: '', description: '', equipment: '' }); }}>
               <Plus className="w-4 h-4 mr-2" />
-              Добавить
+              {t('crmRoomsManager.addRoom')}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingRoom ? 'Редактировать кабинет' : 'Новый кабинет'}</DialogTitle>
+              <DialogTitle>{editingRoom ? t('crmRoomsManager.editRoom') : t('crmRoomsManager.newRoom')}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>
-                <label className="text-sm text-muted-foreground">Название *</label>
+                <label className="text-sm text-muted-foreground">{t('crmRoomsManager.roomName')}</label>
                 <Input
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Кабинет №1"
+                  placeholder="№1"
                 />
               </div>
               <div>
-                <label className="text-sm text-muted-foreground">Описание</label>
+                <label className="text-sm text-muted-foreground">{t('crmServicesMgr.descriptionLabel')}</label>
                 <Textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Описание кабинета"
+                  placeholder=""
                 />
               </div>
               <div>
-                <label className="text-sm text-muted-foreground">Оборудование (через запятую)</label>
+                <label className="text-sm text-muted-foreground">{t('crmRoomsManager.equipment')}</label>
                 <Input
                   value={formData.equipment}
                   onChange={(e) => setFormData({ ...formData, equipment: e.target.value })}
-                  placeholder="Стоматологическое кресло, Рентген, ..."
+                  placeholder={t('crmRoomsManager.equipmentPlaceholder')}
                 />
               </div>
-              <Button 
-                className="w-full" 
+              <Button
+                className="w-full"
                 onClick={handleSave}
                 disabled={!formData.name || saveMutation.isPending}
               >
-                {editingRoom ? 'Сохранить' : 'Добавить'}
+                {editingRoom ? t('crmRoomsManager.saveBtn') : t('crmRoomsManager.addBtn')}
               </Button>
             </div>
           </DialogContent>
@@ -217,14 +174,14 @@ export function RoomsManager() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="text-center py-8 text-muted-foreground">Загрузка...</div>
+          <div className="text-center py-8 text-muted-foreground">{t('crmServicesMgr.loading')}</div>
         ) : localRooms.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">Нет кабинетов</div>
+          <div className="text-center py-8 text-muted-foreground">{t('crmRoomsManager.noRooms')}</div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {localRooms.map((room) => (
               <Card key={room.id} className={`border ${room.is_active ? 'border-border' : 'border-destructive/30 bg-destructive/5'}`}>
-                <CardContent className="p-4">
+                <CardContent className="p-card-x">
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <DoorOpen className="w-5 h-5 text-primary" />
@@ -253,7 +210,7 @@ export function RoomsManager() {
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        if (confirm('Удалить кабинет?')) {
+                        if (confirm(t('crmRoomsManager.confirmDelete'))) {
                           handleDelete(room.id);
                         }
                       }}

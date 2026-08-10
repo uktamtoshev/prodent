@@ -4,12 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
-interface ClinicApplication {
+export interface ClinicApplication {
   id: string;
   name: string;
   description: string | null;
@@ -29,13 +31,16 @@ interface EditClinicApplicationDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function EditClinicApplicationDialog({ 
-  application, 
-  open, 
-  onOpenChange 
+export function EditClinicApplicationDialog({
+  application,
+  open,
+  onOpenChange
 }: EditClinicApplicationDialogProps) {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [formData, setFormData] = useState<ClinicApplication | null>(null);
+  const [regions, setRegions] = useState<{ id: string; name: string }[]>([]);
+  const [districts, setDistricts] = useState<{ id: string; name: string }[]>([]);
 
   // Initialize form data when application changes or dialog opens
   useEffect(() => {
@@ -43,6 +48,34 @@ export function EditClinicApplicationDialog({
       setFormData({ ...application });
     }
   }, [open, application]);
+
+  // Load regions (Uzbekistan) for the City select when the dialog opens
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      const { data: countries } = await supabase
+        .from("countries").select("id").eq("code", "UZ").limit(1);
+      const uzId = countries?.[0]?.id;
+      if (!uzId) return;
+      const { data } = await supabase
+        .from("regions").select("id, name")
+        .eq("country_id", uzId).eq("is_active", true).order("sort_order");
+      setRegions(data || []);
+    })();
+  }, [open]);
+
+  // Load districts whenever the selected city (region name) changes
+  useEffect(() => {
+    const regionName = formData?.city;
+    const region = regions.find((r) => r.name === regionName);
+    if (!region) { setDistricts([]); return; }
+    (async () => {
+      const { data } = await supabase
+        .from("districts").select("id, name")
+        .eq("region_id", region.id).eq("is_active", true).order("sort_order");
+      setDistricts(data || []);
+    })();
+  }, [formData?.city, regions]);
 
   const updateMutation = useMutation({
     mutationFn: async (data: ClinicApplication) => {
@@ -65,12 +98,12 @@ export function EditClinicApplicationDialog({
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Заявка обновлена");
+      toast.success(t("adminEditClinicApp.updated"));
       queryClient.invalidateQueries({ queryKey: ["clinic-applications"] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast.error("Ошибка обновления", { description: error.message });
+    onError: (error: unknown) => {
+      toast.error(t("adminEditClinicApp.updateError"), { description: error instanceof Error ? error.message : t("adminEditClinicApp.updateError") });
     },
   });
 
@@ -85,12 +118,12 @@ export function EditClinicApplicationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Редактировать заявку клиники</DialogTitle>
+          <DialogTitle>{t("adminEditClinicApp.title")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Название клиники</Label>
+              <Label htmlFor="name">{t("adminEditClinicApp.labelName")}</Label>
               <Input
                 id="name"
                 value={formData.name}
@@ -99,7 +132,7 @@ export function EditClinicApplicationDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="director_name">Директор</Label>
+              <Label htmlFor="director_name">{t("adminEditClinicApp.labelDirector")}</Label>
               <Input
                 id="director_name"
                 value={formData.director_name}
@@ -111,26 +144,42 @@ export function EditClinicApplicationDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="city">Город</Label>
-              <Input
-                id="city"
+              <Label htmlFor="city">{t("adminEditClinicApp.labelCity")}</Label>
+              <Select
                 value={formData.city}
-                onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                required
-              />
+                onValueChange={(v) => setFormData({ ...formData, city: v, district: "" })}
+              >
+                <SelectTrigger id="city">
+                  <SelectValue placeholder={t("auth.selectRegion")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {regions.map((r) => (
+                    <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="district">Район</Label>
-              <Input
-                id="district"
+              <Label htmlFor="district">{t("adminEditClinicApp.labelDistrict")}</Label>
+              <Select
                 value={formData.district || ""}
-                onChange={(e) => setFormData({ ...formData, district: e.target.value })}
-              />
+                onValueChange={(v) => setFormData({ ...formData, district: v })}
+                disabled={!formData.city || districts.length === 0}
+              >
+                <SelectTrigger id="district">
+                  <SelectValue placeholder={districts.length === 0 ? t("auth.noDistricts") : t("auth.selectDistrict")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {districts.map((d) => (
+                    <SelectItem key={d.id} value={d.name}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="address">Адрес</Label>
+            <Label htmlFor="address">{t("adminEditClinicApp.labelAddress")}</Label>
             <Input
               id="address"
               value={formData.address}
@@ -141,29 +190,29 @@ export function EditClinicApplicationDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("adminEditClinicApp.labelEmail")}</Label>
               <Input
                 id="email"
                 type="email"
-                value={formData.email}
+                value={formData.email || ""}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Телефон</Label>
+              <Label htmlFor="phone">{t("adminEditClinicApp.labelPhone")}</Label>
               <Input
                 id="phone"
                 value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                required
+                readOnly
+                disabled
+                className="cursor-not-allowed opacity-70"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="license_number">Номер лицензии</Label>
+              <Label htmlFor="license_number">{t("adminEditClinicApp.labelLicense")}</Label>
               <Input
                 id="license_number"
                 value={formData.license_number}
@@ -172,7 +221,7 @@ export function EditClinicApplicationDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="website">Веб-сайт</Label>
+              <Label htmlFor="website">{t("adminEditClinicApp.labelWebsite")}</Label>
               <Input
                 id="website"
                 value={formData.website || ""}
@@ -182,7 +231,7 @@ export function EditClinicApplicationDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="description">Описание</Label>
+            <Label htmlFor="description">{t("adminEditClinicApp.labelDescription")}</Label>
             <Textarea
               id="description"
               value={formData.description || ""}
@@ -193,11 +242,11 @@ export function EditClinicApplicationDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Отмена
+              {t("admin.cancel")}
             </Button>
             <Button type="submit" disabled={updateMutation.isPending}>
               {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Сохранить
+              {t("admin.save")}
             </Button>
           </DialogFooter>
         </form>

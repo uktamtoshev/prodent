@@ -19,8 +19,23 @@ import {
   DollarSign,
 } from "lucide-react";
 import { useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+type ProfileSummary = { full_name: string | null; avatar_url?: string | null };
+type DoctorProfile = ProfileSummary | ProfileSummary[] | null;
+type AppointmentDoctor =
+  | { salary_percent: number | null; profiles: DoctorProfile }
+  | { salary_percent: number | null; profiles: DoctorProfile }[]
+  | null;
+
+const getProfileName = (profile: DoctorProfile | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const getAppointmentDoctor = (doctor: AppointmentDoctor) =>
+  Array.isArray(doctor) ? doctor[0] ?? null : doctor;
 
 export function DetailedDoctorReport() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>("all");
@@ -64,7 +79,7 @@ export function DetailedDoctorReport() {
           doctor_id,
           patient_id,
           service,
-          price,
+          total_price,
           appointment_date,
           status,
           doctor:doctors(id, salary_percent, profiles:user_id(full_name))
@@ -103,9 +118,9 @@ export function DetailedDoctorReport() {
       let totalClinicProfit = 0;
 
       appointments?.forEach((apt) => {
-        const doctor = apt.doctor as any;
+        const doctor = getAppointmentDoctor(apt.doctor);
         const percent = doctor?.salary_percent || 30;
-        const price = apt.price || 0;
+        const price = apt.total_price || 0;
         const doctorShare = Math.round(price * (percent / 100));
         const clinicProfit = price - doctorShare;
 
@@ -133,7 +148,7 @@ export function DetailedDoctorReport() {
         if (!doctorMap[doctorId]) {
           doctorMap[doctorId] = {
             doctorId,
-            name: doctor?.profiles?.full_name || "Врач",
+            name: getProfileName(doctor?.profiles) || t('crmFinanceComponents.doctor'),
             avatar: null,
             percent,
             appointments: 0,
@@ -199,13 +214,13 @@ export function DetailedDoctorReport() {
 
         <Select value={selectedDoctorId} onValueChange={setSelectedDoctorId}>
           <SelectTrigger className="w-[200px] bg-background border-border">
-            <SelectValue placeholder="Все врачи" />
+            <SelectValue placeholder={t('crmFinanceComponents.allDoctors')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Все врачи</SelectItem>
+            <SelectItem value="all">{t('crmFinanceComponents.allDoctors')}</SelectItem>
             {staffDoctors?.map((doctor) => (
               <SelectItem key={doctor.id} value={doctor.id}>
-                {(doctor.profiles as any)?.full_name || "Врач"}
+                {getProfileName(doctor.profiles) || t('crmFinanceComponents.doctor')}
               </SelectItem>
             ))}
           </SelectContent>
@@ -215,47 +230,39 @@ export function DetailedDoctorReport() {
       {/* Summary Cards */}
       {totals && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="bg-gradient-to-br from-primary/10 to-primary/5 border-primary/20">
-            <CardContent className="pt-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+              <TrendingUp className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.totalRevenue')}</p>
+              <p className="text-2xl font-bold text-foreground">{totals.revenue.toLocaleString()} UZS</p>
+            </div>
+          </div>
+
+          <Card className="bg-gradient-to-br from-status-info/10 to-status-info/5 border-status-info/20">
+            <CardContent className="px-card-x pb-card-x pt-0">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
-                  <TrendingUp className="w-6 h-6 text-primary" />
+                <div className="w-12 h-12 rounded-xl bg-status-info/20 flex items-center justify-center">
+                  <Users className="w-6 h-6 text-status-info" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Общая выручка</p>
-                  <p className="text-2xl font-bold text-foreground">{totals.revenue.toLocaleString()} UZS</p>
+                  <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.doctorsIncome')}</p>
+                  <p className="text-2xl font-bold text-status-info">{totals.doctorShare.toLocaleString()} UZS</p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border-amber-500/20">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
-                  <Users className="w-6 h-6 text-amber-500" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Доход врачей</p>
-                  <p className="text-2xl font-bold text-amber-400">{totals.doctorShare.toLocaleString()} UZS</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border-emerald-500/20">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/20 flex items-center justify-center">
-                  <Building2 className="w-6 h-6 text-emerald-500" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Доход клиники</p>
-                  <p className="text-2xl font-bold text-emerald-400">{totals.clinicProfit.toLocaleString()} UZS</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+              <Building2 className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.clinicIncome')}</p>
+              <p className="text-2xl font-bold text-primary">{totals.clinicProfit.toLocaleString()} UZS</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -264,11 +271,11 @@ export function DetailedDoctorReport() {
         <TabsList>
           <TabsTrigger value="by-doctor" className="gap-2">
             <Users className="w-4 h-4" />
-            По врачам
+            {t('crmFinanceComponents.byDoctors')}
           </TabsTrigger>
           <TabsTrigger value="by-service" className="gap-2">
             <FileText className="w-4 h-4" />
-            По услугам
+            {t('crmFinanceComponents.byServices')}
           </TabsTrigger>
         </TabsList>
 
@@ -276,7 +283,7 @@ export function DetailedDoctorReport() {
         <TabsContent value="by-doctor" className="space-y-4">
           {byDoctor.map((doctor) => (
             <Card key={doctor.doctorId} className="bg-card/80 border-border/50">
-              <CardHeader className="pb-3">
+              <CardHeader className="border-b border-border/50 px-card-x py-card-y">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-10 w-10">
@@ -286,30 +293,30 @@ export function DetailedDoctorReport() {
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <CardTitle className="text-lg">{doctor.name}</CardTitle>
+                      <CardTitle className="text-base font-bold">{doctor.name}</CardTitle>
                       <p className="text-sm text-muted-foreground">
-                        {doctor.appointments} приёмов • Ставка {doctor.percent}%
+                        {doctor.appointments} {t('crmFinanceComponents.appointmentsLabel')} • {t('crmFinanceComponents.rate')} {doctor.percent}%
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-xl font-bold text-foreground">{doctor.revenue.toLocaleString()} UZS</p>
-                    <p className="text-sm text-muted-foreground">выручка</p>
+                    <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.revenueLow')}</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
                 {/* Doctor totals */}
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div className="p-3 bg-amber-500/10 rounded-lg">
-                    <p className="text-xs text-amber-400 mb-1">Доход врача</p>
-                    <p className="text-lg font-bold text-amber-400">
+                  <div className="p-3 bg-status-info/10 rounded-lg">
+                    <p className="text-xs text-status-info mb-1">{t('crmFinanceComponents.doctorIncome')}</p>
+                    <p className="text-lg font-bold text-status-info">
                       {doctor.doctorShare.toLocaleString()} UZS
                     </p>
                   </div>
-                  <div className="p-3 bg-emerald-500/10 rounded-lg">
-                    <p className="text-xs text-emerald-400 mb-1">Доход клиники</p>
-                    <p className="text-lg font-bold text-emerald-400">
+                  <div className="p-3 bg-primary/10 rounded-lg">
+                    <p className="text-xs text-primary mb-1">{t('crmFinanceComponents.clinicIncome')}</p>
+                    <p className="text-lg font-bold text-primary">
                       {doctor.clinicProfit.toLocaleString()} UZS
                     </p>
                   </div>
@@ -317,7 +324,7 @@ export function DetailedDoctorReport() {
 
                 {/* Services breakdown */}
                 <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">Детализация по услугам:</p>
+                  <p className="text-sm font-medium text-muted-foreground">{t('crmFinanceComponents.serviceBreakdown')}:</p>
                   {Object.entries(doctor.services).map(([service, data]) => {
                     const serviceData = data as { count: number; revenue: number; doctorShare: number };
                     return (
@@ -334,7 +341,7 @@ export function DetailedDoctorReport() {
                         <div className="flex items-center gap-4">
                           <span className="text-muted-foreground">{serviceData.revenue.toLocaleString()}</span>
                           <ArrowRight className="w-3 h-3 text-muted-foreground" />
-                          <span className="text-amber-400">{serviceData.doctorShare.toLocaleString()}</span>
+                          <span className="text-status-info">{serviceData.doctorShare.toLocaleString()}</span>
                         </div>
                       </div>
                     );
@@ -347,7 +354,7 @@ export function DetailedDoctorReport() {
           {byDoctor.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Нет данных за выбранный период</p>
+              <p>{t('crmFinanceComponents.noPeriodData')}</p>
             </div>
           )}
         </TabsContent>
@@ -356,9 +363,9 @@ export function DetailedDoctorReport() {
         <TabsContent value="by-service">
           <Card className="bg-card/80 border-border/50">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-base font-bold">
                 <FileText className="w-5 h-5" />
-                Детализация по услугам
+                {t('crmFinanceComponents.serviceBreakdownTitle')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -372,7 +379,7 @@ export function DetailedDoctorReport() {
                       <div className="flex items-start justify-between mb-3">
                         <div>
                           <p className="font-medium text-foreground">{item.service}</p>
-                          <p className="text-sm text-muted-foreground">{item.count} приёмов</p>
+                          <p className="text-sm text-muted-foreground">{item.count} {t('crmFinanceComponents.appointmentsLabel')}</p>
                         </div>
                         <p className="text-xl font-bold text-foreground">
                           {item.revenue.toLocaleString()} UZS
@@ -380,15 +387,15 @@ export function DetailedDoctorReport() {
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
-                        <div className="p-2 bg-amber-500/10 rounded flex items-center justify-between">
-                          <span className="text-xs text-amber-400">Врачам</span>
-                          <span className="font-semibold text-amber-400">
+                        <div className="p-2 bg-status-info/10 rounded flex items-center justify-between">
+                          <span className="text-xs text-status-info">{t('crmFinanceComponents.toDoctors')}</span>
+                          <span className="font-semibold text-status-info">
                             {item.doctorShare.toLocaleString()}
                           </span>
                         </div>
-                        <div className="p-2 bg-emerald-500/10 rounded flex items-center justify-between">
-                          <span className="text-xs text-emerald-400">Клинике</span>
-                          <span className="font-semibold text-emerald-400">
+                        <div className="p-2 bg-primary/10 rounded flex items-center justify-between">
+                          <span className="text-xs text-primary">{t('crmFinanceComponents.toClinic')}</span>
+                          <span className="font-semibold text-primary">
                             {item.clinicProfit.toLocaleString()}
                           </span>
                         </div>
@@ -399,7 +406,7 @@ export function DetailedDoctorReport() {
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                  <p>Нет данных за выбранный период</p>
+                  <p>{t('crmFinanceComponents.noPeriodData')}</p>
                 </div>
               )}
             </CardContent>

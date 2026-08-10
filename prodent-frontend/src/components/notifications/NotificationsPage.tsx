@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Check, CheckCheck, Clock, Calendar, CreditCard, FlaskConical, Package, X, MessageCircle, UserPlus, Star, Heart, MoreHorizontal, Trash2, Settings } from "lucide-react";
+import { Bell, Check, CheckCheck, Clock, Calendar, CreditCard, FlaskConical, Package, X, MessageCircle, UserPlus, Star, Heart, MoreHorizontal, Trash2, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -20,8 +19,9 @@ import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/contexts/LanguageContext";
 
-const typeIcons: Record<string, any> = {
+const typeIcons: Record<string, LucideIcon> = {
   appointment_new: Calendar,
   appointment_rescheduled: Calendar,
   appointment_cancelled: X,
@@ -36,6 +36,7 @@ const typeIcons: Record<string, any> = {
   review_new: Star,
   medical_access_request: Heart,
   general: Bell,
+  LAB_ORDER: FlaskConical,
 };
 
 const typeColors: Record<string, { bg: string; icon: string }> = {
@@ -53,24 +54,26 @@ const typeColors: Record<string, { bg: string; icon: string }> = {
   review_new: { bg: "bg-yellow-500", icon: "text-white" },
   medical_access_request: { bg: "bg-pink-500", icon: "text-white" },
   general: { bg: "bg-muted", icon: "text-muted-foreground" },
+  LAB_ORDER: { bg: "bg-purple-500", icon: "text-white" },
 };
 
-const typeLabels: Record<string, string> = {
-  appointment_new: "Новая запись",
-  appointment_rescheduled: "Перенос записи",
-  appointment_cancelled: "Отмена записи",
-  appointment_reminder: "Напоминание",
-  appointment_confirmed: "Подтверждение",
-  invoice_ready: "Счёт",
-  payment_received: "Оплата",
-  lab_order_ready: "Лаборатория",
-  low_stock: "Склад",
-  message_new: "Сообщение",
-  patient_request: "Запрос пациента",
-  review_new: "Отзыв",
-  medical_access_request: "Доступ к медкарте",
-  general: "Общее",
-};
+const buildTypeLabels = (t: (k: string) => string): Record<string, string> => ({
+  appointment_new: t('notifsCenter.typeApptNew'),
+  appointment_rescheduled: t('notifsCenter.typeApptRescheduled'),
+  appointment_cancelled: t('notifsCenter.typeApptCancelled'),
+  appointment_reminder: t('notifsCenter.typeApptReminder'),
+  appointment_confirmed: t('notifsCenter.typeApptConfirmed'),
+  invoice_ready: t('notifsCenter.typeInvoiceReady'),
+  payment_received: t('notifsCenter.typePaymentReceived'),
+  lab_order_ready: t('notifsCenter.typeLabReady'),
+  low_stock: t('notifsCenter.typeLowStock'),
+  message_new: t('notifsCenter.typeMessageNew'),
+  patient_request: t('notifsCenter.typePatientRequest'),
+  review_new: t('notifsCenter.typeReviewNew'),
+  medical_access_request: t('notifsCenter.typeMedicalAccess'),
+  general: t('notifsCenter.typeGeneral'),
+  LAB_ORDER: t('notifsCenter.typeLabReady'),
+});
 
 interface NotificationItemProps {
   notification: Notification;
@@ -80,6 +83,8 @@ interface NotificationItemProps {
 
 function NotificationItem({ notification, onMarkRead, onDelete }: NotificationItemProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const typeLabels = buildTypeLabels(t);
   const Icon = typeIcons[notification.type] || Bell;
   const colors = typeColors[notification.type] || typeColors.general;
 
@@ -96,8 +101,8 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
     <div
       className={cn(
         "flex gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 group",
-        !notification.read 
-          ? "bg-primary/5 hover:bg-primary/10" 
+        !notification.read
+          ? "bg-primary/5 hover:bg-primary/10"
           : "hover:bg-muted/50"
       )}
       onClick={handleClick}
@@ -117,7 +122,7 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
           <Icon className={cn("w-4 h-4", colors.icon)} />
         </div>
       </div>
-      
+
       {/* Content */}
       <div className="flex-1 min-w-0">
         <p className={cn(
@@ -128,15 +133,15 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
           {" "}
           <span className="text-muted-foreground">{notification.message}</span>
         </p>
-        
+
         <div className="flex items-center gap-3 mt-2">
           <p className={cn(
             "text-[15px]",
             !notification.read ? "text-primary font-medium" : "text-muted-foreground"
           )}>
-            {formatDistanceToNow(new Date(notification.created_at), { 
-              addSuffix: true, 
-              locale: ru 
+            {formatDistanceToNow(new Date(notification.created_at), {
+              addSuffix: true,
+              locale: ru
             })}
           </p>
           <Badge variant="outline" className="text-[13px]">
@@ -144,7 +149,7 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
           </Badge>
         </div>
       </div>
-      
+
       {/* Actions */}
       <div className="flex items-start gap-2 shrink-0">
         {!notification.read && (
@@ -152,9 +157,9 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button 
-              variant="ghost" 
-              size="icon" 
+            <Button
+              variant="ghost"
+              size="icon"
               className="h-8 w-8 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
               onClick={(e) => e.stopPropagation()}
             >
@@ -168,11 +173,11 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
                 onMarkRead(notification.id);
               }}>
                 <Check className="w-4 h-4 mr-2" />
-                Отметить как прочитанное
+                {t('notifsCenter.markRead')}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem 
+            <DropdownMenuItem
               className="text-destructive focus:text-destructive"
               onClick={(e) => {
                 e.stopPropagation();
@@ -180,7 +185,7 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
               }}
             >
               <Trash2 className="w-4 h-4 mr-2" />
-              Удалить
+              {t('notifsCenter.delete')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -190,9 +195,9 @@ function NotificationItem({ notification, onMarkRead, onDelete }: NotificationIt
 }
 
 // Group notifications by time period
-function groupNotificationsByTime(notifications: Notification[]) {
+function groupNotificationsByTime(notifications: Notification[], t: (k: string) => string) {
   const groups: { title: string; notifications: Notification[] }[] = [];
-  
+
   const today: Notification[] = [];
   const yesterday: Notification[] = [];
   const thisWeek: Notification[] = [];
@@ -214,11 +219,11 @@ function groupNotificationsByTime(notifications: Notification[]) {
     }
   });
 
-  if (today.length > 0) groups.push({ title: "Сегодня", notifications: today });
-  if (yesterday.length > 0) groups.push({ title: "Вчера", notifications: yesterday });
-  if (thisWeek.length > 0) groups.push({ title: "На этой неделе", notifications: thisWeek });
-  if (thisMonth.length > 0) groups.push({ title: "В этом месяце", notifications: thisMonth });
-  if (earlier.length > 0) groups.push({ title: "Ранее", notifications: earlier });
+  if (today.length > 0) groups.push({ title: t('notifsCenter.groupToday'), notifications: today });
+  if (yesterday.length > 0) groups.push({ title: t('notifsCenter.groupYesterday'), notifications: yesterday });
+  if (thisWeek.length > 0) groups.push({ title: t('notifsCenter.groupThisWeek'), notifications: thisWeek });
+  if (thisMonth.length > 0) groups.push({ title: t('notifsCenter.groupThisMonth'), notifications: thisMonth });
+  if (earlier.length > 0) groups.push({ title: t('notifsCenter.groupEarlier'), notifications: earlier });
 
   return groups;
 }
@@ -228,19 +233,23 @@ interface NotificationsPageContentProps {
   subtitle?: string;
 }
 
-export function NotificationsPageContent({ 
-  title = "Уведомления", 
-  subtitle = "Управление уведомлениями" 
+export function NotificationsPageContent({
+  title,
+  subtitle
 }: NotificationsPageContentProps) {
+  const { t } = useLanguage();
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead, refresh } = useNotifications();
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const { toast } = useToast();
 
-  const filteredNotifications = filter === "unread" 
+  const effectiveTitle = title || t('notifsCenter.title');
+  const effectiveSubtitle = subtitle || t('notifsCenter.subtitle');
+
+  const filteredNotifications = filter === "unread"
     ? notifications.filter(n => !n.read)
     : notifications;
 
-  const groupedNotifications = groupNotificationsByTime(filteredNotifications);
+  const groupedNotifications = groupNotificationsByTime(filteredNotifications, t);
 
   const handleDelete = async (id: string) => {
     const { error } = await supabase
@@ -250,15 +259,15 @@ export function NotificationsPageContent({
 
     if (error) {
       toast({
-        title: "Ошибка",
-        description: "Не удалось удалить уведомление",
+        title: t('notifsCenter.errorTitle'),
+        description: t('notifsCenter.cantDelete'),
         variant: "destructive"
       });
     } else {
       refresh();
       toast({
-        title: "Удалено",
-        description: "Уведомление удалено"
+        title: t('notifsCenter.deletedTitle'),
+        description: t('notifsCenter.deletedDesc')
       });
     }
   };
@@ -275,19 +284,19 @@ export function NotificationsPageContent({
             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
               <Bell className="w-5 h-5 text-primary" />
             </div>
-            {title}
+            {effectiveTitle}
           </h1>
-          <p className="text-[15px] text-muted-foreground mt-1">{subtitle}</p>
+          <p className="text-[15px] text-muted-foreground mt-1">{effectiveSubtitle}</p>
         </div>
-        
+
         {unreadCount > 0 && (
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={markAllAsRead}
             className="gap-2"
           >
             <CheckCheck className="w-4 h-4" />
-            Прочитать все ({unreadCount})
+            {t('notifsCenter.readAll')} ({unreadCount})
           </Button>
         )}
       </div>
@@ -301,11 +310,11 @@ export function NotificationsPageContent({
             </div>
             <div>
               <p className="text-2xl font-bold font-heading text-foreground">{notifications.length}</p>
-              <p className="text-[15px] text-muted-foreground">Всего</p>
+              <p className="text-[15px] text-muted-foreground">{t('notifsCenter.total')}</p>
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-4 hover:shadow-md transition-shadow cursor-pointer border-border/50 bg-card/50 backdrop-blur-sm" onClick={() => setFilter("unread")}>
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center">
@@ -313,11 +322,11 @@ export function NotificationsPageContent({
             </div>
             <div>
               <p className="text-2xl font-bold font-heading text-foreground">{unreadCount}</p>
-              <p className="text-[15px] text-muted-foreground">Непрочитано</p>
+              <p className="text-[15px] text-muted-foreground">{t('notifsCenter.unread')}</p>
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-4 hover:shadow-md transition-shadow border-border/50 bg-card/50 backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
@@ -325,11 +334,11 @@ export function NotificationsPageContent({
             </div>
             <div>
               <p className="text-2xl font-bold font-heading text-foreground">{appointmentNotifications.length}</p>
-              <p className="text-[15px] text-muted-foreground">Записи</p>
+              <p className="text-[15px] text-muted-foreground">{t('notifsCenter.apptCategory')}</p>
             </div>
           </div>
         </Card>
-        
+
         <Card className="p-4 hover:shadow-md transition-shadow border-border/50 bg-card/50 backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-full bg-amber-500/10 flex items-center justify-center">
@@ -337,7 +346,7 @@ export function NotificationsPageContent({
             </div>
             <div>
               <p className="text-2xl font-bold font-heading text-foreground">{financeNotifications.length}</p>
-              <p className="text-[15px] text-muted-foreground">Финансы</p>
+              <p className="text-[15px] text-muted-foreground">{t('notifsCenter.financeCategory')}</p>
             </div>
           </div>
         </Card>
@@ -345,21 +354,21 @@ export function NotificationsPageContent({
 
       {/* Filter pills */}
       <div className="flex gap-2 flex-wrap">
-        <Button 
+        <Button
           variant={filter === "all" ? "default" : "outline"}
-          size="sm" 
+          size="sm"
           className="rounded-full text-[15px]"
           onClick={() => setFilter("all")}
         >
-          Все уведомления
+          {t('notifsCenter.allNotifs')}
         </Button>
-        <Button 
+        <Button
           variant={filter === "unread" ? "default" : "outline"}
-          size="sm" 
+          size="sm"
           className="rounded-full text-[15px]"
           onClick={() => setFilter("unread")}
         >
-          Непрочитанные
+          {t('notifsCenter.unreadFilter')}
           {unreadCount > 0 && (
             <Badge variant="secondary" className="ml-2 h-5 min-w-5 px-1.5 text-[13px]">
               {unreadCount}
@@ -407,12 +416,12 @@ export function NotificationsPageContent({
               <Bell className="w-12 h-12 text-muted-foreground opacity-50" />
             </div>
             <p className="text-lg font-heading font-medium text-foreground">
-              {filter === "unread" ? "Нет непрочитанных уведомлений" : "Нет уведомлений"}
+              {filter === "unread" ? t('notifsCenter.noUnread') : t('notifsCenter.noNotifs')}
             </p>
             <p className="text-[15px] text-muted-foreground mt-1 text-center">
-              {filter === "unread" 
-                ? "Все уведомления прочитаны" 
-                : "Когда появятся новые события, вы увидите их здесь"}
+              {filter === "unread"
+                ? t('notifsCenter.allRead')
+                : t('notifsCenter.newEventsHere')}
             </p>
           </div>
         )}

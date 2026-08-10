@@ -11,14 +11,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useMemo } from "react";
 
 interface PatientTagsProps {
   patientId: string;
   tags?: { id: string; tag: string }[];
   compact?: boolean;
 }
-
-const AVAILABLE_TAGS = ["VIP", "Дети", "Аллергия", "Долг", "Постоянный", "Новый"];
 
 const TAG_COLORS: Record<string, string> = {
   VIP: "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 border-yellow-500/20",
@@ -30,8 +30,10 @@ const TAG_COLORS: Record<string, string> = {
 };
 
 export function PatientTags({ patientId, tags, compact }: PatientTagsProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const { currentClinic } = useClinic();
+  const AVAILABLE_TAGS = useMemo(() => ["VIP", "Дети", "Аллергия", "Долг", "Постоянный", "Новый"], []);
 
   const getTagColor = (tag: string) => {
     return TAG_COLORS[tag] || "bg-muted text-muted-foreground border-border";
@@ -66,9 +68,9 @@ export function PatientTags({ patientId, tags, compact }: PatientTagsProps) {
     });
 
     if (error) {
-      toast.error("Не удалось добавить тег");
+      toast.error(t('crmPatientComponents.tagError'));
     } else {
-      toast.success(`Тег "${tag}" добавлен`);
+      toast.success(t('crmPatientComponents.tagAdded'));
       queryClient.invalidateQueries({ queryKey: ["patient-detail", patientId] });
       queryClient.invalidateQueries({ queryKey: ["patients"] });
     }
@@ -78,9 +80,9 @@ export function PatientTags({ patientId, tags, compact }: PatientTagsProps) {
     const { error } = await supabase.from("patient_tags").delete().eq("id", tagId);
 
     if (error) {
-      toast.error("Не удалось удалить тег");
+      toast.error(t('crmPatientComponents.tagError'));
     } else {
-      toast.success("Тег удален");
+      toast.success(t('crmPatientComponents.tagRemoved'));
       queryClient.invalidateQueries({ queryKey: ["patient-detail", patientId] });
       queryClient.invalidateQueries({ queryKey: ["patients"] });
     }
@@ -100,7 +102,7 @@ export function PatientTags({ patientId, tags, compact }: PatientTagsProps) {
           {tagObj.tag}
           <button
             onClick={() => handleRemoveTag(tagObj.id)}
-            className="ml-1 opacity-0 group-hover:opacity-100 transition-opacity"
+            className="ml-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
           >
             <X className="w-3 h-3" />
           </button>
@@ -115,7 +117,7 @@ export function PatientTags({ patientId, tags, compact }: PatientTagsProps) {
               className="h-6 px-2 border-border text-muted-foreground hover:text-foreground hover:bg-muted"
             >
               <Plus className="w-3 h-3 mr-1" />
-              Тег
+              {t('crmPatientComponents.addTag')}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="bg-popover border-border">

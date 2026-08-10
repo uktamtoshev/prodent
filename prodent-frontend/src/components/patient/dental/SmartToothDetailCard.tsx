@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { format } from "date-fns";
-import { ru } from "date-fns/locale";
-import { 
-  X, Calendar, User, FileText, Camera, Package, Lightbulb, 
+import {
+  X, Calendar, User, FileText, Camera, Package, Lightbulb,
   History, ChevronRight, Layers, Activity, Image
 } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -12,25 +11,28 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { ToothSurfacesDiagram } from "./ToothSurfacesDiagram";
 import { ToothTimeline } from "./ToothTimeline";
 import { ToothRiskIndicator } from "./ToothRiskIndicator";
 import { ToothAttachmentsGallery } from "./ToothAttachmentsGallery";
 import { QuickProcedureMenu } from "./QuickProcedureMenu";
+import { DENTAL_3D_COPY } from "./dental3dCopy";
 
-type ToothStatus = 'healthy' | 'caries' | 'filling' | 'crown' | 'implant' | 'removed' | 'watch' | 'endo' | 'periodontitis';
+type ToothStatus = 'unexamined' | 'healthy' | 'caries' | 'filling' | 'crown' | 'implant' | 'removed' | 'watch' | 'endo' | 'periodontitis';
 
-const STATUS_CONFIG: Record<ToothStatus, { label: string; color: string; bgClass: string }> = {
-  healthy: { label: 'Здоровый', color: '#10B981', bgClass: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
-  caries: { label: 'Кариес', color: '#F59E0B', bgClass: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
-  filling: { label: 'Пломба', color: '#3B82F6', bgClass: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
-  crown: { label: 'Коронка', color: '#EAB308', bgClass: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30' },
-  implant: { label: 'Имплант', color: '#64748B', bgClass: 'bg-slate-500/10 text-slate-600 border-slate-500/30' },
-  removed: { label: 'Удалён', color: '#9CA3AF', bgClass: 'bg-gray-500/10 text-gray-500 border-gray-500/30' },
-  watch: { label: 'Наблюдение', color: '#F97316', bgClass: 'bg-orange-500/10 text-orange-600 border-orange-500/30' },
-  endo: { label: 'Эндодонтия', color: '#EF4444', bgClass: 'bg-red-500/10 text-red-600 border-red-500/30' },
-  periodontitis: { label: 'Периодонтит', color: '#DC2626', bgClass: 'bg-red-600/10 text-red-700 border-red-600/30' },
-};
+const buildStatusConfig = (t: (k: string) => string, noDataLabel: string): Record<ToothStatus, { label: string; color: string; bgClass: string }> => ({
+  unexamined: { label: noDataLabel, color: '#94A3B8', bgClass: 'bg-slate-400/10 text-slate-600 border-slate-400/30' },
+  healthy: { label: t("patientCabinet.toothHealthy"), color: '#10B981', bgClass: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+  caries: { label: t("patientCabinet.toothCaries"), color: '#F59E0B', bgClass: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+  filling: { label: t("patientCabinet.toothFilling"), color: '#3B82F6', bgClass: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
+  crown: { label: t("patientCabinet.toothCrown"), color: '#EAB308', bgClass: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/30' },
+  implant: { label: t("patientCabinet.toothImplant"), color: '#64748B', bgClass: 'bg-slate-500/10 text-slate-600 border-slate-500/30' },
+  removed: { label: t("patientCabinet.toothRemoved"), color: '#9CA3AF', bgClass: 'bg-gray-500/10 text-gray-500 border-gray-500/30' },
+  watch: { label: t("patientCabinet.toothWatch"), color: '#F97316', bgClass: 'bg-orange-500/10 text-orange-600 border-orange-500/30' },
+  endo: { label: t("patientCabinet.toothEndo"), color: '#EF4444', bgClass: 'bg-red-500/10 text-red-600 border-red-500/30' },
+  periodontitis: { label: t("patientCabinet.toothPeriodontitis"), color: '#DC2626', bgClass: 'bg-red-600/10 text-red-700 border-red-600/30' },
+});
 
 interface ToothData {
   id?: string;
@@ -57,26 +59,44 @@ interface SmartToothDetailCardProps {
   patientId: string;
   isChild?: boolean;
   readOnly?: boolean;
+  defaultTab?: 'overview' | 'surfaces' | 'history' | 'images';
+  showExtendedTabs?: boolean;
   doctorId?: string;
   onClose: () => void;
   onAddToPlan?: (toothNumber: number) => void;
 }
 
-export function SmartToothDetailCard({ 
-  tooth, 
+export function SmartToothDetailCard({
+  tooth,
   patientId,
-  isChild = false, 
+  isChild = false,
   readOnly = true,
+  defaultTab = 'overview',
+  showExtendedTabs = true,
   doctorId,
   onClose,
   onAddToPlan
 }: SmartToothDetailCardProps) {
-  const [activeTab, setActiveTab] = useState('overview');
+  const { t, language } = useLanguage();
+  const copy = DENTAL_3D_COPY[language];
+  const STATUS_CONFIG = useMemo(() => buildStatusConfig(t, copy.noData), [copy.noData, t]);
+  const [activeTab, setActiveTab] = useState(defaultTab);
   const config = STATUS_CONFIG[tooth.status] || STATUS_CONFIG.healthy;
   const hasBeforeAfter = tooth.before_image && tooth.after_image;
   const hasProcedures = tooth.procedures && tooth.procedures.length > 0;
-  
-  // Определяем тип зуба для диаграммы поверхностей
+
+  const handleTabChange = (value: string) => {
+    if (
+      value === 'overview' ||
+      value === 'surfaces' ||
+      value === 'history' ||
+      value === 'images'
+    ) {
+      setActiveTab(value);
+    }
+  };
+
+  // Determine tooth type for surfaces diagram
   const toothDigit = tooth.tooth_number % 10;
   const isMolar = isChild ? toothDigit >= 4 : toothDigit >= 6;
 
@@ -87,6 +107,7 @@ export function SmartToothDetailCard({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={copy.closeToothCard}
           className="absolute right-3 top-3 h-8 w-8 rounded-full hover:bg-destructive/10 hover:text-destructive"
           onClick={onClose}
         >
@@ -104,7 +125,7 @@ export function SmartToothDetailCard({
           
           <div className="space-y-1 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold">Зуб №{tooth.tooth_number}</h3>
+              <h3 className="text-lg font-semibold">{t("patientCabinet.toothLabel")} №{tooth.tooth_number}</h3>
               <Badge variant="outline" className={cn("text-xs", config.bgClass)}>
                 {config.label}
               </Badge>
@@ -130,37 +151,41 @@ export function SmartToothDetailCard({
 
       <CardContent className="px-0 pb-0 pt-0">
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
           <div className="px-5 border-b">
             <TabsList className="h-10 w-full justify-start bg-transparent p-0 gap-4">
-              <TabsTrigger 
-                value="overview" 
+              <TabsTrigger
+                value="overview"
                 className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-1 pb-3"
               >
                 <Activity className="h-4 w-4 mr-1.5" />
-                Обзор
+                {t("patientCabinet.tabOverview")}
               </TabsTrigger>
-              <TabsTrigger 
-                value="surfaces" 
-                className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-1 pb-3"
-              >
-                <Layers className="h-4 w-4 mr-1.5" />
-                Поверхности
-              </TabsTrigger>
-              <TabsTrigger 
-                value="history" 
+              {showExtendedTabs && (
+                <TabsTrigger
+                  value="surfaces"
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-1 pb-3"
+                >
+                  <Layers className="h-4 w-4 mr-1.5" />
+                  {t("patientCabinet.tabSurfaces")}
+                </TabsTrigger>
+              )}
+              <TabsTrigger
+                value="history"
                 className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-1 pb-3"
               >
                 <History className="h-4 w-4 mr-1.5" />
-                История
+                {t("patientCabinet.dentalTabHistory")}
               </TabsTrigger>
-              <TabsTrigger 
-                value="images" 
-                className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-1 pb-3"
-              >
-                <Image className="h-4 w-4 mr-1.5" />
-                Снимки
-              </TabsTrigger>
+              {showExtendedTabs && (
+                <TabsTrigger
+                  value="images"
+                  className="data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-1 pb-3"
+                >
+                  <Image className="h-4 w-4 mr-1.5" />
+                  {t("patientCabinet.dentalTabPhotos")}
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -168,36 +193,38 @@ export function SmartToothDetailCard({
             {/* Overview Tab */}
             <TabsContent value="overview" className="px-5 py-4 mt-0 space-y-5">
               {/* Risk Indicator */}
-              <ToothRiskIndicator 
-                patientId={patientId} 
-                toothNumber={tooth.tooth_number}
-                currentStatus={tooth.status}
-              />
+              {showExtendedTabs && (
+                <ToothRiskIndicator
+                  patientId={patientId}
+                  toothNumber={tooth.tooth_number}
+                  currentStatus={tooth.status}
+                />
+              )}
 
               {/* Before/After Photos */}
               {hasBeforeAfter && (
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Camera className="h-4 w-4 text-primary" />
-                    До и после лечения
+                    {t("patientCabinet.beforeAfter")}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">До</span>
+                      <span className="text-xs text-muted-foreground">{t("patientCabinet.labelBefore")}</span>
                       <div className="aspect-square rounded-xl overflow-hidden border border-border/50 bg-muted">
-                        <img 
-                          src={tooth.before_image!} 
-                          alt="До лечения"
+                        <img
+                          src={tooth.before_image!}
+                          alt={t("patientCabinet.altBefore")}
                           className="w-full h-full object-cover hover:scale-105 transition-transform cursor-pointer"
                         />
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">После</span>
+                      <span className="text-xs text-muted-foreground">{t("patientCabinet.labelAfter")}</span>
                       <div className="aspect-square rounded-xl overflow-hidden border border-border/50 bg-muted">
-                        <img 
-                          src={tooth.after_image!} 
-                          alt="После лечения"
+                        <img
+                          src={tooth.after_image!}
+                          alt={t("patientCabinet.altAfter")}
                           className="w-full h-full object-cover hover:scale-105 transition-transform cursor-pointer"
                         />
                       </div>
@@ -211,7 +238,7 @@ export function SmartToothDetailCard({
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <FileText className="h-4 w-4 text-primary" />
-                    Заметки
+                    {t("patientCabinet.notesLabelTooth")}
                   </div>
                   <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg">
                     {tooth.notes}
@@ -224,7 +251,7 @@ export function SmartToothDetailCard({
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Package className="h-4 w-4 text-primary" />
-                    Использованные материалы
+                    {t("patientCabinet.materialsUsed")}
                   </div>
                   <p className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg">
                     {tooth.materials}
@@ -237,7 +264,7 @@ export function SmartToothDetailCard({
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Lightbulb className="h-4 w-4 text-amber-500" />
-                    Рекомендации
+                    {t("patientCabinet.recommendationsLabel")}
                   </div>
                   <p className="text-sm bg-amber-500/10 text-amber-700 dark:text-amber-400 p-3 rounded-lg border border-amber-500/20">
                     {tooth.recommendations}
@@ -251,20 +278,20 @@ export function SmartToothDetailCard({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <History className="h-4 w-4 text-primary" />
-                      Последние процедуры
+                      {t("patientCabinet.recentProcedures")}
                     </div>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       className="text-xs h-7"
                       onClick={() => setActiveTab('history')}
                     >
-                      Все <ChevronRight className="h-3 w-3 ml-1" />
+                      {t("patientCabinet.allLink")} <ChevronRight className="h-3 w-3 ml-1" />
                     </Button>
                   </div>
                   <div className="space-y-2">
                     {tooth.procedures!.slice(0, 2).map((proc, idx) => (
-                      <div 
+                      <div
                         key={idx}
                         className="p-3 rounded-xl bg-muted/50 border border-border/30"
                       >
@@ -277,7 +304,7 @@ export function SmartToothDetailCard({
                             <span className="text-xs text-muted-foreground">{proc.date}</span>
                             {proc.price && (
                               <p className="text-xs font-medium text-primary">
-                                {proc.price.toLocaleString()} сум
+                                {proc.price.toLocaleString()} {t("patientCabinet.sumLabel")}
                               </p>
                             )}
                           </div>
@@ -294,8 +321,8 @@ export function SmartToothDetailCard({
                   <div className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-3">
                     <span className="text-3xl">✓</span>
                   </div>
-                  <p className="font-medium">Зуб здоров</p>
-                  <p className="text-sm mt-1">Лечение не требуется</p>
+                  <p className="font-medium">{t("patientCabinet.toothHealthyMsg")}</p>
+                  <p className="text-sm mt-1">{t("patientCabinet.noTreatmentNeeded")}</p>
                 </div>
               )}
 
@@ -305,21 +332,23 @@ export function SmartToothDetailCard({
                   <Separator />
                   <div className="flex items-center justify-end text-xs text-muted-foreground">
                     <Calendar className="h-3.5 w-3.5 mr-1.5" />
-                    Обновлено: {format(new Date(tooth.updated_at), 'd MMMM yyyy', { locale: ru })}
+                    {t("patientCabinet.updatedAt")}: {format(new Date(tooth.updated_at), 'dd.MM.yyyy')}
                   </div>
                 </>
               )}
             </TabsContent>
 
             {/* Surfaces Tab */}
-            <TabsContent value="surfaces" className="px-5 py-4 mt-0">
-              <ToothSurfacesDiagram 
-                patientId={patientId}
-                toothNumber={tooth.tooth_number}
-                isMolar={isMolar}
-                readOnly={readOnly}
-              />
-            </TabsContent>
+            {showExtendedTabs && (
+              <TabsContent value="surfaces" className="px-5 py-4 mt-0">
+                <ToothSurfacesDiagram
+                  patientId={patientId}
+                  toothNumber={tooth.tooth_number}
+                  isMolar={isMolar}
+                  readOnly={readOnly}
+                />
+              </TabsContent>
+            )}
 
             {/* History Tab */}
             <TabsContent value="history" className="px-5 py-4 mt-0">
@@ -330,12 +359,14 @@ export function SmartToothDetailCard({
             </TabsContent>
 
             {/* Images Tab */}
-            <TabsContent value="images" className="px-5 py-4 mt-0">
-              <ToothAttachmentsGallery 
-                patientId={patientId}
-                toothNumber={tooth.tooth_number}
-              />
-            </TabsContent>
+            {showExtendedTabs && (
+              <TabsContent value="images" className="px-5 py-4 mt-0">
+                <ToothAttachmentsGallery
+                  patientId={patientId}
+                  toothNumber={tooth.tooth_number}
+                />
+              </TabsContent>
+            )}
           </ScrollArea>
         </Tabs>
       </CardContent>

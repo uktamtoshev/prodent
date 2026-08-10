@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PatientFiltersProps {
   searchQuery: string;
@@ -56,6 +57,7 @@ export function PatientFilters({
   tags,
   onClearFilters,
 }: PatientFiltersProps) {
+  const { t } = useLanguage();
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
 
   const hasActiveFilters = selectedGender !== "all" || ageFrom || ageTo || dateFrom || dateTo;
@@ -68,7 +70,7 @@ export function PatientFilters({
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
             <Input
-              placeholder="Поиск по имени или телефону..."
+              placeholder={t('crmPatientFilters.searchByNamePhone')}
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
               className="pl-10 bg-muted/50 border-border text-foreground placeholder:text-muted-foreground"
@@ -77,7 +79,7 @@ export function PatientFilters({
           <Select value={selectedTag} onValueChange={onTagChange}>
             <SelectTrigger className="w-full md:w-48 bg-muted/50 border-border text-foreground">
               <Filter className="w-4 h-4 mr-2" />
-              <SelectValue placeholder="Фильтр по тегам" />
+              <SelectValue placeholder={t('crmPatientFilters.filterByTags')} />
             </SelectTrigger>
             <SelectContent className="bg-popover border-border">
               {tags.map((tag) => (
@@ -114,9 +116,9 @@ export function PatientFilters({
             <Button variant="ghost" className="mt-4 w-full justify-between text-muted-foreground">
               <span className="flex items-center gap-2">
                 <Filter className="w-4 h-4" />
-                Расширенные фильтры
+                {t('crmPatientFilters.advancedFilters')}
                 {hasActiveFilters && (
-                  <Badge variant="secondary" className="ml-2">Активны</Badge>
+                  <Badge variant="secondary" className="ml-2">{t('crmPatientFilters.active')}</Badge>
                 )}
               </span>
               {isAdvancedOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -124,28 +126,28 @@ export function PatientFilters({
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-4 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {/* Пол */}
+              {/* Gender */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Пол</Label>
+                <Label className="text-sm text-muted-foreground">{t('crmPatientFilters.gender')}</Label>
                 <Select value={selectedGender} onValueChange={onGenderChange}>
                   <SelectTrigger className="bg-muted/50 border-border">
-                    <SelectValue placeholder="Все" />
+                    <SelectValue placeholder={t('common.all')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Все</SelectItem>
-                    <SelectItem value="male">Мужской</SelectItem>
-                    <SelectItem value="female">Женский</SelectItem>
+                    <SelectItem value="all">{t('common.all')}</SelectItem>
+                    <SelectItem value="male">{t('crmPatientFilters.male')}</SelectItem>
+                    <SelectItem value="female">{t('crmPatientFilters.female')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Возраст */}
+              {/* Age */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Возраст</Label>
+                <Label className="text-sm text-muted-foreground">{t('crmPatientFilters.age')}</Label>
                 <div className="flex gap-2">
                   <Input
                     type="number"
-                    placeholder="От"
+                    placeholder={t('common.from')}
                     value={ageFrom}
                     onChange={(e) => onAgeFromChange(e.target.value)}
                     className="bg-muted/50 border-border"
@@ -154,7 +156,7 @@ export function PatientFilters({
                   />
                   <Input
                     type="number"
-                    placeholder="До"
+                    placeholder={t('common.to')}
                     value={ageTo}
                     onChange={(e) => onAgeToChange(e.target.value)}
                     className="bg-muted/50 border-border"
@@ -164,10 +166,10 @@ export function PatientFilters({
                 </div>
               </div>
 
-              {/* Дата регистрации */}
+              {/* Reg date */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Дата регистрации от</Label>
-                <Input
+                <Label className="text-sm text-muted-foreground" htmlFor="patient-filters-field-1">{t('crmPatientFilters.regDateFrom')}</Label>
+                <Input id="patient-filters-field-1"
                   type="date"
                   value={dateFrom}
                   onChange={(e) => onDateFromChange(e.target.value)}
@@ -176,8 +178,8 @@ export function PatientFilters({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Дата регистрации до</Label>
-                <Input
+                <Label className="text-sm text-muted-foreground" htmlFor="patient-filters-field-2">{t('crmPatientFilters.regDateTo')}</Label>
+                <Input id="patient-filters-field-2"
                   type="date"
                   value={dateTo}
                   onChange={(e) => onDateToChange(e.target.value)}
@@ -189,7 +191,7 @@ export function PatientFilters({
             {hasActiveFilters && (
               <Button variant="outline" size="sm" onClick={onClearFilters} className="gap-2">
                 <X className="w-4 h-4" />
-                Сбросить фильтры
+                {t('crmPatientFilters.resetFilters')}
               </Button>
             )}
           </CollapsibleContent>

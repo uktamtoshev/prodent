@@ -13,6 +13,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { SmartToothDetailCard } from "@/components/patient/dental/SmartToothDetailCard";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { User, Baby, Blend, Save, X, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,22 +21,11 @@ interface SmartDentalChartProps {
   patientId: string;
   birthDate?: string | null;
   doctorId?: string;
+  clinicId?: string;
   readOnly?: boolean;
 }
 
 type ToothStatus = 'healthy' | 'caries' | 'filling' | 'crown' | 'implant' | 'removed' | 'watch' | 'endo' | 'periodontitis';
-
-const TOOTH_STATUS: Record<ToothStatus, { label: string; color: string; bgColor: string }> = {
-  healthy: { label: "Здоров", color: "hsl(var(--primary))", bgColor: "bg-primary/10" },
-  caries: { label: "Кариес", color: "#F59E0B", bgColor: "bg-amber-500/10" },
-  filling: { label: "Пломба", color: "#3B82F6", bgColor: "bg-blue-500/10" },
-  crown: { label: "Коронка", color: "#EAB308", bgColor: "bg-yellow-500/10" },
-  implant: { label: "Имплант", color: "#64748B", bgColor: "bg-slate-500/10" },
-  removed: { label: "Удален", color: "#9CA3AF", bgColor: "bg-gray-500/10" },
-  watch: { label: "Наблюдение", color: "#F97316", bgColor: "bg-orange-500/10" },
-  endo: { label: "Эндодонтия", color: "#EF4444", bgColor: "bg-red-500/10" },
-  periodontitis: { label: "Периодонтит", color: "#DC2626", bgColor: "bg-red-600/10" },
-};
 
 // Tooth arrays
 const ADULT_UPPER_RIGHT = [18, 17, 16, 15, 14, 13, 12, 11];
@@ -54,6 +44,16 @@ const CHILD_LOWER_RIGHT = [85, 84, 83, 82, 81];
 const CHILD_LOWER_LEFT = [71, 72, 73, 74, 75];
 
 type DentitionType = 'child' | 'young' | 'adult';
+type ViewMode = 'chart' | 'smart';
+
+interface ToothMapEntry {
+  tooth_number: number;
+  status?: string | null;
+  notes?: string | null;
+  diagnosis?: string | null;
+  doctor_name?: string | null;
+  updated_at?: string | null;
+}
 
 const calculateAge = (birthDate: string | null | undefined): number => {
   if (!birthDate) return 25;
@@ -73,8 +73,46 @@ const getDentitionType = (age: number): DentitionType => {
   return 'adult';
 };
 
-export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = false }: SmartDentalChartProps) {
+export function SmartDentalChart({
+  patientId,
+  birthDate,
+  doctorId,
+  clinicId,
+  readOnly = false,
+}: SmartDentalChartProps) {
+  const { t } = useLanguage();
+  /**
+   * Tooth states.
+   *
+   * Colours used to be raw hex applied through `style={{ borderColor, color }}`
+   * on tints built for a dark surface. On the white card the FDI number measured
+   * 1.79-2.37:1 — and `removed` also carried `opacity-40`, pushing it below
+   * 1.3:1. The number is what identifies the tooth, so "13 instead of 23" is a
+   * treatment error, not a cosmetic one.
+   *
+   * Now `--tooth-*` token pairs (>= 4.5:1 in both themes, asserted in
+   * design-tokens-contrast.contract.test.ts). Hues follow two families so the
+   * colour itself carries meaning: CONDITION (healthy, watch, caries, perio,
+   * endo) and RESTORATION (filling, crown, implant, removed).
+   *
+   * `code` is the short Latin mark used on paper odontograms. It makes the state
+   * readable without colour (WCAG 1.4.1), reads identically in all six
+   * languages, and — unlike the tooltip — is visible on a tablet at the chair,
+   * where hover does not exist.
+   */
+  const TOOTH_STATUS: Record<ToothStatus, { label: string; code: string; tile: string }> = useMemo(() => ({
+    healthy: { label: t('crmDentalChart.statusHealthy'), code: "", tile: "bg-tooth-healthy-bg border-tooth-healthy text-tooth-healthy" },
+    watch: { label: t('crmDentalChart.statusWatch'), code: "W", tile: "bg-tooth-watch-bg border-tooth-watch text-tooth-watch" },
+    caries: { label: t('crmDentalChart.statusCariesShort'), code: "C", tile: "bg-tooth-caries-bg border-tooth-caries text-tooth-caries" },
+    periodontitis: { label: t('crmDentalChart.statusPeriodontitis'), code: "P", tile: "bg-tooth-perio-bg border-tooth-perio text-tooth-perio" },
+    endo: { label: t('crmDentalChart.statusEndo'), code: "E", tile: "bg-tooth-endo-bg border-tooth-endo text-tooth-endo" },
+    filling: { label: t('crmDentalChart.statusFillingShort'), code: "F", tile: "bg-tooth-filling-bg border-tooth-filling text-tooth-filling" },
+    crown: { label: t('crmDentalChart.statusCrownShort'), code: "Cr", tile: "bg-tooth-crown-bg border-tooth-crown text-tooth-crown" },
+    implant: { label: t('crmDentalChart.statusImplantShort'), code: "Im", tile: "bg-tooth-implant-bg border-tooth-implant text-tooth-implant" },
+    removed: { label: t('crmDentalChart.statusRemoved'), code: "X", tile: "bg-tooth-removed-bg border-tooth-removed text-tooth-removed line-through" },
+  }), [t]);
   const { currentClinic } = useClinic();
+  const effectiveClinicId = clinicId || currentClinic?.id;
   const queryClient = useQueryClient();
   
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
@@ -98,7 +136,7 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
         lowerRight: CHILD_LOWER_RIGHT,
         lowerLeft: CHILD_LOWER_LEFT,
         totalTeeth: 20,
-        label: 'Молочные зубы'
+        label: t('crmDentalChart.milkTeethLabel')
       };
     }
     if (dentitionType === 'young') {
@@ -108,7 +146,7 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
         lowerRight: YOUNG_LOWER_RIGHT,
         lowerLeft: YOUNG_LOWER_LEFT,
         totalTeeth: 28,
-        label: '28 зубов'
+        label: t('crmDentalChart.teeth28')
       };
     }
     return {
@@ -117,13 +155,13 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
       lowerRight: ADULT_LOWER_RIGHT,
       lowerLeft: ADULT_LOWER_LEFT,
       totalTeeth: 32,
-      label: '32 зуба'
+      label: t('crmDentalChart.teeth32')
     };
-  }, [dentitionType]);
+  }, [dentitionType, t]);
 
   // Fetch teeth data
   const { data: teethData } = useQuery({
-    queryKey: ['smart-dental-chart', patientId, currentClinic?.id],
+    queryKey: ['smart-dental-chart', patientId, effectiveClinicId],
     queryFn: async () => {
       if (!patientId) return [];
       const { data } = await supabase
@@ -137,22 +175,22 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
 
   // Also fetch dental_chart data for legacy support
   const { data: legacyData } = useQuery({
-    queryKey: ['dental-chart-legacy', patientId, currentClinic?.id],
+    queryKey: ['dental-chart-legacy', patientId, effectiveClinicId],
     queryFn: async () => {
-      if (!patientId || !currentClinic?.id) return [];
+      if (!patientId || !effectiveClinicId) return [];
       const { data } = await supabase
         .from('dental_chart')
         .select('*')
         .eq('patient_id', patientId)
-        .eq('clinic_id', currentClinic.id);
+        .eq('clinic_id', effectiveClinicId);
       return data || [];
     },
-    enabled: !!patientId && !!currentClinic?.id,
+    enabled: !!patientId && !!effectiveClinicId,
   });
 
   // Merge teeth data
   const teethMap = useMemo(() => {
-    const map = new Map<number, any>();
+    const map = new Map<number, ToothMapEntry>();
     
     // First, add patient_teeth_status data
     teethData?.forEach(t => map.set(t.tooth_number, {
@@ -208,7 +246,7 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
       diagnosis: string; 
       notes: string;
     }) => {
-      if (!currentClinic?.id) throw new Error("Clinic ID not found");
+      if (!effectiveClinicId) throw new Error("Clinic ID not found");
       
       const existing = legacyData?.find(d => d.tooth_number === toothNumber);
       const oldStatus = existing?.status || 'healthy';
@@ -228,7 +266,7 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
             status, 
             diagnosis, 
             notes,
-            clinic_id: currentClinic.id
+            clinic_id: effectiveClinicId
           });
         if (error) throw error;
       }
@@ -242,7 +280,7 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
           status_after: status,
           notes: diagnosis || notes,
           doctor_id: doctorId,
-          clinic_id: currentClinic.id,
+          clinic_id: effectiveClinicId,
         });
       }
     },
@@ -250,11 +288,11 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
       queryClient.invalidateQueries({ queryKey: ['smart-dental-chart', patientId] });
       queryClient.invalidateQueries({ queryKey: ['dental-chart-legacy', patientId] });
       queryClient.invalidateQueries({ queryKey: ['tooth-history', patientId] });
-      toast.success("Данные зуба сохранены");
+      toast.success(t('crmDentalChart.toothSaved'));
       setEditingTooth(null);
     },
     onError: () => {
-      toast.error("Ошибка сохранения");
+      toast.error(t('crmDentalChart.toothSaveError'));
     },
   });
 
@@ -293,32 +331,36 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={() => handleToothClick(toothNumber)}
+              aria-pressed={isSelected}
+              aria-label={`${t('crmDentalChart.tooltipNumber')}${toothNumber}, ${statusInfo.label}`}
               className={cn(
-                "relative w-9 h-9 md:w-10 md:h-10 border-2 rounded-lg transition-all cursor-pointer",
-                "flex items-center justify-center text-[13px] md:text-sm font-semibold",
-                "hover:scale-105 hover:shadow-md hover:-translate-y-0.5",
-                statusInfo.bgColor,
-                isSelected && "ring-2 ring-primary ring-offset-2 scale-105 shadow-md",
-                status === 'removed' && "opacity-40"
+                "relative flex h-10 w-10 cursor-pointer flex-col items-center justify-center gap-0.5",
+                "rounded-lg border-2 text-sm font-semibold tabular-nums transition-transform",
+                "hover:-translate-y-0.5 hover:scale-105",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                // Tile stays 40px so 16 teeth still fit one row, but the hit area
+                // is padded out to 44px for a gloved finger on a tablet.
+                "after:absolute after:-inset-0.5 after:content-['']",
+                statusInfo.tile,
+                isSelected && "scale-105 ring-2 ring-primary ring-offset-2"
               )}
-              style={{ 
-                borderColor: statusInfo.color, 
-                color: isHealthy ? 'hsl(var(--primary))' : statusInfo.color 
-              }}
             >
-              {toothNumber}
-              {isProblematic && (
-                <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                  <span className="animate-ping absolute h-full w-full rounded-full bg-red-400 opacity-75" />
-                  <span className="relative rounded-full h-2 w-2 bg-red-500" />
+              <span>{toothNumber}</span>
+              {statusInfo.code ? (
+                <span aria-hidden="true" className="text-xs font-bold leading-none no-underline">
+                  {statusInfo.code}
                 </span>
+              ) : null}
+              {isProblematic && (
+                <span aria-hidden="true" className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-status-danger" />
               )}
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" className="bg-card/95 backdrop-blur border-border/50">
             <div className="text-sm">
-              <div className="font-semibold">Зуб #{toothNumber}</div>
+              <div className="font-semibold">{t('crmDentalChart.tooltipNumber')}{toothNumber}</div>
               <div className="text-muted-foreground">{statusInfo.label}</div>
             </div>
           </TooltipContent>
@@ -330,42 +372,42 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
   return (
     <>
       <Card className="bg-card border-border/50 shadow-sm">
-        <CardHeader className="pb-3">
+        <CardHeader className="border-b border-border/50 px-card-x py-card-y">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               {dentitionType === 'child' ? (
-                <Baby className="h-5 w-5 text-pink-500" />
+                <Baby className="h-5 w-5 text-primary" />
               ) : dentitionType === 'young' ? (
-                <Blend className="h-5 w-5 text-blue-500" />
+                <Blend className="h-5 w-5 text-primary" />
               ) : (
                 <User className="h-5 w-5 text-primary" />
               )}
               <div>
-                <CardTitle className="text-foreground text-base">Зубная формула</CardTitle>
+                <CardTitle className="text-foreground text-base">{t('crmDentalChart.formulaTitle')}</CardTitle>
                 <p className="text-muted-foreground text-sm">
-                  {age} лет • {teethArrays.totalTeeth} {teethArrays.totalTeeth === 20 ? 'зубов' : teethArrays.totalTeeth === 28 ? 'зубов' : 'зуба'}
+                  {age} {t('crmDentalChart.yearsLabel')} • {teethArrays.totalTeeth} {teethArrays.totalTeeth === 20 ? t('crmDentalChart.teethGenitiveMany') : teethArrays.totalTeeth === 28 ? t('crmDentalChart.teethGenitiveMany') : t('crmDentalChart.teethGenitive')}
                 </p>
               </div>
               {problemCount > 0 && (
-                <Badge variant="outline" className="border-amber-500/50 text-amber-600 bg-amber-50 dark:bg-amber-950/30">
+                <Badge variant="outline" className="border-status-warning/50 text-status-warning bg-status-warning-bg">
                   <AlertTriangle className="h-3 w-3 mr-1" />
-                  {problemCount} проблем
+                  {problemCount} {t('crmDentalChart.problemsCount')}
                 </Badge>
               )}
             </div>
-            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
               <TabsList className="h-8 bg-muted/50">
-                <TabsTrigger value="chart" className="text-xs h-7 px-3">Простой</TabsTrigger>
-                <TabsTrigger value="smart" className="text-xs h-7 px-3">Умный</TabsTrigger>
+                <TabsTrigger value="chart" className="text-xs h-7 px-3">{t('crmDentalChart.modeSimple')}</TabsTrigger>
+                <TabsTrigger value="smart" className="text-xs h-7 px-3">{t('crmDentalChart.modeSmart')}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
         </CardHeader>
-        
+
         <CardContent className="space-y-5">
           {/* Upper Jaw */}
           <div className="space-y-2">
-            <div className="text-muted-foreground text-xs text-center font-medium">Верхняя челюсть</div>
+            <div className="text-muted-foreground text-xs text-center font-medium">{t('crmDentalChart.upperJaw')}</div>
             <div className="flex justify-center gap-1.5">
               <div className="flex gap-1">{teethArrays.upperRight.map(renderTooth)}</div>
               <div className="w-3 md:w-4" />
@@ -380,18 +422,25 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
               <div className="w-3 md:w-4" />
               <div className="flex gap-1">{teethArrays.lowerLeft.map(renderTooth)}</div>
             </div>
-            <div className="text-muted-foreground text-xs text-center font-medium">Нижняя челюсть</div>
+            <div className="text-muted-foreground text-xs text-center font-medium">{t('crmDentalChart.lowerJaw')}</div>
           </div>
 
           {/* Legend */}
           <div className="flex flex-wrap gap-x-4 gap-y-2 justify-center pt-4 border-t border-border/50">
-            {Object.entries(TOOTH_STATUS).slice(0, 6).map(([key, { label, color }]) => (
+            {/* All nine states, not the first six: a legend that omits three of
+                the states present on the chart teaches a partial language. */}
+            {Object.entries(TOOTH_STATUS).map(([key, { label, code, tile }]) => (
               <div key={key} className="flex items-center gap-1.5">
-                <div 
-                  className="w-2.5 h-2.5 rounded-full" 
-                  style={{ backgroundColor: key === 'healthy' ? 'hsl(var(--primary))' : color }} 
-                />
-                <span className="text-muted-foreground text-xs">{label}</span>
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "grid h-5 w-5 place-items-center rounded border-2 text-xs font-bold no-underline",
+                    tile,
+                  )}
+                >
+                  {code}
+                </span>
+                <span className="text-xs text-muted-foreground">{label}</span>
               </div>
             ))}
           </div>
@@ -417,20 +466,25 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
         <DialogContent className="bg-card border-border">
           <DialogHeader>
             <DialogTitle className="text-foreground flex items-center gap-2">
-              <div 
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold"
-                style={{ backgroundColor: TOOTH_STATUS[editStatus]?.color }}
+              {/* Same token pair as the tile, so the dialog and the chart agree
+                  about what this tooth's state looks like. `text-white` on a raw
+                  hex background was unreadable for the lighter states. */}
+              <div
+                className={cn(
+                  "grid h-8 w-8 place-items-center rounded-lg border-2 text-sm font-bold tabular-nums no-underline",
+                  TOOTH_STATUS[editStatus]?.tile,
+                )}
               >
                 {editingTooth}
               </div>
-              Зуб #{editingTooth}
+              {t('crmDentalChart.toothLabel')}{editingTooth}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-foreground">Статус</Label>
+              <Label id="smart-tooth-status-label" className="text-foreground">{t('crmDentalChart.statusLabel')}</Label>
               <Select value={editStatus} onValueChange={(v) => setEditStatus(v as ToothStatus)}>
-                <SelectTrigger className="bg-background border-border">
+                <SelectTrigger aria-labelledby="smart-tooth-status-label" className="bg-background border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-card border-border">
@@ -444,21 +498,23 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">Диагноз</Label>
+              <Label htmlFor="smart-tooth-diagnosis" className="text-foreground">{t('crmDentalChart.diagnosisLabel')}</Label>
               <Textarea
+                id="smart-tooth-diagnosis"
                 value={editDiagnosis}
                 onChange={(e) => setEditDiagnosis(e.target.value)}
-                placeholder="Опишите диагноз..."
+                placeholder={t('crmDentalChart.diagnosisPh')}
                 className="bg-background border-border"
               />
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">Заметки</Label>
+              <Label htmlFor="smart-tooth-notes" className="text-foreground">{t('crmDentalChart.notesLabel')}</Label>
               <Textarea
+                id="smart-tooth-notes"
                 value={editNotes}
                 onChange={(e) => setEditNotes(e.target.value)}
-                placeholder="Дополнительные заметки..."
+                placeholder={t('crmDentalChart.notesPh')}
                 className="bg-background border-border"
               />
             </div>
@@ -466,11 +522,11 @@ export function SmartDentalChart({ patientId, birthDate, doctorId, readOnly = fa
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setEditingTooth(null)}>
                 <X className="h-4 w-4 mr-1" />
-                Отмена
+                {t('crmDentalChart.cancel')}
               </Button>
               <Button onClick={handleSave} disabled={saveMutation.isPending}>
                 <Save className="h-4 w-4 mr-1" />
-                {saveMutation.isPending ? "Сохранение..." : "Сохранить"}
+                {saveMutation.isPending ? t('crmDentalChart.saving') : t('crmDentalChart.save')}
               </Button>
             </div>
           </div>

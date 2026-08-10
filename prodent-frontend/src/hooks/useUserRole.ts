@@ -1,17 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
-export type AppRole = 
-  | 'super_admin' 
+export type AppRole =
+  | 'super_admin'
   | 'admin'
   | 'moderator'
-  | 'clinic_admin' 
-  | 'clinic_manager' 
-  | 'doctor' 
-  | 'assistant' 
-  | 'accountant' 
-  | 'patient';
+  | 'clinic_admin'
+  | 'clinic_manager'
+  | 'doctor'
+  | 'assistant'
+  | 'accountant'
+  | 'seller'
+  | 'patient'
+  | 'technician';
 
 export type CooperationType = 'staff_doctor' | 'chair_rental' | null;
 
@@ -42,6 +44,8 @@ interface UseUserRoleResult {
   isAssistant: boolean;
   isAccountant: boolean;
   isPatient: boolean;
+  isSeller: boolean;
+  isTechnician: boolean;
   isStaffDoctor: boolean;
   isChairRental: boolean;
   canAccessAdminPanel: boolean;
@@ -65,145 +69,109 @@ interface UseUserRoleResult {
   getSalaryPercentForClinic: (clinicId: string) => number;
 }
 
-export function useUserRole(): UseUserRoleResult {
-  const { user } = useAuth();
-  const [role, setRole] = useState<AppRole | null>(null);
-  const [doctorId, setDoctorId] = useState<string | null>(null);
-  const [affiliations, setAffiliations] = useState<DoctorAffiliation[]>([]);
-  const [loading, setLoading] = useState(true);
+interface UserRoleData {
+  role: AppRole | null;
+  doctorId: string | null;
+  affiliations: DoctorAffiliation[];
+}
 
-  useEffect(() => {
-    if (user) {
-      fetchUserRole();
-    } else {
-      setRole(null);
-      setDoctorId(null);
-      setAffiliations([]);
-      setLoading(false);
-    }
-  }, [user]);
+// Single async fetcher for the whole role bundle so React Query can cache it.
+// Previously this was a useState/useEffect hook that re-fired on every mount —
+// CRMLayout is mounted per page, so every menu click re-hit the network.
+async function fetchUserRoleData(userId: string): Promise<UserRoleData> {
+  // 1) user_roles (super_admin, admin, doctor, …)
+  const { data: userRoles } = await supabase
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', userId);
 
-  const fetchUserRole = async () => {
-    setLoading(true);
-    
-    // Check user_roles table first (super_admin, doctor, etc.)
-    const { data: userRoles } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user!.id);
+  let role: AppRole | null = null;
 
-    if (userRoles && userRoles.length > 0) {
-      // Normalize: DB stores UPPER_CASE (Java enum), frontend uses lower_case
-      const roles = userRoles.map(r => (r.role || '').toLowerCase());
-      // Priority: super_admin > admin > moderator > doctor > other roles
-      const hasSuperAdmin = roles.includes('super_admin');
-      const hasAdmin = roles.includes('admin');
-      const hasModerator = roles.includes('moderator');
-      const hasDoctor = roles.includes('doctor');
-      
-      if (hasSuperAdmin) {
-        setRole('super_admin');
-        await fetchDoctorAffiliations();
-        setLoading(false);
-        return;
-      }
-      
-      if (hasAdmin) {
-        setRole('admin');
-        await fetchDoctorAffiliations();
-        setLoading(false);
-        return;
-      }
-      
-      if (hasModerator) {
-        setRole('moderator');
-        await fetchDoctorAffiliations();
-        setLoading(false);
-        return;
-      }
-      
-      if (hasDoctor) {
-        setRole('doctor');
-        await fetchDoctorAffiliations();
-        setLoading(false);
-        return;
-      }
-      
-      // Use first available role (normalized to lowercase)
-      setRole(roles[0] as AppRole);
-      await fetchDoctorAffiliations();
-      setLoading(false);
-      return;
-    }
-
-    // Check clinic membership
+  if (userRoles && userRoles.length > 0) {
+    // DB may store UPPER_CASE (Java enum); normalize to lowercase.
+    // Pick the highest-privilege role: most users also carry PATIENT, so staff
+    // roles (clinic_admin, doctor, …) MUST be checked before falling back to
+    // roles[0] — otherwise a clinic_admin who is also a patient is treated as a
+    // plain patient and never sees the clinic panel.
+    const roles = userRoles.map(r => (r.role || '').toLowerCase());
+    if (roles.includes('super_admin')) role = 'super_admin';
+    else if (roles.includes('admin')) role = 'admin';
+    else if (roles.includes('moderator')) role = 'moderator';
+    else if (roles.includes('clinic_admin')) role = 'clinic_admin';
+    else if (roles.includes('clinic_manager')) role = 'clinic_manager';
+    else if (roles.includes('accountant')) role = 'accountant';
+    else if (roles.includes('assistant')) role = 'assistant';
+    else if (roles.includes('doctor')) role = 'doctor';
+    else if (roles.includes('seller')) role = 'seller';
+    else if (roles.includes('technician')) role = 'technician';
+    else if (roles.includes('patient')) role = 'patient';
+    else role = roles[0] as AppRole;
+  } else {
+    // Fallback: clinic membership.
     const { data: membership } = await supabase
       .from('clinic_members')
       .select('role')
-      .eq('user_id', user!.id)
+      .eq('user_id', userId)
+      .eq('is_active', true)
       .limit(1)
       .single();
+    role = (membership?.role as AppRole) || 'patient';
+  }
 
-    if (membership?.role) {
-      setRole(membership.role as AppRole);
-    } else {
-      // Default to patient if no role found
-      setRole('patient');
+  // 2) Doctor record + affiliations
+  let doctorId: string | null = null;
+  let affiliations: DoctorAffiliation[] = [];
+
+  const { data: doctor } = await supabase
+    .from('doctors')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (doctor) {
+    doctorId = doctor.id;
+    const { data: affiliationData } = await supabase
+      .from('doctor_clinic_affiliations')
+      .select('clinic_id, cooperation_type, salary_percent, is_primary')
+      .eq('doctor_id', doctor.id)
+      .eq('is_active', true);
+
+    if (affiliationData && affiliationData.length > 0) {
+      affiliations = affiliationData.map(a => ({
+        clinic_id: a.clinic_id,
+        cooperation_type: a.cooperation_type as CooperationType,
+        salary_percent: a.salary_percent ?? 30,
+        is_primary: a.is_primary ?? false,
+      }));
     }
-    
-    await fetchDoctorAffiliations();
-    setLoading(false);
-  };
+  }
 
-  const fetchDoctorAffiliations = async () => {
-    // Get doctor record for current user if exists
-    const { data: doctor } = await supabase
-      .from('doctors')
-      .select('id')
-      .eq('user_id', user!.id)
-      .maybeSingle();
+  return { role, doctorId, affiliations };
+}
 
-    if (doctor) {
-      setDoctorId(doctor.id);
-      
-      // Fetch affiliations from new table
-      const { data: affiliationData } = await supabase
-        .from('doctor_clinic_affiliations')
-        .select('clinic_id, cooperation_type, salary_percent, is_primary')
-        .eq('doctor_id', doctor.id)
-        .eq('is_active', true);
-      
-      if (affiliationData && affiliationData.length > 0) {
-        setAffiliations(affiliationData.map(a => ({
-          clinic_id: a.clinic_id,
-          cooperation_type: a.cooperation_type as CooperationType,
-          salary_percent: a.salary_percent || 30,
-          is_primary: a.is_primary || false,
-        })));
-      } else {
-        // Fallback to legacy doctors table
-        const { data: legacyDoctor } = await supabase
-          .from('doctors')
-          .select('clinic_id, cooperation_type, salary_percent')
-          .eq('id', doctor.id)
-          .single();
-        
-        if (legacyDoctor?.clinic_id) {
-          setAffiliations([{
-            clinic_id: legacyDoctor.clinic_id,
-            cooperation_type: legacyDoctor.cooperation_type as CooperationType,
-            salary_percent: legacyDoctor.salary_percent || 30,
-            is_primary: true,
-          }]);
-        } else {
-          setAffiliations([]);
-        }
-      }
-    } else {
-      setDoctorId(null);
-      setAffiliations([]);
-    }
-  };
+export function useUserRole(): UseUserRoleResult {
+  const { user } = useAuth();
+
+  // Cached for the whole session — role doesn't change while logged in.
+  // staleTime: Infinity prevents auto-refetch; gcTime keeps cache warm even
+  // when the only consumer (sidebar) briefly unmounts during navigation.
+  const { data, isLoading } = useQuery<UserRoleData>({
+    queryKey: ['user-role', user?.id],
+    queryFn: () => fetchUserRoleData(user!.id),
+    enabled: !!user?.id,
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
+
+  const role = data?.role ?? null;
+  const doctorId = data?.doctorId ?? null;
+  const affiliations = data?.affiliations ?? [];
+  // While there's no signed-in user, we shouldn't show a permanent loading
+  // state — the layout-level guards take care of redirects.
+  const loading = !!user && isLoading;
 
   // Get primary affiliation for legacy compatibility
   const primaryAffiliation = affiliations.find(a => a.is_primary) || affiliations[0];
@@ -222,54 +190,53 @@ export function useUserRole(): UseUserRoleResult {
     return affiliation?.salary_percent ?? 30;
   };
 
-  const isSuperAdmin = role === 'super_admin';
-  const isAdmin = role === 'admin';
-  const isModerator = role === 'moderator';
-  const isClinicAdmin = role === 'clinic_admin';
-  const isClinicManager = role === 'clinic_manager';
-  const isDoctor = role === 'doctor';
-  const isAssistant = role === 'assistant';
-  const isAccountant = role === 'accountant';
-  const isPatient = role === 'patient';
-  
+  const roleNorm = (role || '').toLowerCase();
+  const isSuperAdmin = roleNorm === 'super_admin';
+  const isAdmin = roleNorm === 'admin';
+  const isModerator = roleNorm === 'moderator';
+  const isClinicAdmin = roleNorm === 'clinic_admin';
+  const isClinicManager = roleNorm === 'clinic_manager';
+  const isDoctor = roleNorm === 'doctor';
+  const isAssistant = roleNorm === 'assistant';
+  const isAccountant = roleNorm === 'accountant';
+  const isPatient = roleNorm === 'patient';
+  const isSeller = roleNorm === 'seller';
+  const isTechnician = roleNorm === 'technician';
+
   // Cooperation type flags (based on primary/current clinic)
   const isStaffDoctor = isDoctor && cooperationType === 'staff_doctor';
   const isChairRental = isDoctor && cooperationType === 'chair_rental';
 
   // Permission matrix
   const canAccessAdminPanel = isSuperAdmin || isAdmin || isModerator;
-  
-  // Finance access - clinic admins and accountants see full finance
-  // Doctors (staff or rental) can see their own finance only
+
+  // Finance access — clinic admins and accountants see full finance;
+  // doctors (staff or rental) can see their own finance only.
   const canAccessClinicFinance = isSuperAdmin || isClinicAdmin || isAccountant;
-  const canAccessOwnFinance = isDoctor; // Both staff and rental doctors see their own income
+  const canAccessOwnFinance = isDoctor;
   const canAccessFinance = canAccessClinicFinance || canAccessOwnFinance;
-  
-  // Clinic reports - only admin roles, NOT doctors
+
+  // Clinic reports — only admin roles, NOT doctors.
   const canAccessClinicReports = isSuperAdmin || isClinicAdmin || isAccountant || isClinicManager;
-  
-  // Cash register - only admin roles, NOT doctors
+
+  // Cash register — only admin roles, NOT doctors.
   const canAccessCashRegister = isSuperAdmin || isClinicAdmin || isAccountant;
-  
+
   const canAccessInventory = isSuperAdmin || isClinicAdmin || isClinicManager || isAssistant;
   const canAccessMedicalRecords = isSuperAdmin || isClinicAdmin || isDoctor;
   const canAccessSchedule = isSuperAdmin || isClinicAdmin || isClinicManager || isDoctor || isAssistant;
-  
-  // Patient access
-  // Admins see all patients
-  // Staff doctors see clinic patients
-  // Chair rental doctors see only their own patients
+
+  // Patient access:
+  //   admins         → all patients
+  //   staff doctors  → clinic patients
+  //   chair rental   → only their own patients
   const canAccessAllPatients = isSuperAdmin || isClinicAdmin || isClinicManager || isAssistant || isStaffDoctor;
   const canAccessOwnPatients = isChairRental;
   const canAccessPatients = canAccessAllPatients || canAccessOwnPatients;
-  
+
   const canAccessAds = isSuperAdmin || isClinicAdmin || isClinicManager;
   const canAccessSettings = isSuperAdmin || isClinicAdmin;
-  
-  // Reports - full reports only for admin roles
   const canAccessReports = isSuperAdmin || isClinicAdmin || isAccountant || isClinicManager;
-  
-  // Salary settings - only admin roles
   const canAccessSalarySettings = isSuperAdmin || isClinicAdmin;
 
   return {
@@ -291,6 +258,8 @@ export function useUserRole(): UseUserRoleResult {
     isAssistant,
     isAccountant,
     isPatient,
+    isSeller,
+    isTechnician,
     isStaffDoctor,
     isChairRental,
     canAccessAdminPanel,

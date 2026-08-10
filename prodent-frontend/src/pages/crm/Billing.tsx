@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CreditCard, Crown, Megaphone, Wallet, History, TrendingUp, Sparkles, Calendar } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { Calendar, CreditCard, Crown, History, Megaphone, Sparkles, TrendingUp, Wallet } from 'lucide-react';
 import { CRMLayout } from '@/components/crm/CRMLayout';
 import { VirtualAccountCard } from '@/components/finance/VirtualAccountCard';
 import { NewSubscriptionPlans } from '@/components/billing/NewSubscriptionPlans';
@@ -8,28 +8,29 @@ import { AddOnServicesList } from '@/components/billing/AddOnServicesList';
 import { AppointmentLimitBanner } from '@/components/billing/AppointmentLimitBanner';
 import { PlanStatusBadge } from '@/components/billing/PlanStatusBadge';
 import { useClinic } from '@/contexts/ClinicContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { useUserRole } from '@/hooks/useUserRole';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/integrations/supabase/client';
-import { useSubscribeToPlan, useAppointmentLimit, usePlanFeatures } from '@/hooks/useSubscriptionPlan';
+import { useSubscribeToPlan, useAppointmentLimit, useSubscriptionStatus } from '@/hooks/useSubscriptionPlan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import paymeLogo from '@/assets/payments/payme-logo.png';
 import clickLogo from '@/assets/payments/click-logo.png';
 import uzumLogo from '@/assets/payments/uzum-logo.png';
 
+const safeLabel = (value: string, fallback: string) =>
+  value && !/[ÐÑÂâ]/.test(value) ? value : fallback;
+
 export default function CRMBilling() {
+  const { t } = useLanguage();
+  const tr = (key: string, fallback: string) => safeLabel(t(key), fallback);
   const { currentClinic } = useClinic();
-  const { user } = useAuth();
-  const { isDoctor, isClinicAdmin, isSuperAdmin, doctorId } = useUserRole();
-  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('balance');
 
-  // Get clinic info with subscription data
-  const { data: clinicInfo, isLoading: clinicLoading } = useQuery({
+  const { data: clinicInfo } = useQuery({
     queryKey: ['clinic-subscription', currentClinic?.id],
     queryFn: async () => {
       if (!currentClinic?.id) return null;
@@ -44,55 +45,27 @@ export default function CRMBilling() {
     enabled: !!currentClinic?.id,
   });
 
-  // Get virtual account for clinic
-  const { data: virtualAccount, isLoading: accountLoading } = useQuery({
-    queryKey: ['virtual-account', 'clinic', currentClinic?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id) return null;
-      const { data, error } = await supabase
-        .from('virtual_accounts')
-        .select('*')
-        .eq('clinic_id', currentClinic.id)
-        .single();
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
-    },
-    enabled: !!currentClinic?.id,
-  });
-
-  // Get appointment limit info for clinic
+  const { data: status, isLoading: accountLoading, isError: accountError } = useSubscriptionStatus();
+  const virtualAccount = status ? { id: status.account_id, balance: status.balance } : null;
   const { data: limitInfo } = useAppointmentLimit('clinic', currentClinic?.id);
-  
-  // Get plan features for clinic
-  const { data: planFeatures } = usePlanFeatures('clinic', currentClinic?.id);
-
-  // Subscribe mutation
   const subscribeMutation = useSubscribeToPlan();
 
-  const handleSubscribe = (planId: string, price: number) => {
-    if (!virtualAccount || !currentClinic) {
-      toast.error('Аккаунт не найден');
+  const handleSubscribe = (planSlug: string, _price: number) => {
+    if (!currentClinic) {
+      toast.error(tr('crmBilling.accountNotFound', 'Аккаунт не найден'));
       return;
     }
-    
-    subscribeMutation.mutate({
-      entityType: 'clinic',
-      entityId: currentClinic.id,
-      planId,
-      price,
-      virtualAccountId: virtualAccount.id,
-      currentBalance: virtualAccount.balance,
-    });
+    subscribeMutation.mutate({ planSlug, entityType: 'clinic' });
   };
 
   if (!currentClinic) {
     return (
       <CRMLayout>
-        <div className="p-6">
-          <Card>
-            <CardContent className="py-12 text-center">
-              <CreditCard className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">Выберите клинику для управления оплатой</p>
+        <div className="p-4 lg:p-6">
+          <Card className="border-dashed">
+            <CardContent className="py-14 text-center">
+              <CreditCard className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+              <p className="text-muted-foreground">{tr('crmBilling.selectClinic', 'Выберите клинику для управления оплатой')}</p>
             </CardContent>
           </Card>
         </div>
@@ -102,151 +75,128 @@ export default function CRMBilling() {
 
   return (
     <CRMLayout>
-      <div className="p-6 space-y-6">
-        {/* Appointment Limit Banner */}
+      <div className="space-y-section p-4 lg:p-6">
         <AppointmentLimitBanner limitInfo={limitInfo} entityType="clinic" />
 
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <h1 className="text-2xl font-bold font-heading">Оплата и подписки</h1>
-            <p className="text-muted-foreground">
-              Управление балансом, подписками и рекламой клиники
-            </p>
-          </div>
-          <div className="flex items-center gap-4">
-            <PlanStatusBadge 
-              plan={clinicInfo?.subscription_plan} 
-              expiresAt={clinicInfo?.subscription_expires_at} 
-            />
-            {limitInfo && limitInfo.limit && (
-              <div className="flex items-center gap-2 text-sm">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span>{limitInfo.count}/{limitInfo.limit} записей</span>
-                <Progress value={(limitInfo.count / limitInfo.limit) * 100} className="w-20 h-2" />
+        {/* Заголовок на холсте, без карточки-героя и без бейджа «Billing»:
+            латиницей посреди русского интерфейса он ничего не сообщал, а
+            карточка занимала первый экран. */}
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-3">
+                <div>
+                  <h1 className="cabinet-page-title font-heading text-xl font-bold tracking-tight text-foreground">{tr('crmBilling.title', 'Оплата и подписки')}</h1>
+                  <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+                    {tr('crmBilling.description', 'Управление балансом, подписками и рекламой клиники')}
+                  </p>
+                </div>
               </div>
-            )}
-            {virtualAccount && (
-              <div className="text-right">
-                <p className="text-sm text-muted-foreground">Баланс</p>
-                <p className="text-2xl font-bold text-primary">
-                  {new Intl.NumberFormat('ru-RU').format(virtualAccount.balance)} UZS
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Tabs */}
+              <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+                <div className="rounded-2xl border bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">{tr('crmBilling.balance', 'Баланс')}</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {new Intl.NumberFormat('ru-RU').format(virtualAccount?.balance || 0)} UZS
+                  </p>
+                </div>
+                <div className="rounded-2xl border bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Статус плана</p>
+                  <PlanStatusBadge
+                    plan={clinicInfo?.subscription_plan}
+                    expiresAt={clinicInfo?.subscription_expires_at}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {limitInfo && limitInfo.limit && (
+              <div className="mt-5 rounded-2xl border bg-background/70 p-3">
+                <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <Calendar className="h-4 w-4" />
+                    {limitInfo.count}/{limitInfo.limit} {tr('crmBilling.records', 'записей')}
+                  </span>
+                  <span className="text-xs text-muted-foreground">Лимит текущего плана</span>
+                </div>
+                <Progress value={(limitInfo.count / limitInfo.limit) * 100} className="h-2" />
+              </div>
+            )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
+          <TabsList className="grid w-full grid-cols-3 lg:w-[430px]">
             <TabsTrigger value="balance" className="gap-2">
-              <Wallet className="w-4 h-4" />
-              Баланс
+              <Wallet className="h-4 w-4" />
+              {tr('crmBilling.tabBalance', 'Баланс')}
             </TabsTrigger>
             <TabsTrigger value="subscription" className="gap-2">
-              <Crown className="w-4 h-4" />
-              Подписка
+              <Crown className="h-4 w-4" />
+              {tr('crmBilling.tabSubscription', 'Подписка')}
             </TabsTrigger>
             <TabsTrigger value="addons" className="gap-2">
-              <Sparkles className="w-4 h-4" />
-              Услуги
+              <Sparkles className="h-4 w-4" />
+              {tr('crmBilling.tabAddons', 'Услуги')}
             </TabsTrigger>
           </TabsList>
 
-          {/* Balance Tab */}
-          <TabsContent value="balance" className="space-y-6 mt-6">
+          <TabsContent value="balance" className="mt-6 space-y-6">
             <div className="grid gap-6 lg:grid-cols-2">
-              {/* Doctor's Personal Account (if user is a doctor) */}
-              {isDoctor && doctorId && (
-                <VirtualAccountCard
-                  type="doctor"
-                  entityId={doctorId}
-                  entityName="Мой личный счёт"
-                />
-              )}
-              
-              {/* Clinic Account */}
               <VirtualAccountCard
                 type="clinic"
                 entityId={currentClinic.id}
-                entityName={`${currentClinic.name} (клиника)`}
+                entityName={`${currentClinic.name} · единый счёт пользователя`}
               />
 
               <div className="space-y-6">
-                <Card>
+                <Card className="border-border/60">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-primary" />
-                      Способы пополнения
+                    <CardTitle className="flex items-center gap-2 text-base font-bold">
+                      <CreditCard className="h-5 w-5 text-primary" />
+                      {tr('crmBilling.paymentMethods', 'Способы пополнения')}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
-                      <img src={paymeLogo} alt="Payme" className="w-12 h-12 object-contain" />
-                      <div>
-                        <p className="font-medium">Payme</p>
-                        <p className="text-sm text-muted-foreground">Оплата картой</p>
+                  <CardContent className="space-y-3">
+                    {[
+                      { name: 'Payme', logo: paymeLogo, desc: tr('crmBilling.payByCard', 'Оплата картой') },
+                      { name: 'Click', logo: clickLogo, desc: tr('crmBilling.fastPayment', 'Быстрая оплата') },
+                      { name: 'Uzum Bank', logo: uzumLogo, desc: tr('crmBilling.uzumApp', 'Uzum приложение') },
+                    ].map((provider) => (
+                      <div key={provider.name} className="flex items-center gap-4 rounded-xl border bg-muted/30 p-3">
+                        <img src={provider.logo} alt={provider.name} className="h-12 w-12 object-contain" />
+                        <div>
+                          <p className="font-medium">{provider.name}</p>
+                          <p className="text-sm text-muted-foreground">{provider.desc}</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
-                      <img src={clickLogo} alt="Click" className="w-12 h-12 object-contain" />
-                      <div>
-                        <p className="font-medium">Click</p>
-                        <p className="text-sm text-muted-foreground">Быстрая оплата</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
-                      <img src={uzumLogo} alt="Uzum Bank" className="w-12 h-12 object-contain" />
-                      <div>
-                        <p className="font-medium">Uzum Bank</p>
-                        <p className="text-sm text-muted-foreground">Uzum приложение</p>
-                      </div>
-                    </div>
+                    ))}
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="border-border/60">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <TrendingUp className="w-5 h-5 text-primary" />
-                      Для чего нужен баланс?
+                    <CardTitle className="flex items-center gap-2 text-base font-bold">
+                      <TrendingUp className="h-5 w-5 text-primary" />
+                      {tr('crmBilling.whyBalance', 'Для чего нужен баланс?')}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm text-muted-foreground">
-                    <div className="flex items-start gap-2">
-                      <Crown className="w-4 h-4 mt-0.5 text-primary" />
-                      <p>Оплата подписок и премиум-функций</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Megaphone className="w-4 h-4 mt-0.5 text-primary" />
-                      <p>Рекламные кампании для продвижения</p>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <History className="w-4 h-4 mt-0.5 text-primary" />
-                      <p>Покупка бейджей и значков</p>
-                    </div>
+                    <div className="flex items-start gap-2"><Crown className="mt-0.5 h-4 w-4 text-primary" /><p>{tr('crmBilling.whyBalance1', 'Оплата подписок и премиум-функций')}</p></div>
+                    <div className="flex items-start gap-2"><Megaphone className="mt-0.5 h-4 w-4 text-primary" /><p>{tr('crmBilling.whyBalance2', 'Рекламные кампании для продвижения')}</p></div>
+                    <div className="flex items-start gap-2"><History className="mt-0.5 h-4 w-4 text-primary" /><p>{tr('crmBilling.whyBalance3', 'Покупка бейджей и значков')}</p></div>
                   </CardContent>
                 </Card>
               </div>
             </div>
           </TabsContent>
 
-          {/* Subscription Tab */}
-          <TabsContent value="subscription" className="space-y-6 mt-6">
-            <Card>
+          <TabsContent value="subscription" className="mt-6 space-y-6">
+            <Card className="border-border/60">
               <CardHeader>
-                <CardTitle>Выберите план подписки</CardTitle>
-                <CardDescription>
-                  Расширьте возможности вашей клиники с премиум-функциями
-                </CardDescription>
+                <CardTitle>{tr('crmBilling.choosePlan', 'Выберите план подписки')}</CardTitle>
+                <CardDescription>{tr('crmBilling.choosePlanDesc', 'Расширьте возможности вашей клиники с премиум-функциями')}</CardDescription>
               </CardHeader>
               <CardContent>
                 {accountLoading ? (
                   <div className="grid gap-4 md:grid-cols-3">
-                    {[1, 2, 3].map((i) => (
-                      <Skeleton key={i} className="h-[350px]" />
-                    ))}
+                    {[1, 2, 3].map((item) => <Skeleton key={item} className="h-[350px]" />)}
                   </div>
                 ) : (
                   <NewSubscriptionPlans
@@ -261,25 +211,26 @@ export default function CRMBilling() {
             </Card>
           </TabsContent>
 
-          {/* Add-ons Tab */}
-          <TabsContent value="addons" className="space-y-6 mt-6">
-            <Card>
+          <TabsContent value="addons" className="mt-6 space-y-6">
+            <Card className="border-border/60">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                  Дополнительные услуги
+                <CardTitle className="flex items-center gap-2 text-base font-bold">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                  {tr('crmBilling.addons', 'Дополнительные услуги')}
                 </CardTitle>
-                <CardDescription>
-                  Бейджи, продвижение в поиске и особые рамки профиля — покупайте отдельно на любой срок
-                </CardDescription>
+                <CardDescription>{tr('crmBilling.addonsDesc', 'Бейджи, продвижение в поиске и особые рамки профиля')}</CardDescription>
               </CardHeader>
               <CardContent>
-                {accountLoading || !virtualAccount ? (
+                {accountLoading ? (
                   <div className="grid gap-4 md:grid-cols-3">
-                    {[1, 2, 3, 4, 5, 6].map((i) => (
-                      <Skeleton key={i} className="h-[180px]" />
-                    ))}
+                    {[1, 2, 3, 4, 5, 6].map((item) => <Skeleton key={item} className="h-[180px]" />)}
                   </div>
+                ) : accountError || !virtualAccount ? (
+                  <Card className="border-dashed">
+                    <CardContent className="py-10 text-center text-muted-foreground">
+                      Не удалось загрузить баланс. Обновите страницу и попробуйте ещё раз.
+                    </CardContent>
+                  </Card>
                 ) : (
                   <AddOnServicesList
                     targetType="clinic"

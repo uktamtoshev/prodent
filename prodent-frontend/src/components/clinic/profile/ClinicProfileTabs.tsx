@@ -1,20 +1,15 @@
-import { 
-  LayoutGrid, 
-  Images, 
-  Star, 
-  Building2, 
+import {
+  LayoutGrid,
+  Images,
+  Star,
+  Building2,
   Briefcase,
   Users,
   Settings,
-  ChevronDown
+  Film,
+  Newspaper
 } from 'lucide-react';
-import { useLanguage } from '@/contexts/LanguageContext';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import type { KeyboardEvent } from 'react';
 
 interface ClinicProfileTabsProps {
   activeTab: string;
@@ -22,11 +17,15 @@ interface ClinicProfileTabsProps {
   isOwner?: boolean;
 }
 
-export function ClinicProfileTabs({ activeTab, onTabChange, isOwner = false }: ClinicProfileTabsProps) {
-  const { t } = useLanguage();
+const clinicProfilePanelId = (tabId: string) => `clinic-profile-panel-${tabId}`;
 
+const clinicProfileTabId = (tabId: string) => `clinic-profile-tab-${tabId}`;
+
+export function ClinicProfileTabs({ activeTab, onTabChange, isOwner = false }: ClinicProfileTabsProps) {
   const mainTabs = [
     { id: 'timeline', label: 'Публикации', icon: LayoutGrid },
+    { id: 'reels', label: 'Рилсы', icon: Film },
+    { id: 'articles', label: 'Статьи', icon: Newspaper },
     { id: 'portfolio', label: 'Портфолио', icon: Images },
     { id: 'doctors', label: 'Врачи', icon: Users },
     { id: 'reviews', label: 'Отзывы', icon: Star },
@@ -39,64 +38,63 @@ export function ClinicProfileTabs({ activeTab, onTabChange, isOwner = false }: C
   ];
 
   const allTabs = [...mainTabs, ...moreTabs];
-  const activeTabData = allTabs.find(t => t.id === activeTab);
-  const isMoreActive = moreTabs.some(t => t.id === activeTab);
+
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+
+    const tabList = event.currentTarget.closest('[role="tablist"]');
+    const tabs = tabList
+      ? Array.from(tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+      : [];
+    const currentIndex = tabs.indexOf(event.currentTarget);
+    if (currentIndex < 0 || tabs.length === 0) return;
+
+    event.preventDefault();
+    const nextIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? tabs.length - 1
+          : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) %
+            tabs.length;
+    tabs[nextIndex]?.focus();
+  };
 
   return (
-    <div className="bg-card border-t border-border shadow-sm">
-      <div className="max-w-5xl mx-auto px-4">
-        <nav className="flex items-center gap-1 overflow-x-auto no-scrollbar -mb-px">
-          {mainTabs.map((tab) => (
+    <div className="max-w-full border-t border-border bg-card shadow-sm">
+      <div className="mx-auto min-w-0 max-w-5xl px-4">
+        <div
+          role="tablist"
+          aria-label="Разделы профиля клиники"
+          className="-mb-px flex max-w-full items-center gap-1 overflow-x-auto no-scrollbar"
+        >
+          {allTabs.map((tab) => (
             <button
               key={tab.id}
+              id={clinicProfileTabId(tab.id)}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              aria-controls={clinicProfilePanelId(tab.id)}
+              tabIndex={activeTab === tab.id ? 0 : -1}
               onClick={() => onTabChange(tab.id)}
+              onKeyDown={handleTabKeyDown}
               className={`
-                relative flex items-center gap-2 px-4 py-4 text-[15px] font-semibold whitespace-nowrap
-                transition-colors border-b-[3px] -mb-[1px]
+                relative -mb-px flex min-h-11 items-center gap-2 whitespace-nowrap border-b-[3px]
+                px-4 py-3 text-[15px] font-semibold transition-colors focus-visible:outline-none
+                focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring
                 ${activeTab === tab.id 
                   ? 'text-primary border-primary' 
                   : 'text-muted-foreground border-transparent hover:bg-muted/50 rounded-t-lg'
                 }
               `}
             >
-              <tab.icon className="w-5 h-5 sm:hidden" />
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.label.slice(0, 4)}</span>
+              <tab.icon aria-hidden="true" className="h-5 w-5 sm:hidden" />
+              <span>{tab.label}</span>
             </button>
           ))}
           
-          {moreTabs.length > 0 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className={`
-                    relative flex items-center gap-2 px-4 py-4 text-[15px] font-semibold whitespace-nowrap
-                    transition-colors border-b-[3px] -mb-[1px]
-                    ${isMoreActive 
-                      ? 'text-primary border-primary' 
-                      : 'text-muted-foreground border-transparent hover:bg-muted/50 rounded-t-lg'
-                    }
-                  `}
-                >
-                  {isMoreActive ? activeTabData?.label : 'Ещё'}
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {moreTabs.map((tab) => (
-                  <DropdownMenuItem 
-                    key={tab.id}
-                    onClick={() => onTabChange(tab.id)}
-                    className={activeTab === tab.id ? 'bg-primary/10 text-primary' : ''}
-                  >
-                    <tab.icon className="w-4 h-4 mr-2" />
-                    {tab.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </nav>
+        </div>
       </div>
     </div>
   );

@@ -6,13 +6,36 @@ import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
+import { useLanguage } from "@/contexts/LanguageContext";
+import type { Tables } from "@/integrations/supabase/types";
+import { usePrivatePatientFileUrl } from "./usePrivatePatientFileUrl";
+
+type PatientFile = Tables<"patient_files">;
+
+function PrivateComparisonImage({ file }: { file: PatientFile }) {
+  const { url, loading, error, retry } = usePrivatePatientFileUrl(file.file_url);
+  if (loading) {
+    return <div role="status" className="text-sm text-muted-foreground">Загрузка...</div>;
+  }
+  if (error || !url) {
+    return (
+      <div role="alert" className="flex flex-col items-center gap-3 rounded-lg bg-status-danger-bg px-3 py-2 text-sm text-status-danger">
+        <span>{error || "Файл не загрузился"}</span>
+        <Button type="button" variant="outline" className="min-h-11" onClick={retry}>
+          Повторить
+        </Button>
+      </div>
+    );
+  }
+  return <img src={url} alt={file.title} className="h-full w-full object-contain" />;
+}
 
 interface CompareFilesDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  files: any[];
-  allFiles: any[];
-  onFilesChange: (files: any[]) => void;
+  files: PatientFile[];
+  allFiles: PatientFile[];
+  onFilesChange: (files: PatientFile[]) => void;
 }
 
 export function CompareFilesDialog({
@@ -22,6 +45,7 @@ export function CompareFilesDialog({
   allFiles,
   onFilesChange,
 }: CompareFilesDialogProps) {
+  const { t } = useLanguage();
   const handleFileChange = (index: number, fileId: string) => {
     const newFiles = [...files];
     const selectedFile = allFiles.find((f) => f.id === fileId);
@@ -33,30 +57,30 @@ export function CompareFilesDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-slate-800 border-slate-700 text-white max-w-7xl h-[90vh]">
+      <DialogContent className="bg-card border-border text-card-foreground max-w-7xl h-[90vh]">
         <DialogHeader>
-          <DialogTitle>Сравнение снимков</DialogTitle>
+          <DialogTitle>{t('crmCompareFiles.compareSnapshots')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 h-full overflow-auto">
-          {/* Селекторы файлов */}
+          {/* File pickers */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Снимок 1</Label>
+              <Label>{t('crmCompareFiles.snapshot1')}</Label>
               <Select
                 value={files[0]?.id}
                 onValueChange={(value) => handleFileChange(0, value)}
               >
-                <SelectTrigger className="bg-slate-700 border-slate-600">
-                  <SelectValue placeholder="Выберите снимок" />
+                <SelectTrigger className="bg-background border-border">
+                  <SelectValue placeholder={t('crmCompareFiles.pickSnapshot')} />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectContent className="bg-popover border-border">
                   {allFiles.map((file) => (
                     <SelectItem key={file.id} value={file.id}>
                       {file.title} -{" "}
                       {file.visit_date
                         ? format(parseISO(file.visit_date), "d MMM yyyy", { locale: ru })
-                        : "Без даты"}
+                        : t('crmCompareFiles.noDate')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -64,21 +88,21 @@ export function CompareFilesDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Снимок 2</Label>
+              <Label>{t('crmCompareFiles.snapshot2')}</Label>
               <Select
                 value={files[1]?.id}
                 onValueChange={(value) => handleFileChange(1, value)}
               >
-                <SelectTrigger className="bg-slate-700 border-slate-600">
-                  <SelectValue placeholder="Выберите снимок" />
+                <SelectTrigger className="bg-background border-border">
+                  <SelectValue placeholder={t('crmCompareFiles.pickSnapshot')} />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectContent className="bg-popover border-border">
                   {allFiles.map((file) => (
                     <SelectItem key={file.id} value={file.id}>
                       {file.title} -{" "}
                       {file.visit_date
                         ? format(parseISO(file.visit_date), "d MMM yyyy", { locale: ru })
-                        : "Без даты"}
+                        : t('crmCompareFiles.noDate')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -86,20 +110,20 @@ export function CompareFilesDialog({
             </div>
           </div>
 
-          {/* Сравнение изображений */}
+          {/* Image comparison */}
           <div className="grid md:grid-cols-2 gap-4 flex-1">
             {files.slice(0, 2).map((file, index) => (
               <div key={file?.id || index} className="space-y-2">
-                <div className="bg-slate-700/50 p-2 rounded-lg">
-                  <div className="text-sm font-medium">{file?.title || `Снимок ${index + 1}`}</div>
+                <div className="bg-muted/50 p-2 rounded-lg">
+                  <div className="text-sm font-medium">{file?.title || `${t('crmCompareFiles.snapshot')} ${index + 1}`}</div>
                   {file?.visit_date && (
-                    <div className="text-xs text-slate-400">
+                    <div className="text-xs text-muted-foreground">
                       {format(parseISO(file.visit_date), "d MMMM yyyy", { locale: ru })}
                     </div>
                   )}
                 </div>
 
-                <div className="bg-slate-900 rounded-lg overflow-hidden h-[500px] relative">
+                <div className="bg-scrim rounded-lg overflow-hidden h-[500px] relative">
                   {file ? (
                     <TransformWrapper
                       initialScale={1}
@@ -114,7 +138,7 @@ export function CompareFilesDialog({
                               size="sm"
                               variant="outline"
                               onClick={() => zoomIn()}
-                              className="bg-slate-800/90 border-slate-600"
+                              className="bg-card/90 border-border"
                             >
                               <ZoomIn className="w-4 h-4" />
                             </Button>
@@ -122,7 +146,7 @@ export function CompareFilesDialog({
                               size="sm"
                               variant="outline"
                               onClick={() => zoomOut()}
-                              className="bg-slate-800/90 border-slate-600"
+                              className="bg-card/90 border-border"
                             >
                               <ZoomOut className="w-4 h-4" />
                             </Button>
@@ -130,7 +154,7 @@ export function CompareFilesDialog({
                               size="sm"
                               variant="outline"
                               onClick={() => resetTransform()}
-                              className="bg-slate-800/90 border-slate-600"
+                              className="bg-card/90 border-border"
                             >
                               <RotateCw className="w-4 h-4" />
                             </Button>
@@ -139,18 +163,14 @@ export function CompareFilesDialog({
                             wrapperStyle={{ width: "100%", height: "100%" }}
                             contentStyle={{ width: "100%", height: "100%" }}
                           >
-                            <img
-                              src={file.file_url}
-                              alt={file.title}
-                              className="w-full h-full object-contain"
-                            />
+                            <PrivateComparisonImage file={file} />
                           </TransformComponent>
                         </>
                       )}
                     </TransformWrapper>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-slate-400">
-                      Выберите снимок для сравнения
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      {t('crmCompareFiles.pickToCompare')}
                     </div>
                   )}
                 </div>

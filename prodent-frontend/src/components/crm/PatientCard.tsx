@@ -6,6 +6,8 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useMemo } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PatientCardProps {
   patient: {
@@ -19,22 +21,24 @@ interface PatientCardProps {
 }
 
 export function PatientCard({ patient }: PatientCardProps) {
+  const { t } = useLanguage();
   const getInitials = (name: string | null) => {
-    if (!name) return "П";
+    if (!name) return t('crmTopLevel.patientShort');
     const parts = name.split(" ");
     return parts.map(p => p[0]).join("").toUpperCase().slice(0, 2);
   };
 
+  const tagColors = useMemo<Record<string, string>>(() => ({
+    VIP: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+    [t('crmTopLevel.tagChildren')]: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
+    [t('crmTopLevel.tagAllergy')]: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+    [t('crmTopLevel.tagDebt')]: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
+    [t('crmTopLevel.tagRegular')]: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+    [t('crmTopLevel.tagNew')]: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
+  }), [t]);
+
   const getTagColor = (tag: string) => {
-    const colors: Record<string, string> = {
-      VIP: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-      Дети: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-      Аллергия: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
-      Долг: "bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20",
-      Постоянный: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-      Новый: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
-    };
-    return colors[tag] || "bg-muted text-muted-foreground border-border";
+    return tagColors[tag] || "bg-muted text-muted-foreground border-border";
   };
 
   return (
@@ -60,11 +64,11 @@ export function PatientCard({ patient }: PatientCardProps) {
                 "text-foreground font-semibold mb-1 truncate",
                 "group-hover:text-primary transition-colors"
               )}>
-                {patient.full_name || "Без имени"}
+                {patient.full_name || t('crmTopLevel.noName')}
               </h3>
               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
                 <Phone className="w-3 h-3" />
-                <span>{patient.phone || "Нет телефона"}</span>
+                <span>{patient.phone || t('crmTopLevel.noPhone')}</span>
               </div>
               {patient.patient_tags && patient.patient_tags.length > 0 && (
                 <div className="flex flex-wrap gap-1">
@@ -83,7 +87,7 @@ export function PatientCard({ patient }: PatientCardProps) {
                 <div className="flex items-center gap-1 text-xs text-muted-foreground/70 mt-2">
                   <Calendar className="w-3 h-3" />
                   <span>
-                    С {format(new Date(patient.created_at), "dd.MM.yyyy", { locale: ru })}
+                    {t('crmTopLevel.sinceLabel')} {format(new Date(patient.created_at), "dd.MM.yyyy", { locale: ru })}
                   </span>
                 </div>
               )}

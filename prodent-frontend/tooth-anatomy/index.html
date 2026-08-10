@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e9eff1" />
+    <meta
+      name="description"
+      content="Интерактивный просмотр анатомических слоёв зуба для врача и пациента."
+    />
+    <title>Анатомия зуба — PRODENT</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#tooth-viewer-stage">Перейти к 3D-модели</a>
+    <div id="tooth-viewer-root">
+      <noscript>
+        Для интерактивной 3D-модели нужен JavaScript. Текстовое описание слоёв:
+        эмаль, дентин, пульпа, корневой канал, цемент и периодонтальная связка.
+      </noscript>
+    </div>
+    <script type="module" src="/src/tooth-anatomy.ts"></script>
+  </body>
+</html>

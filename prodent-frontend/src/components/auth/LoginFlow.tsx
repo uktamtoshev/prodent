@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/edge-function-error";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface LoginFlowProps {
   onSuccess: () => void;
@@ -20,6 +21,7 @@ type Step = "method" | "contact" | "otp" | "complete";
 type LoginMethod = "phone" | "email";
 
 export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
+  const { t } = useLanguage();
   const [step, setStep] = useState<Step>("method");
   const [method, setMethod] = useState<LoginMethod>("phone");
   const [loading, setLoading] = useState(false);
@@ -42,13 +44,13 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
     if (method === "phone") {
       const phoneRegex = /^\+998\d{9}$/;
       if (!phoneRegex.test(phone)) {
-        setErrors({ contact: "Введите корректный номер телефона" });
+        setErrors({ contact: t("auth.errPhoneInvalid") });
         return;
       }
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email)) {
-        setErrors({ contact: "Введите корректный email" });
+        setErrors({ contact: t("auth.errEmailInvalid") });
         return;
       }
     }
@@ -62,25 +64,25 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
         body: {
           [method]: contact,
           role: "patient",
-          full_name: "Пользователь",
+          full_name: t("auth.defaultUserName"),
           action: "login",
           type: method,
         },
       });
 
       if (error) {
-        throw new Error(error.message || "Ошибка сервера");
+        throw new Error(error.message || t("auth.toastServerError"));
       }
       if (data?.success === false || data?.error) {
-        throw new Error(data.error || "Ошибка отправки кода");
+        throw new Error(data.error || t("auth.toastSendCodeError"));
       }
 
       setMaskedContact(data.masked_phone || data.masked_email || contact);
       setStep("otp");
-      toast.success(method === "phone" ? "SMS код отправлен" : "Код отправлен на email");
-    } catch (err: any) {
+      toast.success(method === "phone" ? t("auth.toastSmsSent") : t("auth.toastEmailSent"));
+    } catch (err: unknown) {
       console.error("Error sending OTP:", err);
-      toast.error(getErrorMessage(err, err?.message || "Ошибка отправки кода"));
+      toast.error(getErrorMessage(err, err instanceof Error ? err.message : t("auth.toastSendCodeError")));
     } finally {
       setLoading(false);
     }
@@ -88,7 +90,7 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
 
   const handleVerifyCode = async () => {
     if (otpCode.length !== 6) {
-      setErrors({ otp: "Введите 6-значный код" });
+      setErrors({ otp: t("auth.err6DigitCode") });
       return;
     }
 
@@ -99,32 +101,35 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
         body: {
           type: method,
           contact: contact,
+          phone: contact,
           code: otpCode,
           role: "patient",
-          full_name: "Пользователь",
+          full_name: t("auth.defaultUserName"),
         },
       });
 
       if (error) {
-        throw new Error(error.message || "Ошибка сервера");
+        throw new Error(error.message || t("auth.toastServerError"));
       }
       if (data?.success === false || data?.error) {
-        throw new Error(data.error || "Ошибка проверки кода");
+        throw new Error(data.error || t("auth.toastVerifyError"));
       }
 
-      if (data.session) {
+      const accessToken = data.session?.access_token ?? data.access_token;
+      const refreshToken = data.session?.refresh_token ?? data.refresh_token ?? "";
+      if (accessToken) {
         await supabase.auth.setSession({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
+          access_token: accessToken,
+          refresh_token: refreshToken,
         });
       }
 
       setStep("complete");
-      toast.success("Вход выполнен!");
+      toast.success(t("auth.toastLoginSuccess"));
       setTimeout(onSuccess, 1500);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error verifying code:", err);
-      setErrors({ otp: getErrorMessage(err, err?.message || "Неверный код") });
+      setErrors({ otp: getErrorMessage(err, err instanceof Error ? err.message : t("auth.toastInvalidCode")) });
     } finally {
       setLoading(false);
     }
@@ -143,16 +148,16 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
       });
 
       if (error) {
-        throw new Error(error.message || "Ошибка сервера");
+        throw new Error(error.message || t("auth.toastServerError"));
       }
       if (data?.success === false || data?.error) {
-        throw new Error(data.error || "Ошибка повторной отправки");
+        throw new Error(data.error || t("auth.toastResendError"));
       }
 
-      toast.success("Код отправлен повторно");
-    } catch (err: any) {
+      toast.success(t("auth.toastCodeResent"));
+    } catch (err: unknown) {
       console.error("Error resending code:", err);
-      toast.error(getErrorMessage(err, err?.message || "Ошибка отправки кода"));
+      toast.error(getErrorMessage(err, err instanceof Error ? err.message : t("auth.toastSendCodeError")));
     } finally {
       setResending(false);
     }
@@ -221,17 +226,17 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
             </Button>
           )}
           <h2 className="text-2xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-            {step === "method" && "Выберите способ входа"}
-            {step === "contact" && (method === "phone" ? "Введите телефон" : "Введите email")}
-            {step === "otp" && "Подтверждение"}
-            {step === "complete" && "Добро пожаловать!"}
+            {step === "method" && t("auth.pickLoginMethod")}
+            {step === "contact" && (method === "phone" ? t("auth.enterPhone") : t("auth.enterEmail"))}
+            {step === "otp" && t("auth.otpVerification")}
+            {step === "complete" && t("auth.welcome")}
           </h2>
         </div>
         <p className="text-muted-foreground">
-          {step === "method" && "Войдите по телефону или email"}
-          {step === "contact" && "Мы отправим вам код подтверждения"}
-          {step === "otp" && `Код отправлен на ${maskedContact}`}
-          {step === "complete" && "Вы успешно вошли в систему"}
+          {step === "method" && t("auth.loginByPhoneOrEmail")}
+          {step === "contact" && t("auth.sendCodeHint")}
+          {step === "otp" && `${t("auth.codeSentTo")} ${maskedContact}`}
+          {step === "complete" && t("auth.successLogin")}
         </p>
       </div>
 
@@ -249,8 +254,8 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
                     <Phone className="w-7 h-7 text-white" />
                   </div>
-                  <span className="font-medium">Телефон</span>
-                  <span className="text-xs text-muted-foreground">SMS код</span>
+                  <span className="font-medium">{t("auth.phoneLabel")}</span>
+                  <span className="text-xs text-muted-foreground">{t("auth.methodPhoneDesc")}</span>
                 </div>
               </button>
 
@@ -263,15 +268,15 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
                     <Mail className="w-7 h-7 text-white" />
                   </div>
                   <span className="font-medium">Email</span>
-                  <span className="text-xs text-muted-foreground">Код на почту</span>
+                  <span className="text-xs text-muted-foreground">{t("auth.methodEmailDesc")}</span>
                 </div>
               </button>
             </div>
 
             <p className="text-center text-sm text-muted-foreground">
-              Нет аккаунта?{" "}
+              {t("auth.noAccount")}{" "}
               <Button variant="link" className="p-0 h-auto font-semibold" onClick={onSwitchToRegister}>
-                Зарегистрироваться
+                {t("auth.registerLink")}
               </Button>
             </p>
           </>
@@ -293,7 +298,7 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium">
-                  Email адрес
+                  {t("auth.emailAddr")}
                 </Label>
                 <Input
                   id="email"
@@ -324,19 +329,19 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
               {loading ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Отправка...
+                  {t("auth.sending")}
                 </>
               ) : (
                 <>
-                  {method === "phone" ? "Получить SMS код" : "Получить код на email"}
+                  {method === "phone" ? t("auth.getSmsCode") : t("auth.getEmailCode")}
                 </>
               )}
             </Button>
 
             <p className="text-center text-sm text-muted-foreground">
-              Нет аккаунта?{" "}
+              {t("auth.noAccount")}{" "}
               <Button variant="link" className="p-0 h-auto font-semibold" onClick={onSwitchToRegister}>
-                Зарегистрироваться
+                {t("auth.registerLink")}
               </Button>
             </p>
           </>
@@ -369,10 +374,10 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
               {loading ? (
                 <>
                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  Проверка...
+                  {t("auth.checking")}
                 </>
               ) : (
-                "Войти"
+                t("auth.loginAction")
               )}
             </Button>
           </>
@@ -384,8 +389,8 @@ export function LoginFlow({ onSuccess, onSwitchToRegister }: LoginFlowProps) {
             <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center shadow-xl">
               <CheckCircle2 className="w-10 h-10 text-white" />
             </div>
-            <p className="text-xl font-semibold mb-2">С возвращением!</p>
-            <p className="text-muted-foreground">Перенаправление...</p>
+            <p className="text-xl font-semibold mb-2">{t("auth.welcomeBack")}</p>
+            <p className="text-muted-foreground">{t("auth.redirectingDots")}</p>
           </div>
         )}
       </div>

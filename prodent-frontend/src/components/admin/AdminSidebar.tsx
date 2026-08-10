@@ -1,4 +1,4 @@
-import { NavLink, Link } from 'react-router-dom';
+import { useMemo } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -12,105 +12,156 @@ import {
   Tag,
   FileText,
   Settings,
-  LogOut,
   Shield,
   ClipboardCheck,
   Award,
   Percent,
+  Plug,
+  FlaskConical,
+  Gift,
+  ShoppingCart,
+  Store,
+  Package,
+  Flag,
+  Megaphone as Broadcast,
+  Star,
+  Scale,
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
-import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import prodentLogo from "@/assets/prodent-logo.png";
+import { jobs } from '@/lib/jobs';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useLanguage, Language } from '@/contexts/LanguageContext';
+import {
+  RoleSidebar,
+  RoleSidebarNavGroup,
+} from '@/components/shared/RoleSidebar';
 
-const menuItems = [
-  { icon: LayoutDashboard, label: 'Дашборд', path: '/admin' },
-  { icon: Users, label: 'Все врачи', path: '/admin/doctors' },
-  { icon: Building2, label: 'Все клиники', path: '/admin/clinics' },
-  { icon: UserCircle, label: 'Все пациенты', path: '/admin/patients' },
-  { icon: Calendar, label: 'Записи', path: '/admin/appointments' },
-  { icon: CreditCard, label: 'Платежи', path: '/admin/payments' },
-  { icon: Megaphone, label: 'Реклама', path: '/admin/ads' },
-  { icon: Award, label: 'Бейджи', path: '/admin/badges' },
-  { icon: Percent, label: 'Акции', path: '/admin/promotions' },
-  { icon: FileCheck, label: 'Модерация', path: '/admin/moderation' },
-  { icon: MessageSquare, label: 'Отзывы', path: '/admin/reviews' },
-  { icon: Tag, label: 'Промокоды', path: '/admin/promo' },
-  { icon: FileText, label: 'Блог', path: '/admin/blog' },
-  { icon: ClipboardCheck, label: 'Валидация', path: '/admin/verification' },
-  { icon: Shield, label: 'Пользователи', path: '/admin/users' },
-  { icon: Settings, label: 'Настройки', path: '/admin/settings' },
-];
+const GROUP_LABELS: Record<Language, { catalog: string; content: string; moderation: string; operations: string; system: string }> = {
+  ru:      { catalog: 'Каталог',  content: 'Контент',   moderation: 'Модерация', operations: 'Операции',  system: 'Система' },
+  uz:      { catalog: 'Katalog',  content: 'Kontent',   moderation: 'Moderatsiya', operations: 'Operatsiyalar', system: 'Tizim' },
+  uz_cyrl: { catalog: 'Каталог',  content: 'Контент',   moderation: 'Модерация', operations: 'Операциялар', system: 'Тизим' },
+  kz:      { catalog: 'Каталог',  content: 'Контент',   moderation: 'Модерация', operations: 'Операциялар', system: 'Жүйе' },
+  kg:      { catalog: 'Каталог',  content: 'Контент',   moderation: 'Модерация', operations: 'Операциялар', system: 'Тутум' },
+  tj:      { catalog: 'Каталог',  content: 'Контент',   moderation: 'Модерация', operations: 'Амалиётҳо', system: 'Система' },
+};
 
 export const AdminSidebar = () => {
-  const { signOut } = useAuth();
+  const { t, language } = useLanguage();
+  const { isSuperAdmin, isModerator } = useUserRole();
 
-  // Fetch pending applications count
+  // Count of pending applications — surfaced as a red badge on the
+  // moderation/verification nav item so admins notice queued work.
   const { data: pendingCount = 0 } = useQuery({
     queryKey: ['pending-applications-count'],
     queryFn: async () => {
       const [doctorRes, clinicRes] = await Promise.all([
         supabase.from('doctor_applications').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('clinic_applications').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+        supabase.from('clinic_applications').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       ]);
       return (doctorRes.count || 0) + (clinicRes.count || 0);
     },
+    enabled: !isModerator,
     refetchInterval: 30000,
   });
 
-  return (
-    <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
-      <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-        <Link to="/" className="hover:opacity-80 transition-opacity">
-          <img src={prodentLogo} alt="PRODENT" className="w-10 h-10 object-contain" />
-        </Link>
-        <div>
-          <Link to="/" className="hover:opacity-80 transition-opacity">
-            <h1 className="text-xl font-bold text-[#00C6BB]">PRODENT</h1>
-          </Link>
-          <p className="text-sm text-slate-400">Админ-панель</p>
-        </div>
-      </div>
+  // Open job-report complaints — badge on the moderation nav item. Best-effort: the jobs
+  // API may 403 for a non-module role, so failures fall back to 0.
+  const { data: openReports = 0 } = useQuery({
+    queryKey: ['open-job-reports-count'],
+    queryFn: async () => {
+      try {
+        const list = (await jobs.listReports('open')) as unknown[];
+        return Array.isArray(list) ? list.length : 0;
+      } catch {
+        return 0;
+      }
+    },
+    enabled: !isModerator,
+    refetchInterval: 30000,
+  });
 
-      <nav className="flex-1 p-4 overflow-auto">
-        <ul className="space-y-1">
-          {menuItems.map((item) => (
-            <li key={item.path}>
-              <NavLink
-                to={item.path}
-                end={item.path === '/admin'}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-lg transition-colors',
-                    isActive
-                      ? 'bg-[#00C6BB]/10 text-[#00C6BB]'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                  )
-                }
-              >
-                <item.icon className="h-5 w-5" />
-                <span>{item.label}</span>
-                {item.path === '/admin/verification' && pendingCount > 0 && (
-                  <span className="ml-auto bg-red-500 text-white text-xs font-medium px-2 py-0.5 rounded-full">
-                    {pendingCount}
-                  </span>
-                )}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </nav>
+  const L = GROUP_LABELS[language];
 
-      <div className="p-4 border-t border-slate-800">
-        <button
-          onClick={signOut}
-          className="flex items-center gap-3 px-4 py-3 w-full rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
-        >
-          <LogOut className="h-5 w-5" />
-          <span>Выход</span>
-        </button>
-      </div>
-    </aside>
+  const groups: RoleSidebarNavGroup[] = useMemo(
+    () => isModerator ? [
+      {
+        label: L.moderation,
+        items: [
+          { title: t('adminSidebar.moderation'), path: '/admin/moderation', icon: FileCheck },
+          { title: t('adminSidebar.reviews'), path: '/admin/reviews', icon: MessageSquare },
+          { title: t('adminSidebar.marketProducts'), path: '/admin/market/products', icon: Package },
+          { title: t('adminSidebar.marketReviews'), path: '/admin/market/reviews', icon: Star },
+          { title: 'Споры и возвраты', path: '/admin/market/disputes', icon: Scale },
+        ],
+      },
+    ] : [
+      // Dashboard — no label, anchored at the top.
+      {
+        items: [
+          { title: t('adminSidebar.dashboard'), path: '/admin', icon: LayoutDashboard, end: true },
+        ],
+      },
+      // Каталог — read-views over core entities + transaction log.
+      {
+        label: L.catalog,
+        items: [
+          { title: t('adminSidebar.doctors'),      path: '/admin/doctors',      icon: Users },
+          { title: t('adminSidebar.clinics'),      path: '/admin/clinics',      icon: Building2 },
+          { title: t('adminSidebar.patients'),     path: '/admin/patients',     icon: UserCircle },
+          { title: t('adminSidebar.appointments'), path: '/admin/appointments', icon: Calendar },
+          { title: t('adminSidebar.payments'),     path: '/admin/payments',     icon: CreditCard },
+        ],
+      },
+      // Контент — marketing surfaces and editorial.
+      {
+        label: L.content,
+        items: [
+          { title: t('adminSidebar.ads'),        path: '/admin/ads',        icon: Megaphone },
+          { title: t('adminSidebar.badges'),     path: '/admin/badges',     icon: Award },
+          { title: t('adminSidebar.promotions'), path: '/admin/promotions', icon: Percent },
+          { title: t('adminSidebar.promo'),      path: '/admin/promo',      icon: Tag },
+          { title: t('adminSidebar.blog'),       path: '/admin/blog',       icon: FileText },
+        ],
+      },
+      // Модерация — queued items needing admin review.
+      {
+        label: L.moderation,
+        items: [
+          { title: t('adminSidebar.moderation'),   path: '/admin/moderation',   icon: FileCheck },
+          { title: t('adminSidebar.reviews'),      path: '/admin/reviews',      icon: MessageSquare },
+          { title: t('adminSidebar.verification'), path: '/admin/verification', icon: ClipboardCheck, badge: pendingCount },
+          { title: t('adminSidebar.jobReports'),   path: '/admin/job-reports',  icon: Flag, badge: openReports },
+        ],
+      },
+      // Операции — cross-cutting operational views (lab domain, referrals, later marketplace ops).
+      {
+        label: L.operations,
+        items: [
+          { title: t('adminSidebar.lab'), path: '/admin/lab', icon: FlaskConical },
+          { title: t('adminSidebar.referrals'), path: '/admin/referrals', icon: Gift },
+          { title: t('adminSidebar.marketOrders'), path: '/admin/market/orders', icon: ShoppingCart },
+          { title: t('adminSidebar.marketSellers'), path: '/admin/market/sellers', icon: Store },
+          { title: t('adminSidebar.marketProducts'), path: '/admin/market/products', icon: Package },
+          { title: t('adminSidebar.marketReviews'), path: '/admin/market/reviews', icon: Star },
+          { title: 'Споры и возвраты', path: '/admin/market/disputes', icon: Scale },
+        ],
+      },
+      // Система — platform admin (users / integrations / settings).
+      {
+        label: L.system,
+        items: [
+          { title: t('adminSidebar.users'),    path: '/admin/users',    icon: Shield },
+          { title: t('adminSidebar.broadcast'), path: '/admin/broadcast', icon: Broadcast },
+          ...(isSuperAdmin
+            ? [{ title: t('adminSidebar.integrations') || 'Интеграции', path: '/admin/integrations', icon: Plug }]
+            : []),
+          { title: t('adminSidebar.settings'), path: '/admin/settings', icon: Settings },
+        ],
+      },
+    ],
+    [t, L, isModerator, isSuperAdmin, openReports, pendingCount]
   );
+
+  return <RoleSidebar roleLabel={t('adminSidebar.adminPanel')} items={groups} />;
 };

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '@/hooks/use-toast';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { 
   User, 
   Camera, 
@@ -23,26 +24,110 @@ import {
   Plus
 } from 'lucide-react';
 
+type EducationItem = {
+  year?: string | number | null;
+  degree?: string | null;
+  title?: string | null;
+};
+
+type ProfileInfoDoctor = {
+  id: string;
+  specialty?: string | null;
+  experience_years?: number | null;
+  education?: string | EducationItem[] | null;
+  bio?: string | null;
+  address?: string | null;
+  languages?: string | string[] | null;
+};
+
+type ProfileInfoProfile = {
+  id: string;
+  last_name?: string | null;
+  first_name?: string | null;
+  middle_name?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  avatar_url?: string | null;
+};
+
+type MutationError = { message?: string } | Error | unknown;
+
+const errorMessage = (error: MutationError) =>
+  error instanceof Error ? error.message : undefined;
+
+/**
+ * В базе `doctors.education` и `doctors.languages` — текстовые колонки, куда
+ * пишется JSON. Приходить оттуда может что угодно: массив, JSON-строка или
+ * просто текст, который когда-то ввели руками. Разбираем все три случая, иначе
+ * в поле формы попадает сырой JSON, а публичный профиль перестаёт его читать.
+ */
+const parseJsonArray = (raw: unknown): unknown[] => {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+/** JSON-массив образования → «2014 · Врач-стоматолог · ТГСИ; 2016 · …» */
+const educationToText = (raw: unknown): string => {
+  const items = parseJsonArray(raw) as EducationItem[];
+  if (items.length > 0) {
+    return items
+      .map((e) => [e?.year, e?.degree, e?.title ?? (e as { institution?: string })?.institution]
+        .filter(Boolean)
+        .join(' · '))
+      .filter(Boolean)
+      .join('; ');
+  }
+  return typeof raw === 'string' && !raw.trim().startsWith('[') ? raw : '';
+};
+
+/** Обратно в JSON-массив, чтобы публичный профиль продолжал его разбирать. */
+const serializeEducation = (text: string): string => {
+  const items = text
+    .split(';')
+    .map((chunk) => chunk.trim())
+    .filter(Boolean)
+    .map((chunk) => {
+      const parts = chunk.split('·').map((p) => p.trim()).filter(Boolean);
+      const year = parts.find((p) => /^\d{4}$/.test(p));
+      const rest = parts.filter((p) => p !== year);
+      return {
+        year: year ? Number(year) : undefined,
+        degree: rest[0] ?? undefined,
+        institution: rest[1] ?? rest[0] ?? undefined,
+      };
+    });
+  return JSON.stringify(items);
+};
+
 interface ProfilePersonalInfoProps {
-  doctor: any;
-  profile: any;
+  doctor: ProfileInfoDoctor | null;
+  profile: ProfileInfoProfile;
 }
 
-const AVAILABLE_LANGUAGES = [
-  'Русский',
-  'Узбекский', 
-  'Английский',
-  'Таджикский',
-  'Казахский',
-  'Кыргызский',
-  'Корейский',
-  'Турецкий',
-  'Арабский',
-];
-
 export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const AVAILABLE_LANGUAGES = useMemo(() => [
+    t('crmProfilePersonal.langRussian'),
+    t('crmProfilePersonal.langUzbek'),
+    t('crmProfilePersonal.langEnglish'),
+    t('crmProfilePersonal.langTajik'),
+    t('crmProfilePersonal.langKazakh'),
+    t('crmProfilePersonal.langKyrgyz'),
+    t('crmProfilePersonal.langKorean'),
+    t('crmProfilePersonal.langTurkish'),
+    t('crmProfilePersonal.langArabic'),
+  ], [t]);
   
   const [isEditing, setIsEditing] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
@@ -56,24 +141,23 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
     email: profile?.email || '',
     specialty: doctor?.specialty || '',
     experience_years: doctor?.experience_years || 0,
-    education: doctor?.education || '',
+    education: educationToText(doctor?.education),
     bio: doctor?.bio || '',
     address: doctor?.address || '',
-    languages: doctor?.languages || [],
+    languages: parseJsonArray(doctor?.languages) as string[],
   });
 
   const [newLanguage, setNewLanguage] = useState('');
 
   const updateProfile = useMutation({
     mutationFn: async () => {
-      // Update profile table (use separate name fields - trigger generates full_name)
+      // Имя, фамилию и телефон отсюда не меняем: имя и фамилия приходят из
+      // проверенных документов, телефон — это логин, он меняется отдельной
+      // процедурой с подтверждением по SMS.
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
-          last_name: formData.last_name,
-          first_name: formData.first_name,
           middle_name: formData.middle_name,
-          phone: formData.phone,
           email: formData.email,
         })
         .eq('id', profile.id);
@@ -86,25 +170,28 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
         .update({
           specialty: formData.specialty,
           experience_years: formData.experience_years,
-          education: formData.education,
+          education: serializeEducation(formData.education),
           bio: formData.bio,
           address: formData.address,
-          languages: formData.languages,
+          // Колонка текстовая и хранит JSON-массив: универсальный прокси
+          // данных приводит к jsonb только колонки из своего списка, а
+          // добавление в него требует пересборки бэкенда.
+          languages: JSON.stringify(formData.languages ?? []),
         })
         .eq('id', doctor.id);
 
       if (doctorError) throw doctorError;
     },
     onSuccess: () => {
-      toast({ title: 'Профиль обновлён' });
+      toast({ title: t('crmProfilePersonal.profileUpdated') });
       queryClient.invalidateQueries({ queryKey: ['crm-doctor-profile'] });
       setIsEditing(false);
     },
-    onError: (error: any) => {
-      toast({ 
-        title: 'Ошибка', 
-        description: error.message, 
-        variant: 'destructive' 
+    onError: (error: MutationError) => {
+      toast({
+        title: t('crmProfilePersonal.errorTitle'),
+        description: errorMessage(error),
+        variant: 'destructive'
       });
     },
   });
@@ -132,13 +219,13 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
 
       if (updateError) throw updateError;
 
-      toast({ title: 'Фото обновлено' });
+      toast({ title: t('crmProfilePersonal.photoUpdated') });
       queryClient.invalidateQueries({ queryKey: ['crm-doctor-profile'] });
-    } catch (error: any) {
-      toast({ 
-        title: 'Ошибка', 
-        description: error.message, 
-        variant: 'destructive' 
+    } catch (error: MutationError) {
+      toast({
+        title: t('crmProfilePersonal.errorTitle'),
+        description: errorMessage(error),
+        variant: 'destructive'
       });
     } finally {
       setUploadingAvatar(false);
@@ -165,19 +252,19 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle className="text-foreground flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
           <User className="w-5 h-5 text-primary" />
-          Личная информация
+          {t('crmProfilePersonal.personalInfoTitle')}
         </CardTitle>
         {!isEditing ? (
           <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
-            Редактировать
+            {t('crmProfilePersonal.editBtn')}
           </Button>
         ) : (
           <div className="flex gap-2">
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => {
                 setIsEditing(false);
                 setFormData({
@@ -188,23 +275,23 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
                   email: profile?.email || '',
                   specialty: doctor?.specialty || '',
                   experience_years: doctor?.experience_years || 0,
-                  education: doctor?.education || '',
+                  education: educationToText(doctor?.education),
                   bio: doctor?.bio || '',
                   address: doctor?.address || '',
-                  languages: doctor?.languages || [],
+                  languages: parseJsonArray(doctor?.languages) as string[],
                 });
               }}
             >
-              Отмена
+              {t('crmProfilePersonal.cancelBtn')}
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               onClick={() => updateProfile.mutate()}
               disabled={updateProfile.isPending}
               className="gap-2"
             >
               <Save className="w-4 h-4" />
-              {updateProfile.isPending ? 'Сохранение...' : 'Сохранить'}
+              {updateProfile.isPending ? t('crmProfilePersonal.saving') : t('crmProfilePersonal.save')}
             </Button>
           </div>
         )}
@@ -241,13 +328,13 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
             </Button>
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-foreground">
-              {profile?.full_name || 'Ваше имя'}
+            <h3 className="text-base font-bold text-foreground">
+              {profile?.full_name || t('crmProfilePersonal.yourName')}
             </h3>
             <p className="text-muted-foreground">{doctor?.specialty}</p>
             {doctor?.verified && (
               <Badge variant="secondary" className="mt-2 bg-primary/10 text-primary">
-                Верифицирован
+                {t('crmProfilePersonal.verified')}
               </Badge>
             )}
           </div>
@@ -259,47 +346,33 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <User className="w-4 h-4 text-muted-foreground" />
-              Фамилия
+              {t('crmProfilePersonal.lastNameLabel')}
             </Label>
-            {isEditing ? (
-              <Input
-                value={formData.last_name}
-                onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
-                placeholder="Иванов"
-              />
-            ) : (
-              <p className="text-foreground py-2">{profile?.last_name || '—'}</p>
-            )}
+            {/* Фамилия — из подтверждённых документов, меняется только через поддержку */}
+            <p className="text-foreground py-2">{profile?.last_name || '—'}</p>
           </div>
 
           {/* First Name */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <User className="w-4 h-4 text-muted-foreground" />
-              Имя
+              {t('crmProfilePersonal.firstNameLabel')}
             </Label>
-            {isEditing ? (
-              <Input
-                value={formData.first_name}
-                onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
-                placeholder="Алексей"
-              />
-            ) : (
-              <p className="text-foreground py-2">{profile?.first_name || '—'}</p>
-            )}
+            {/* Имя — из подтверждённых документов, меняется только через поддержку */}
+            <p className="text-foreground py-2">{profile?.first_name || '—'}</p>
           </div>
 
           {/* Middle Name */}
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <User className="w-4 h-4 text-muted-foreground" />
-              Отчество
+              {t('crmProfilePersonal.middleNameLabel')}
             </Label>
             {isEditing ? (
               <Input
                 value={formData.middle_name}
                 onChange={(e) => setFormData(prev => ({ ...prev, middle_name: e.target.value }))}
-                placeholder="Петрович"
+                placeholder={t('crmProfilePersonal.middleNamePh')}
               />
             ) : (
               <p className="text-foreground py-2">{profile?.middle_name || '—'}</p>
@@ -310,13 +383,13 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-muted-foreground" />
-              Специализация
+              {t('crmProfilePersonal.specialtyLabel')}
             </Label>
             {isEditing ? (
               <Input
                 value={formData.specialty}
                 onChange={(e) => setFormData(prev => ({ ...prev, specialty: e.target.value }))}
-                placeholder="Стоматолог-терапевт"
+                placeholder={t('crmProfilePersonal.specialtyPh')}
               />
             ) : (
               <p className="text-foreground py-2">{doctor?.specialty || '—'}</p>
@@ -327,17 +400,10 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Phone className="w-4 h-4 text-muted-foreground" />
-              Телефон
+              {t('crmProfilePersonal.phoneLabel')}
             </Label>
-            {isEditing ? (
-              <Input
-                value={formData.phone}
-                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                placeholder="+998 90 123 45 67"
-              />
-            ) : (
-              <p className="text-foreground py-2">{profile?.phone || '—'}</p>
-            )}
+            {/* Телефон — логин в системе, меняется отдельной процедурой с проверкой по SMS */}
+            <p className="text-foreground py-2">{profile?.phone || '—'}</p>
           </div>
 
           {/* Email */}
@@ -362,7 +428,7 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-muted-foreground" />
-              Опыт работы (лет)
+              {t('crmProfilePersonal.experienceLabel')}
             </Label>
             {isEditing ? (
               <Input
@@ -372,7 +438,7 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
                 onChange={(e) => setFormData(prev => ({ ...prev, experience_years: parseInt(e.target.value) || 0 }))}
               />
             ) : (
-              <p className="text-foreground py-2">{doctor?.experience_years || 0} лет</p>
+              <p className="text-foreground py-2">{doctor?.experience_years || 0} {t('crmProfilePersonal.yearsSuffix')}</p>
             )}
           </div>
 
@@ -380,13 +446,13 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-muted-foreground" />
-              Адрес приёма
+              {t('crmProfilePersonal.addressLabel')}
             </Label>
             {isEditing ? (
               <Input
                 value={formData.address}
                 onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
-                placeholder="г. Ташкент, ул. ..."
+                placeholder={t('crmProfilePersonal.addressPh')}
               />
             ) : (
               <p className="text-foreground py-2">{doctor?.address || '—'}</p>
@@ -398,16 +464,26 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
         <div className="space-y-2">
           <Label className="flex items-center gap-2">
             <GraduationCap className="w-4 h-4 text-muted-foreground" />
-            Образование
+            {t('crmProfilePersonal.educationLabel')}
           </Label>
           {isEditing ? (
             <Input
               value={formData.education}
               onChange={(e) => setFormData(prev => ({ ...prev, education: e.target.value }))}
-              placeholder="Ташкентский медицинский институт, 2015"
+              placeholder={t('crmProfilePersonal.educationPh')}
             />
+          ) : Array.isArray(doctor?.education) ? (
+            <ul className="space-y-1.5 py-2">
+              {(doctor!.education as Array<{ year?: string | number; title?: string; degree?: string }>).map((e, i) => (
+                <li key={i} className="text-foreground text-sm">
+                  {[e.year, e.degree, e.title].filter(Boolean).join(" · ")}
+                </li>
+              ))}
+            </ul>
           ) : (
-            <p className="text-foreground py-2">{doctor?.education || '—'}</p>
+            <p className="text-foreground py-2">
+              {typeof doctor?.education === 'string' ? doctor.education : '—'}
+            </p>
           )}
         </div>
 
@@ -415,7 +491,7 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
         <div className="space-y-2">
           <Label className="flex items-center gap-2">
             <Languages className="w-4 h-4 text-muted-foreground" />
-            Языки
+            {t('crmProfilePersonal.languagesLabel')}
           </Label>
           {isEditing ? (
             <div className="space-y-3">
@@ -451,12 +527,12 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
             </div>
           ) : (
             <div className="flex flex-wrap gap-2 py-2">
-              {doctor?.languages?.length > 0 ? (
-                doctor.languages.map((lang: string) => (
+              {parseJsonArray(doctor?.languages).length > 0 ? (
+                (parseJsonArray(doctor?.languages) as string[]).map((lang: string) => (
                   <Badge key={lang} variant="secondary">{lang}</Badge>
                 ))
               ) : (
-                <span className="text-muted-foreground">Не указаны</span>
+                <span className="text-muted-foreground">{t('crmProfilePersonal.notSpecified')}</span>
               )}
             </div>
           )}
@@ -464,17 +540,17 @@ export function ProfilePersonalInfo({ doctor, profile }: ProfilePersonalInfoProp
 
         {/* Bio */}
         <div className="space-y-2">
-          <Label>О себе</Label>
+          <Label>{t('crmProfilePersonal.aboutLabel')}</Label>
           {isEditing ? (
             <Textarea
               value={formData.bio}
               onChange={(e) => setFormData(prev => ({ ...prev, bio: e.target.value }))}
-              placeholder="Расскажите о себе, своём подходе к лечению..."
+              placeholder={t('crmProfilePersonal.aboutPh')}
               className="min-h-[100px]"
             />
           ) : (
             <p className="text-foreground py-2 whitespace-pre-wrap">
-              {doctor?.bio || 'Описание не добавлено'}
+              {doctor?.bio || t('crmProfilePersonal.noBio')}
             </p>
           )}
         </div>

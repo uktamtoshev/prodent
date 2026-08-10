@@ -15,7 +15,7 @@ import { AddOnServiceCard } from './AddOnServiceCard';
 import { AddOnPurchaseDialog } from './AddOnPurchaseDialog';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import * as LucideIcons from 'lucide-react';
+import { resolveBillingIcon } from './billingIconMap';
 
 interface AddOnServicesListProps {
   targetType: 'doctor' | 'clinic';
@@ -30,7 +30,7 @@ export function AddOnServicesList({
   balance,
   virtualAccountId,
 }: AddOnServicesListProps) {
-  const { language } = useLanguage();
+  const { t } = useLanguage();
   const [selectedService, setSelectedService] = useState<AddOnService | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -47,9 +47,9 @@ export function AddOnServicesList({
         .select('add_on_id, price')
         .eq('is_active', true)
         .order('price', { ascending: true });
-      
+
       if (error) throw error;
-      
+
       // Group by add_on_id and get minimum price
       const priceMap: Record<string, number> = {};
       data?.forEach(item => {
@@ -60,10 +60,6 @@ export function AddOnServicesList({
       return priceMap;
     },
   });
-
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('ru-RU').format(amount);
-  };
 
   const handleSelectService = (service: AddOnService) => {
     setSelectedService(service);
@@ -91,14 +87,14 @@ export function AddOnServicesList({
   };
 
   const renderIcon = (iconName: string, color: string) => {
-    const IconComponent = (LucideIcons as any)[iconName] || LucideIcons.Award;
+    const IconComponent = resolveBillingIcon(iconName);
     return <IconComponent className="w-4 h-4" style={{ color }} />;
   };
 
   // Group services by type
   const groupedServices = useMemo(() => {
     if (!services) return { badges: [], promotions: [], frames: [] };
-    
+
     return {
       badges: services.filter(s => s.service_type === 'badge'),
       promotions: services.filter(s => s.service_type === 'search_promotion'),
@@ -125,7 +121,7 @@ export function AddOnServicesList({
         <div className="space-y-3">
           <h3 className="font-semibold flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
-            Активные услуги
+            {t('billingDialogs.activeServices')}
           </h3>
           <div className="flex flex-wrap gap-2">
             {activeAddOns.map((addon) => (
@@ -142,7 +138,7 @@ export function AddOnServicesList({
                 {addon.name}
                 <span className="text-xs opacity-75 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  до {format(new Date(addon.end_date), 'd MMM', { locale: ru })}
+                  {t('billingDialogs.until')} {format(new Date(addon.end_date), 'd MMM', { locale: ru })}
                 </span>
               </Badge>
             ))}
@@ -155,22 +151,22 @@ export function AddOnServicesList({
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="badges" className="gap-2">
             <Award className="w-4 h-4" />
-            Бейджи
+            {t('billingDialogs.tabBadges')}
           </TabsTrigger>
           <TabsTrigger value="promotions" className="gap-2">
             <TrendingUp className="w-4 h-4" />
-            Продвижение
+            {t('billingDialogs.tabPromotions')}
           </TabsTrigger>
           <TabsTrigger value="frames" className="gap-2">
             <Sparkles className="w-4 h-4" />
-            Рамки
+            {t('billingDialogs.tabFrames')}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="badges" className="mt-4">
           {groupedServices.badges.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
-              Нет доступных бейджей
+              {t('billingDialogs.noBadges')}
             </p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -190,7 +186,7 @@ export function AddOnServicesList({
         <TabsContent value="promotions" className="mt-4">
           {groupedServices.promotions.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
-              Нет доступных услуг продвижения
+              {t('billingDialogs.noPromotions')}
             </p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -210,7 +206,7 @@ export function AddOnServicesList({
         <TabsContent value="frames" className="mt-4">
           {groupedServices.frames.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
-              Нет доступных рамок профиля
+              {t('billingDialogs.noFrames')}
             </p>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

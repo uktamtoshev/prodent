@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Timer, RefreshCw } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface OtpTimerProps {
   initialSeconds: number;
@@ -9,6 +10,7 @@ interface OtpTimerProps {
 }
 
 export function OtpTimer({ initialSeconds, onResend, isResending }: OtpTimerProps) {
+  const { t } = useLanguage();
   const [seconds, setSeconds] = useState(initialSeconds);
   const [canResend, setCanResend] = useState(false);
 
@@ -47,7 +49,7 @@ export function OtpTimer({ initialSeconds, onResend, isResending }: OtpTimerProp
       {!canResend ? (
         <>
           <Timer className="w-4 h-4" />
-          <span>Повторно через {formatTime(seconds)}</span>
+          <span>{t("auth.resendIn")} {formatTime(seconds)}</span>
         </>
       ) : (
         <Button
@@ -58,7 +60,7 @@ export function OtpTimer({ initialSeconds, onResend, isResending }: OtpTimerProp
           className="p-0 h-auto"
         >
           <RefreshCw className={`w-4 h-4 mr-1 ${isResending ? "animate-spin" : ""}`} />
-          Отправить код повторно
+          {t("auth.resendCodeBtn")}
         </Button>
       )}
     </div>

@@ -14,7 +14,8 @@ import {
   UserPlus,
   Shield,
   Trash2,
-  ExternalLink
+  ExternalLink,
+  type LucideIcon
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,8 +30,9 @@ import { formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
+import { useLanguage } from "@/contexts/LanguageContext";
 
-const typeIcons: Record<string, any> = {
+const typeIcons: Record<string, LucideIcon> = {
   appointment_new: Calendar,
   appointment_rescheduled: Calendar,
   appointment_cancelled: X,
@@ -47,6 +49,7 @@ const typeIcons: Record<string, any> = {
   doctor_request: UserPlus,
   message_new: MessageSquare,
   general: Bell,
+  LAB_ORDER: FlaskConical,
 };
 
 const typeColors: Record<string, string> = {
@@ -66,9 +69,11 @@ const typeColors: Record<string, string> = {
   doctor_request: "text-primary bg-primary/10",
   message_new: "text-blue-500 bg-blue-500/10",
   general: "text-muted-foreground bg-muted",
+  LAB_ORDER: "text-purple-500 bg-purple-500/10",
 };
 
 export function NotificationsDropdown() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { 
     notifications, 
@@ -112,11 +117,11 @@ export function NotificationsDropdown() {
       </PopoverTrigger>
       <PopoverContent className="w-[380px] p-0" align="end">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-          <h4 className="font-semibold text-foreground">Уведомления</h4>
+          <h4 className="font-semibold text-foreground">{t('crmTopLevel.notifications')}</h4>
           {unreadCount > 0 && (
             <Button variant="ghost" size="sm" onClick={markAllAsRead} className="text-xs h-7">
               <CheckCheck className="w-4 h-4 mr-1" />
-              Прочитать все
+              {t('crmTopLevel.readAll')}
             </Button>
           )}
         </div>
@@ -160,7 +165,7 @@ export function NotificationsDropdown() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-destructive hover:text-destructive"
+                              className="h-6 w-6 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-destructive hover:text-destructive"
                               onClick={(e) => handleDelete(e, notification.id)}
                             >
                               <Trash2 className="h-3 w-3" />
@@ -190,7 +195,7 @@ export function NotificationsDropdown() {
           ) : (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <Bell className="w-12 h-12 mb-3 opacity-40" />
-              <p className="text-sm">Нет уведомлений</p>
+              <p className="text-sm">{t('crmTopLevel.noNotifications')}</p>
             </div>
           )}
         </ScrollArea>
@@ -208,7 +213,7 @@ export function NotificationsDropdown() {
                   navigate('/crm/notifications');
                 }}
               >
-                Все уведомления
+                {t('crmTopLevel.allNotifications')}
               </Button>
             </div>
           </>

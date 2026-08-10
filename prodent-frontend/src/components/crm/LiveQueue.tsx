@@ -9,13 +9,25 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface LiveQueueProps {
   doctorId?: string;
   clinicId?: string;
 }
 
+interface QueueProfile {
+  full_name: string | null;
+  phone: string | null;
+}
+
+interface QueueAppointment {
+  service: string | null;
+  appointment_date: string;
+}
+
 export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
+  const { t } = useLanguage();
   const { toast } = useToast();
 
   const { data: queue, isLoading } = useQuery({
@@ -67,8 +79,8 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
     const nextPatient = queue.find(q => q.status === "arrived");
     if (!nextPatient) {
       toast({
-        title: "Нет пациентов",
-        description: "В очереди нет прибывших пациентов",
+        title: t('crmDashboardWidgets.noQueue'),
+        description: t('crmDashboardWidgets.noQueue'),
       });
       return;
     }
@@ -83,14 +95,14 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
 
     if (error) {
       toast({
-        title: "Ошибка",
-        description: "Не удалось вызвать пациента",
+        title: t('crmDashboardWidgets.callError'),
+        description: t('crmDashboardWidgets.callError'),
         variant: "destructive",
       });
     } else {
       toast({
-        title: "Пациент вызван",
-        description: `${(nextPatient.profiles as any)?.full_name || "Пациент"} вызван на приём`,
+        title: t('crmDashboardWidgets.called'),
+        description: `${(nextPatient.profiles as QueueProfile | null)?.full_name || t('crmDashboardWidgets.patientName')} ${t('crmDashboardWidgets.called')}`,
       });
     }
   };
@@ -98,12 +110,12 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
   const getStatusBadge = (status: string) => {
     if (status === "arrived") {
       return {
-        label: "Прибыл",
+        label: t('crmDashboardWidgets.queueWaiting'),
         className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
       };
     }
     return {
-      label: "Ожидает",
+      label: t('crmDashboardWidgets.queueWaiting'),
       className: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
     };
   };
@@ -113,7 +125,7 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-foreground flex items-center gap-2">
           <Users className="w-5 h-5 text-primary" />
-          Живая очередь
+          {t('crmDashboardWidgets.liveQueueTitle')}
         </CardTitle>
         {queue && queue.length > 0 && (
           <Button
@@ -122,7 +134,7 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
             className="bg-primary hover:bg-primary/90"
           >
             <Bell className="w-4 h-4 mr-2" />
-            Вызвать
+            {t('crmDashboardWidgets.callPatient')}
           </Button>
         )}
       </CardHeader>
@@ -137,8 +149,8 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
           <div className="space-y-3">
             {queue.map((item) => {
               const status = getStatusBadge(item.status);
-              const patient = item.profiles as any;
-              const appointment = item.appointments as any;
+              const patient = item.profiles as QueueProfile | null;
+              const appointment = item.appointments as QueueAppointment | null;
               
               return (
                 <div
@@ -161,14 +173,14 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-foreground font-medium text-sm truncate">
-                        {patient?.full_name || "Пациент"}
+                        {patient?.full_name || t('crmDashboardWidgets.patientName')}
                       </span>
                       <Badge variant="outline" className={cn("text-xs", status.className)}>
                         {status.label}
                       </Badge>
                     </div>
                     <div className="text-xs text-muted-foreground truncate">
-                      {appointment?.service || "Консультация"}
+                      {appointment?.service || t('crmAppointmentComponents.service')}
                       {item.arrival_time && (
                         <span className="ml-1">
                           • {format(new Date(item.arrival_time), "HH:mm", { locale: ru })}
@@ -183,7 +195,7 @@ export function LiveQueue({ doctorId, clinicId }: LiveQueueProps) {
         ) : (
           <div className="text-center py-8 text-muted-foreground">
             <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">Очередь пуста</p>
+            <p className="text-sm">{t('crmDashboardWidgets.noQueue')}</p>
           </div>
         )}
       </CardContent>

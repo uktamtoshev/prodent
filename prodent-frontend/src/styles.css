@@ -1,0 +1,599 @@
+:root {
+  color: #183035;
+  background: #e9eff1;
+  font-family: "Segoe UI", Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: #e9eff1;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+  background: #e9eff1;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  min-height: 44px;
+}
+
+button:focus-visible,
+input:focus-visible,
+.tooth-canvas:focus-visible,
+.skip-link:focus-visible {
+  outline: 3px solid #0b8f87;
+  outline-offset: 3px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 1000;
+  top: 12px;
+  left: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  color: #fff;
+  background: #183035;
+  transform: translateY(-180%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.tooth-anatomy-app {
+  min-height: 100vh;
+  padding: clamp(12px, 2.2vw, 32px);
+}
+
+.tooth-viewer {
+  width: min(1540px, 100%);
+  min-height: calc(100vh - clamp(24px, 4.4vw, 64px));
+  margin: 0 auto;
+  padding: clamp(18px, 2.4vw, 34px);
+  border: 1px solid #cedbdd;
+  border-radius: 20px;
+  background: #f7f9f9;
+}
+
+.tooth-viewer-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+  padding: 0 2px;
+}
+
+.tooth-viewer-eyebrow {
+  margin: 0 0 7px;
+  color: #0b7772;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.tooth-viewer h1 {
+  margin: 0;
+  color: #14292d;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 4.2rem);
+  font-weight: 500;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+}
+
+.tooth-viewer-lead {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: #587075;
+  font-size: 0.98rem;
+}
+
+.tooth-viewer-format {
+  flex: none;
+  padding: 8px 11px;
+  border: 1px solid #b9cacd;
+  border-radius: 7px;
+  color: #486267;
+  background: #eef3f4;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+}
+
+.tooth-viewer-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr) minmax(270px, 320px);
+  align-items: start;
+  gap: 14px;
+}
+
+.tooth-layer-panel,
+.tooth-info-panel,
+.tooth-stage {
+  border: 1px solid #cedbdd;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.tooth-layer-panel,
+.tooth-info-panel {
+  padding: 17px;
+}
+
+.tooth-panel-heading {
+  margin: 0;
+  color: #183035;
+  font-size: 0.84rem;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tooth-layer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2e9ea;
+}
+
+.tooth-layer-show-all {
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 0;
+  color: #08736e;
+  background: transparent;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tooth-layer-list {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tooth-layer-row {
+  display: grid;
+  grid-template-columns: 44px 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+
+.tooth-layer-row[data-selected="true"] {
+  border-color: #85c8c3;
+  background: #e9f6f4;
+}
+
+.tooth-layer-row[data-visible="false"] {
+  opacity: 0.58;
+}
+
+.tooth-layer-checkbox {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #0b8f87;
+  cursor: pointer;
+}
+
+.tooth-layer-checkbox-hit {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.tooth-color-indicator {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgb(24 48 53 / 20%);
+  border-radius: 50%;
+}
+
+.tooth-layer-select {
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 2px;
+  border: 0;
+  color: #294449;
+  background: transparent;
+  font-size: 0.87rem;
+  font-weight: 650;
+  text-align: left;
+  line-height: 1.25;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.tooth-stage {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tooth-toolbar {
+  display: flex;
+  gap: 6px;
+  min-height: 60px;
+  padding: 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid #cedbdd;
+  scrollbar-width: thin;
+}
+
+.tooth-toolbar button,
+.tooth-info-actions button {
+  padding: 9px 12px;
+  border: 1px solid #c1d0d2;
+  border-radius: 8px;
+  color: #294449;
+  background: #f7f9f9;
+  font-size: 0.8rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tooth-toolbar button:hover:not(:disabled),
+.tooth-info-actions button:hover:not(:disabled) {
+  border-color: #0b8f87;
+  color: #076b66;
+  background: #eef8f7;
+}
+
+.tooth-toolbar button[aria-pressed="true"],
+.tooth-info-actions button[aria-pressed="true"] {
+  border-color: #0b8f87;
+  color: #fff;
+  background: #0b7772;
+}
+
+.tooth-toolbar button:disabled,
+.tooth-info-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.tooth-viewport-shell {
+  position: relative;
+  min-height: clamp(430px, 63vh, 720px);
+  overflow: hidden;
+  background: #e9eff1;
+}
+
+.tooth-viewport {
+  position: absolute;
+  inset: 0;
+}
+
+.tooth-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.tooth-canvas:active {
+  cursor: grabbing;
+}
+
+.tooth-loading,
+.tooth-model-error {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 30px;
+  color: #38545a;
+  background: rgb(233 239 241 / 94%);
+  text-align: center;
+}
+
+.tooth-loading progress {
+  width: min(280px, 70vw);
+  height: 8px;
+  accent-color: #0b8f87;
+}
+
+.tooth-model-error {
+  color: #7d2c34;
+  font-weight: 650;
+}
+
+.tooth-demo-banner {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 50%;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 7px 10px;
+  border: 1px solid #a36c12;
+  border-radius: 6px;
+  color: #513507;
+  background: #fff1c7;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+.tooth-clipping-control {
+  padding: 14px 16px 12px;
+  border-top: 1px solid #cedbdd;
+  background: #fbfcfc;
+}
+
+.tooth-clipping-control > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #38545a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.tooth-clipping-control output {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #0b7772;
+}
+
+.tooth-clipping-control input[type="range"] {
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  accent-color: #0b8f87;
+}
+
+.tooth-viewer-instructions,
+.tooth-model-alternative {
+  color: #60767a;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.tooth-viewer-instructions {
+  margin: 0;
+  padding: 0 16px 14px;
+  background: #fbfcfc;
+}
+
+.tooth-info-panel {
+  min-height: 220px;
+}
+
+.tooth-info-empty {
+  margin: 18px 0 0;
+  color: #6d8084;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.tooth-info-content {
+  margin-top: 18px;
+}
+
+.tooth-info-title {
+  margin: 0 0 6px;
+  color: #183035;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.55rem;
+  font-weight: 500;
+}
+
+.tooth-info-node {
+  margin: 0 0 16px;
+  color: #71868a;
+  font-size: 0.75rem;
+}
+
+.tooth-info-node code {
+  color: #0b7772;
+}
+
+.tooth-info-description {
+  margin: 0;
+  color: #415d62;
+  font-size: 0.88rem;
+  line-height: 1.58;
+}
+
+.tooth-info-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+  color: #71868a;
+  font-size: 0.72rem;
+}
+
+.tooth-info-actions {
+  display: grid;
+  gap: 7px;
+}
+
+.tooth-panel-status,
+.tooth-viewer-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.tooth-model-alternative {
+  max-width: 960px;
+  margin: 16px auto 0;
+  padding: 12px 16px;
+  border-left: 3px solid #7fa7a5;
+  background: #eef3f4;
+}
+
+.tooth-viewer:fullscreen {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  padding: 18px;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+.tooth-viewer:fullscreen .tooth-viewport-shell {
+  min-height: calc(100vh - 250px);
+}
+
+@media (max-width: 1120px) {
+  .tooth-viewer-grid {
+    grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+  }
+
+  .tooth-info-host {
+    grid-column: 1 / -1;
+  }
+
+  .tooth-info-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .tooth-anatomy-app {
+    padding: 0;
+  }
+
+  .tooth-viewer {
+    min-height: 100vh;
+    padding: 14px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .tooth-viewer-header {
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+
+  .tooth-viewer-format {
+    display: none;
+  }
+
+  .tooth-viewer h1 {
+    font-size: clamp(2.25rem, 13vw, 3.6rem);
+  }
+
+  .tooth-viewer-grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tooth-stage {
+    order: 1;
+    width: 100%;
+  }
+
+  .tooth-layers-host {
+    order: 2;
+    width: 100%;
+  }
+
+  .tooth-info-host {
+    order: 3;
+    width: 100%;
+  }
+
+  .tooth-toolbar {
+    flex-wrap: wrap;
+    padding: 6px;
+    overflow-x: visible;
+  }
+
+  .tooth-toolbar button {
+    flex: 1 1 calc(50% - 3px);
+    min-height: 44px;
+    padding-inline: 10px;
+    white-space: normal;
+  }
+
+  .tooth-viewport-shell {
+    min-height: min(58vh, 480px);
+  }
+
+  .tooth-layer-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tooth-info-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .tooth-model-alternative {
+    margin-top: 12px;
+  }
+}
+
+@media (max-width: 430px) {
+  .tooth-layer-list {
+    grid-template-columns: 1fr;
+  }
+
+  .tooth-viewer-lead {
+    font-size: 0.9rem;
+  }
+
+  .tooth-viewport-shell {
+    min-height: 400px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

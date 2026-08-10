@@ -1,7 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -14,16 +15,59 @@ interface DentalChartProps {
   patientId: string;
 }
 
-const TOOTH_STATUS = {
-  healthy: { label: "Здоров", color: "bg-emerald-500/20 border-emerald-500 text-emerald-400" },
-  caries: { label: "Кариес", color: "bg-red-500/20 border-red-500 text-red-400" },
-  filling: { label: "Пломба", color: "bg-blue-500/20 border-blue-500 text-blue-400" },
-  crown: { label: "Коронка", color: "bg-amber-500/20 border-amber-500 text-amber-400" },
-  implant: { label: "Имплант", color: "bg-purple-500/20 border-purple-500 text-purple-400" },
-  removed: { label: "Удален", color: "bg-muted/50 border-muted-foreground/50 text-muted-foreground line-through" },
-};
-
 export function DentalChart({ patientId }: DentalChartProps) {
+  const { t } = useLanguage();
+  /**
+   * Tooth states.
+   *
+   * The colours used to be Tailwind's `*-400` shades on a `*-500/20` tint —
+   * shades built for a DARK background, painted on a white card. The FDI number
+   * measured 1.44-1.59:1 against its own tile, so the one piece of information
+   * that identifies the tooth was the least readable thing on the chart. "13
+   * instead of 23" means treating the wrong tooth, so this is a safety issue,
+   * not a styling preference.
+   *
+   * Now: `--tooth-*` token pairs (>= 4.5:1 in both themes, asserted in
+   * design-tokens-contrast.contract.test.ts) plus a `code` — the short Latin
+   * mark used on paper odontograms. The code is what makes the state readable
+   * without colour (WCAG 1.4.1) and it works the same in all six languages,
+   * unlike a translated word. `healthy` carries no code on purpose: most teeth
+   * are healthy, and marking all 32 would be noise instead of signal.
+   */
+  const TOOTH_STATUS = useMemo(() => ({
+    healthy: {
+      label: t('crmDentalChart.statusHealthy'),
+      code: "",
+      color: "bg-tooth-healthy-bg border-tooth-healthy text-tooth-healthy",
+    },
+    caries: {
+      label: t('crmDentalChart.statusCariesShort'),
+      code: "C",
+      color: "bg-tooth-caries-bg border-tooth-caries text-tooth-caries",
+    },
+    filling: {
+      label: t('crmDentalChart.statusFillingShort'),
+      code: "F",
+      color: "bg-tooth-filling-bg border-tooth-filling text-tooth-filling",
+    },
+    crown: {
+      label: t('crmDentalChart.statusCrownShort'),
+      code: "Cr",
+      color: "bg-tooth-crown-bg border-tooth-crown text-tooth-crown",
+    },
+    implant: {
+      label: t('crmDentalChart.statusImplantShort'),
+      code: "Im",
+      color: "bg-tooth-implant-bg border-tooth-implant text-tooth-implant",
+    },
+    removed: {
+      label: t('crmDentalChart.statusRemoved'),
+      code: "X",
+      // Struck through, never faded: opacity would drop the contrast of the
+      // number below any readable level.
+      color: "bg-tooth-removed-bg border-tooth-removed text-tooth-removed line-through",
+    },
+  }), [t]);
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
   const [status, setStatus] = useState<string>("healthy");
   const [diagnosis, setDiagnosis] = useState("");
@@ -86,11 +130,11 @@ export function DentalChart({ patientId }: DentalChartProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dental-chart", patientId] });
-      toast.success("Данные зуба сохранены");
+      toast.success(t('crmDentalChart.toothSaved'));
       setSelectedTooth(null);
     },
     onError: () => {
-      toast.error("Ошибка сохранения");
+      toast.error(t('crmDentalChart.toothSaveError'));
     },
   });
 
@@ -108,11 +152,6 @@ export function DentalChart({ patientId }: DentalChartProps) {
     }
   };
 
-  const getToothColor = (toothNumber: number) => {
-    const toothData = dentalData?.find((d) => d.tooth_number === toothNumber);
-    const statusKey = (toothData?.status || "healthy") as keyof typeof TOOTH_STATUS;
-    return TOOTH_STATUS[statusKey]?.color || TOOTH_STATUS.healthy.color;
-  };
 
   const renderTooth = (toothNumber: number) => {
     const toothData = dentalData?.find((d) => d.tooth_number === toothNumber);
@@ -124,16 +163,27 @@ export function DentalChart({ patientId }: DentalChartProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
               onClick={() => handleToothClick(toothNumber)}
-              className={`w-12 h-16 border-2 rounded-lg transition-all hover:scale-110 cursor-pointer flex items-center justify-center text-sm font-semibold ${statusInfo.color}`}
+              // The state is announced, not just shown, and the label reads the
+              // same on a tablet at the chair where no tooltip ever opens.
+              aria-label={`${t('crmDentalChart.tooltipNumber')}${toothNumber}, ${statusInfo.label}`}
+              className={`flex h-16 w-12 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border-2 text-sm font-semibold tabular-nums transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${statusInfo.color}`}
             >
-              {toothNumber}
+              <span>{toothNumber}</span>
+              {/* Visible state mark — the chart stays readable in greyscale and
+                  for a colour-blind dentist. */}
+              {statusInfo.code ? (
+                <span aria-hidden="true" className="text-xs font-bold leading-none no-underline">
+                  {statusInfo.code}
+                </span>
+              ) : null}
             </button>
           </TooltipTrigger>
           <TooltipContent>
             <div className="text-sm">
-              <div className="font-semibold">Зуб #{toothNumber}</div>
-              <div>Статус: {statusInfo.label}</div>
+              <div className="font-semibold">{t('crmDentalChart.tooltipNumber')}{toothNumber}</div>
+              <div>{t('crmDentalChart.tooltipStatus')} {statusInfo.label}</div>
               {toothData?.diagnosis && <div className="text-xs text-muted-foreground">{toothData.diagnosis}</div>}
             </div>
           </TooltipContent>
@@ -154,13 +204,13 @@ export function DentalChart({ patientId }: DentalChartProps) {
     <>
       <Card className="bg-card/80 border-border/50">
         <CardHeader>
-          <CardTitle className="text-foreground">Зубная формула</CardTitle>
-          <p className="text-muted-foreground text-sm">Кликните на зуб для редактирования статуса</p>
+          <CardTitle className="text-foreground">{t('crmDentalChart.formulaTitle')}</CardTitle>
+          <p className="text-muted-foreground text-sm">{t('crmDentalChart.formulaHint')}</p>
         </CardHeader>
         <CardContent className="space-y-8">
           {/* Верхняя челюсть */}
           <div className="space-y-2">
-            <div className="text-muted-foreground text-sm text-center">Верхняя челюсть</div>
+            <div className="text-muted-foreground text-sm text-center">{t('crmDentalChart.upperJaw')}</div>
             <div className="flex justify-center gap-1">
               <div className="flex gap-1">{upperRight.map(renderTooth)}</div>
               <div className="w-4" />
@@ -170,7 +220,7 @@ export function DentalChart({ patientId }: DentalChartProps) {
 
           {/* Нижняя челюсть */}
           <div className="space-y-2">
-            <div className="text-muted-foreground text-sm text-center">Нижняя челюсть</div>
+            <div className="text-muted-foreground text-sm text-center">{t('crmDentalChart.lowerJaw')}</div>
             <div className="flex justify-center gap-1">
               <div className="flex gap-1">{lowerRight.map(renderTooth)}</div>
               <div className="w-4" />
@@ -179,11 +229,18 @@ export function DentalChart({ patientId }: DentalChartProps) {
           </div>
 
           {/* Легенда */}
-          <div className="flex flex-wrap gap-4 justify-center pt-4 border-t border-border">
-            {Object.entries(TOOTH_STATUS).map(([key, { label, color }]) => (
+          {/* Legend shows the mark next to the colour — otherwise the codes on
+              the tiles would be an undocumented private language. */}
+          <div className="flex flex-wrap justify-center gap-4 border-t border-border pt-4">
+            {Object.entries(TOOTH_STATUS).map(([key, { label, code, color }]) => (
               <div key={key} className="flex items-center gap-2">
-                <div className={`w-4 h-4 rounded border-2 ${color.split(' ').slice(0, 2).join(' ')}`} />
-                <span className="text-muted-foreground text-sm">{label}</span>
+                <span
+                  aria-hidden="true"
+                  className={`grid h-6 w-6 place-items-center rounded border-2 text-xs font-bold no-underline ${color}`}
+                >
+                  {code}
+                </span>
+                <span className="text-sm text-muted-foreground">{label}</span>
               </div>
             ))}
           </div>
@@ -194,13 +251,13 @@ export function DentalChart({ patientId }: DentalChartProps) {
       <Dialog open={selectedTooth !== null} onOpenChange={() => setSelectedTooth(null)}>
         <DialogContent className="bg-card border-border">
           <DialogHeader>
-            <DialogTitle className="text-foreground">Зуб #{selectedTooth}</DialogTitle>
+            <DialogTitle className="text-foreground">{t('crmDentalChart.toothLabel')}{selectedTooth}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label className="text-foreground">Статус</Label>
+              <Label id="tooth-status-label" className="text-foreground">{t('crmDentalChart.statusLabel')}</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="bg-background border-border">
+                <SelectTrigger aria-labelledby="tooth-status-label" className="bg-background border-border">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-card border-border">
@@ -214,31 +271,33 @@ export function DentalChart({ patientId }: DentalChartProps) {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">Диагноз</Label>
+              <Label htmlFor="tooth-diagnosis" className="text-foreground">{t('crmDentalChart.diagnosisLabel')}</Label>
               <Textarea
+                id="tooth-diagnosis"
                 value={diagnosis}
                 onChange={(e) => setDiagnosis(e.target.value)}
-                placeholder="Опишите диагноз..."
+                placeholder={t('crmDentalChart.diagnosisPh')}
                 className="bg-background border-border"
               />
             </div>
 
             <div className="space-y-2">
-              <Label className="text-foreground">Заметки</Label>
+              <Label htmlFor="tooth-notes" className="text-foreground">{t('crmDentalChart.notesLabel')}</Label>
               <Textarea
+                id="tooth-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Дополнительные заметки..."
+                placeholder={t('crmDentalChart.notesPh')}
                 className="bg-background border-border"
               />
             </div>
 
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setSelectedTooth(null)}>
-                Отмена
+                {t('crmDentalChart.cancel')}
               </Button>
               <Button onClick={handleSave} disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? "Сохранение..." : "Сохранить"}
+                {saveMutation.isPending ? t('crmDentalChart.saving') : t('crmDentalChart.save')}
               </Button>
             </div>
           </div>

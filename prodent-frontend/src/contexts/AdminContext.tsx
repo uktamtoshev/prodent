@@ -17,13 +17,11 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const checkAdminStatus = async () => {
       if (!user) {
-        console.log('[AdminContext] No user, setting isSuperAdmin=false');
         setIsSuperAdmin(false);
         setLoading(false);
         return;
       }
 
-      console.log('[AdminContext] Checking admin status for user:', user.id);
       setLoading(true);
 
       try {
@@ -41,10 +39,8 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
         }
 
         if (data) {
-          console.log('[AdminContext] Super admin role found for user:', user.id);
           setIsSuperAdmin(true);
         } else {
-          console.log('[AdminContext] No super_admin role found for user:', user.id);
           setIsSuperAdmin(false);
         }
       } catch (error) {

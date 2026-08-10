@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface UpgradePlanModalProps {
   open: boolean;
@@ -25,6 +26,7 @@ export function UpgradePlanModal({
   limit,
 }: UpgradePlanModalProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   const handleUpgrade = () => {
     onOpenChange(false);
@@ -38,9 +40,9 @@ export function UpgradePlanModal({
           <div className="mx-auto w-12 h-12 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
             <Crown className="w-6 h-6 text-amber-500" />
           </div>
-          <DialogTitle className="text-center">Лимит записей исчерпан</DialogTitle>
+          <DialogTitle className="text-center">{t('billingDialogs.limitReachedTitle')}</DialogTitle>
           <DialogDescription className="text-center">
-            Вы использовали все {limit} бесплатных записей в этом месяце ({currentCount}/{limit})
+            {t('billingDialogs.limitReachedDesc').replace('{limit}', String(limit)).replace('{count}', String(currentCount)).replace('{limit}', String(limit))}
           </DialogDescription>
         </DialogHeader>
 
@@ -48,41 +50,41 @@ export function UpgradePlanModal({
           <div className="p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-amber-500/10 border">
             <h4 className="font-medium flex items-center gap-2 mb-3">
               <Zap className="w-4 h-4 text-blue-500" />
-              Преимущества платного плана:
+              {t('billingDialogs.paidPlanBenefitsTitle')}
             </h4>
             <ul className="space-y-2 text-sm">
               <li className="flex items-start gap-2">
                 <Check className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
-                <span>Безлимитные записи</span>
+                <span>{t('billingDialogs.benefit1')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
-                <span>Модуль финансов и аналитики</span>
+                <span>{t('billingDialogs.benefit2')}</span>
               </li>
               <li className="flex items-start gap-2">
                 <Check className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
-                <span>Модуль лаборатории</span>
+                <span>{t('billingDialogs.benefit3')}</span>
               </li>
               {entityType === 'clinic' && (
                 <li className="flex items-start gap-2">
                   <Check className="w-4 h-4 mt-0.5 text-green-500 shrink-0" />
-                  <span>Склад и инвентарь</span>
+                  <span>{t('billingDialogs.benefit4')}</span>
                 </li>
               )}
             </ul>
           </div>
 
           <div className="text-center text-sm text-muted-foreground">
-            Лимит записей обновляется каждый календарный месяц
+            {t('billingDialogs.limitResetMonthly')}
           </div>
 
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
-              Позже
+              {t('billingDialogs.laterBtn')}
             </Button>
             <Button className="flex-1" onClick={handleUpgrade}>
               <Crown className="w-4 h-4 mr-2" />
-              Улучшить план
+              {t('billingDialogs.upgradePlanBtn')}
             </Button>
           </div>
         </div>

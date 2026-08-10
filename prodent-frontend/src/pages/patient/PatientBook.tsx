@@ -8,6 +8,8 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { defaultDoctorAvatar } from "@/lib/defaultAvatar";
 
 interface Doctor {
   id: string;
@@ -18,6 +20,7 @@ interface Doctor {
   profile?: {
     full_name: string;
     avatar_url: string | null;
+    gender: string | null;
   };
   clinic?: {
     name: string;
@@ -26,6 +29,7 @@ interface Doctor {
 }
 
 export default function PatientBook() {
+  const { t } = useLanguage();
   const [search, setSearch] = useState("");
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +54,7 @@ export default function PatientBook() {
           address
         )
       `)
-      .eq("verified", true)
+      .eq("is_verified", true)
       .order("rating", { ascending: false })
       .limit(20);
 
@@ -58,7 +62,7 @@ export default function PatientBook() {
       const userIds = data.map(d => d.user_id).filter(Boolean);
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, full_name, avatar_url")
+        .select("id, full_name, avatar_url, gender")
         .in("id", userIds);
 
       const doctorsWithProfiles = data.map(doc => ({
@@ -98,15 +102,15 @@ export default function PatientBook() {
         <div>
           <h1 className="font-heading text-foreground flex items-center gap-3">
             <Calendar className="w-8 h-8" />
-            Записаться на приём
+            {t("patientCabinet.bookOnPortal")}
           </h1>
-          <p className="text-muted-foreground mt-1">Выберите врача и запишитесь на удобное время</p>
+          <p className="text-muted-foreground mt-1">{t("patientCabinet.bookSubtitle")}</p>
         </div>
 
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input
-            placeholder="Поиск по имени врача, специальности или клинике..."
+            placeholder={t("patientCabinet.searchByDoctorEtc")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10 bg-card/80 border-border/50"
@@ -114,15 +118,15 @@ export default function PatientBook() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Link to="/">
+          <Link to="/search">
             <Card className="border-border/50 bg-card/80 backdrop-blur-sm hover:bg-accent/50 transition-colors cursor-pointer h-full">
               <CardContent className="p-4 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
                   <Search className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Расширенный поиск</p>
-                  <p className="text-xs text-muted-foreground">Фильтры и сортировка</p>
+                  <p className="font-medium text-foreground">{t("patientCabinet.advancedSearch")}</p>
+                  <p className="text-xs text-muted-foreground">{t("patientCabinet.filtersAndSort")}</p>
                 </div>
               </CardContent>
             </Card>
@@ -134,8 +138,8 @@ export default function PatientBook() {
                   <MapPin className="w-5 h-5 text-emerald-500" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Все клиники</p>
-                  <p className="text-xs text-muted-foreground">На карте и списком</p>
+                  <p className="font-medium text-foreground">{t("patientCabinet.allClinics")}</p>
+                  <p className="text-xs text-muted-foreground">{t("patientCabinet.onMapAndList")}</p>
                 </div>
               </CardContent>
             </Card>
@@ -147,8 +151,8 @@ export default function PatientBook() {
                   <Star className="w-5 h-5 text-amber-500" />
                 </div>
                 <div>
-                  <p className="font-medium text-foreground">Акции</p>
-                  <p className="text-xs text-muted-foreground">Специальные предложения</p>
+                  <p className="font-medium text-foreground">{t("patientCabinet.promotions")}</p>
+                  <p className="text-xs text-muted-foreground">{t("patientCabinet.specialOffers")}</p>
                 </div>
               </CardContent>
             </Card>
@@ -157,7 +161,7 @@ export default function PatientBook() {
 
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-foreground">Доступные врачи</CardTitle>
+            <CardTitle className="text-foreground">{t("patientCabinet.availableDoctors")}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -176,14 +180,17 @@ export default function PatientBook() {
                   >
                     <div className="flex items-start gap-4">
                       <Avatar className="w-14 h-14 border-2 border-primary/20">
-                        <AvatarImage src={doctor.profile?.avatar_url || undefined} />
+                        <AvatarImage
+                          src={defaultDoctorAvatar(doctor.profile?.avatar_url, doctor.profile?.gender)}
+                          className="bg-white object-cover"
+                        />
                         <AvatarFallback className="bg-primary/10 text-primary">
                           {getInitials(doctor.profile?.full_name)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-foreground truncate">
-                          {doctor.profile?.full_name || "Врач"}
+                          {doctor.profile?.full_name || t("patientCabinet.doctor")}
                         </h3>
                         <p className="text-sm text-primary">{doctor.specialty}</p>
                         <div className="flex items-center gap-2 mt-1">
@@ -197,7 +204,7 @@ export default function PatientBook() {
                         )}
                       </div>
                       <Link to={`/book/${doctor.id}`}>
-                        <Button size="sm">Записаться</Button>
+                        <Button size="sm">{t("patientCabinet.bookShort")}</Button>
                       </Link>
                     </div>
                   </div>
@@ -205,8 +212,8 @@ export default function PatientBook() {
               ) : (
                 <div className="col-span-full text-center py-12 text-muted-foreground">
                   <Search className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                  <p className="text-lg">Врачи не найдены</p>
-                  <p className="text-sm">Попробуйте изменить параметры поиска</p>
+                  <p className="text-lg">{t("patientCabinet.doctorsNotFound")}</p>
+                  <p className="text-sm">{t("patientCabinet.tryDifferentSearch")}</p>
                 </div>
               )}
             </div>

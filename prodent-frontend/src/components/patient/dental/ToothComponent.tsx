@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -73,6 +74,10 @@ export function ToothComponent({
   const isErupting = status === 'erupting';
   const isCrown = status === 'crown';
   const isImplant = status === 'implant';
+  const animationStyle: CSSProperties & { "--delay": string } = {
+    animationDelay: `${animationDelay}ms`,
+    "--delay": `${animationDelay}ms`,
+  };
 
   return (
     <TooltipProvider>
@@ -80,10 +85,7 @@ export function ToothComponent({
         <TooltipTrigger asChild>
           <button
             onClick={onClick}
-            style={{ 
-              animationDelay: `${animationDelay}ms`,
-              ['--delay' as any]: `${animationDelay}ms`
-            }}
+            style={animationStyle}
             className={cn(
               "tooth-btn relative group",
               isChild ? "w-9 h-11 md:w-11 md:h-14" : "w-8 h-10 md:w-10 md:h-12",

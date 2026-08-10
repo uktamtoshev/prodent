@@ -7,13 +7,21 @@ import { Clock, User, Calendar } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface TodayScheduleProps {
   doctorId?: string;
   clinicId?: string;
 }
 
+interface AppointmentProfile {
+  full_name: string | null;
+  phone?: string | null;
+  avatar_url?: string | null;
+}
+
 export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
+  const { t } = useLanguage();
   const { data: appointments, isLoading } = useQuery({
     queryKey: ["today-appointments", clinicId, doctorId],
     queryFn: async () => {
@@ -31,7 +39,7 @@ export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
           appointment_date,
           service,
           status,
-          price,
+          total_price,
           patient_id,
           profiles:patient_id (
             full_name,
@@ -57,10 +65,10 @@ export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; className: string }> = {
-      pending: { label: "Ожидает", className: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" },
-      confirmed: { label: "Подтверждено", className: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" },
-      completed: { label: "Завершено", className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" },
-      cancelled: { label: "Отменено", className: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20" },
+      pending: { label: t('crmTopLevel.statusPending'), className: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20" },
+      confirmed: { label: t('crmTopLevel.statusConfirmedNeut'), className: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" },
+      completed: { label: t('crmTopLevel.statusCompletedNeut'), className: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20" },
+      cancelled: { label: t('crmTopLevel.statusCancelledNeut'), className: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20" },
     };
     return variants[status] || variants.pending;
   };
@@ -70,7 +78,7 @@ export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
       <CardHeader className="pb-3">
         <CardTitle className="text-foreground flex items-center gap-2">
           <Calendar className="w-5 h-5 text-primary" />
-          Календарь на сегодня
+          {t('crmTopLevel.todayCalendar')}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -84,7 +92,7 @@ export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
           <div className="space-y-3">
             {appointments.map((apt) => {
               const status = getStatusBadge(apt.status || "pending");
-              const patient = apt.profiles as any;
+              const patient = apt.profiles as AppointmentProfile | null;
               
               return (
                 <div
@@ -112,15 +120,15 @@ export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <User className="w-3.5 h-3.5" />
-                      <span className="truncate">{patient?.full_name || "Пациент"}</span>
+                      <span className="truncate">{patient?.full_name || t('crmTopLevel.patient')}</span>
                       <span className="text-border">•</span>
                       <span className="truncate">{apt.service}</span>
                     </div>
                   </div>
-                  {apt.price && (
+                  {apt.total_price && (
                     <div className="text-right flex-shrink-0">
                       <div className="text-foreground font-semibold">
-                        {apt.price.toLocaleString()} UZS
+                        {apt.total_price.toLocaleString()} UZS
                       </div>
                     </div>
                   )}
@@ -131,7 +139,7 @@ export function TodaySchedule({ doctorId, clinicId }: TodayScheduleProps) {
         ) : (
           <div className="text-center py-12 text-muted-foreground">
             <Clock className="w-12 h-12 mx-auto mb-4 opacity-40" />
-            <p>На сегодня записей нет</p>
+            <p>{t('crmTopLevel.noTodayAppointments')}</p>
           </div>
         )}
       </CardContent>

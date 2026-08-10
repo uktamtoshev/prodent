@@ -8,8 +8,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
-interface DoctorApplication {
+export interface DoctorApplication {
   id: string;
   full_name: string;
   specialty: string;
@@ -28,12 +29,13 @@ interface EditDoctorApplicationDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function EditDoctorApplicationDialog({ 
-  application, 
-  open, 
-  onOpenChange 
+export function EditDoctorApplicationDialog({
+  application,
+  open,
+  onOpenChange
 }: EditDoctorApplicationDialogProps) {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [formData, setFormData] = useState<DoctorApplication | null>(null);
 
   // Initialize form data when application changes or dialog opens
@@ -63,12 +65,12 @@ export function EditDoctorApplicationDialog({
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Заявка обновлена");
+      toast.success(t("adminEditDoctorApp.updated"));
       queryClient.invalidateQueries({ queryKey: ["doctor-applications"] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast.error("Ошибка обновления", { description: error.message });
+    onError: (error: unknown) => {
+      toast.error(t("adminEditDoctorApp.updateError"), { description: error instanceof Error ? error.message : t("adminEditDoctorApp.updateError") });
     },
   });
 
@@ -90,12 +92,12 @@ export function EditDoctorApplicationDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Редактировать заявку врача</DialogTitle>
+          <DialogTitle>{t("adminEditDoctorApp.title")}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="full_name">ФИО</Label>
+              <Label htmlFor="full_name">{t("adminEditDoctorApp.labelFullName")}</Label>
               <Input
                 id="full_name"
                 value={formData.full_name}
@@ -104,7 +106,7 @@ export function EditDoctorApplicationDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="specialty">Специальность</Label>
+              <Label htmlFor="specialty">{t("adminEditDoctorApp.labelSpecialty")}</Label>
               <Input
                 id="specialty"
                 value={formData.specialty}
@@ -116,7 +118,7 @@ export function EditDoctorApplicationDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="experience_years">Опыт (лет)</Label>
+              <Label htmlFor="experience_years">{t("adminEditDoctorApp.labelExperience")}</Label>
               <Input
                 id="experience_years"
                 type="number"
@@ -127,7 +129,7 @@ export function EditDoctorApplicationDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="license_number">Номер лицензии</Label>
+              <Label htmlFor="license_number">{t("adminEditDoctorApp.labelLicense")}</Label>
               <Input
                 id="license_number"
                 value={formData.license_number}
@@ -139,7 +141,7 @@ export function EditDoctorApplicationDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("adminEditDoctorApp.labelEmail")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -149,7 +151,7 @@ export function EditDoctorApplicationDialog({
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="phone">Телефон</Label>
+              <Label htmlFor="phone">{t("adminEditDoctorApp.labelPhone")}</Label>
               <Input
                 id="phone"
                 value={formData.phone}
@@ -160,7 +162,7 @@ export function EditDoctorApplicationDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="education">Образование</Label>
+            <Label htmlFor="education">{t("adminEditDoctorApp.labelEducation")}</Label>
             <Input
               id="education"
               value={formData.education}
@@ -170,7 +172,7 @@ export function EditDoctorApplicationDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="bio">О себе</Label>
+            <Label htmlFor="bio">{t("adminEditDoctorApp.labelBio")}</Label>
             <Textarea
               id="bio"
               value={formData.bio || ""}
@@ -180,23 +182,23 @@ export function EditDoctorApplicationDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="certifications">Сертификаты (каждый с новой строки)</Label>
+            <Label htmlFor="certifications">{t("adminEditDoctorApp.labelCerts")}</Label>
             <Textarea
               id="certifications"
               value={formData.certifications.join("\n")}
               onChange={(e) => handleCertificationsChange(e.target.value)}
               rows={3}
-              placeholder="Сертификат 1&#10;Сертификат 2"
+              placeholder={t("adminEditDoctorApp.placeholderCerts")}
             />
           </div>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Отмена
+              {t("admin.cancel")}
             </Button>
             <Button type="submit" disabled={updateMutation.isPending}>
               {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Сохранить
+              {t("admin.save")}
             </Button>
           </DialogFooter>
         </form>

@@ -1,13 +1,12 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
-import { 
-  Users, 
-  Stethoscope, 
-  Building2, 
-  ChevronRight, 
-  CheckCircle2, 
-  Calendar, 
-  FileText, 
+import {
+  Users,
+  Stethoscope,
+  Building2,
+  ChevronRight,
+  Calendar,
+  FileText,
   CreditCard,
   MessageSquare,
   Star,
@@ -19,7 +18,6 @@ import {
   BarChart3,
   Settings,
   HelpCircle,
-  ChevronDown
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -31,169 +29,85 @@ import {
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { PageMeta } from "@/components/PageMeta";
 
 const About = () => {
   const { user } = useAuth();
+  const { t } = useLanguage();
+
   const howToUseSteps = [
-    {
-      step: 1,
-      title: "Регистрация",
-      description: "Создайте аккаунт за несколько минут. Выберите тип профиля: пациент, врач или клиника."
-    },
-    {
-      step: 2,
-      title: "Поиск специалиста",
-      description: "Используйте умный поиск для нахождения идеального врача по специализации, рейтингу и местоположению."
-    },
-    {
-      step: 3,
-      title: "Запись на приём",
-      description: "Выберите удобное время и запишитесь на приём онлайн в несколько кликов."
-    },
-    {
-      step: 4,
-      title: "Получите уведомление",
-      description: "Получите подтверждение и напоминание о визите через SMS, Email или Telegram."
-    }
+    { step: 1, title: t("about.step1Title"), description: t("about.step1Desc") },
+    { step: 2, title: t("about.step2Title"), description: t("about.step2Desc") },
+    { step: 3, title: t("about.step3Title"), description: t("about.step3Desc") },
+    { step: 4, title: t("about.step4Title"), description: t("about.step4Desc") },
   ];
 
   const forPatients = [
-    { icon: Search, title: "Удобный поиск врачей", description: "Находите специалистов по специализации, рейтингу и отзывам" },
-    { icon: Calendar, title: "Онлайн-запись 24/7", description: "Записывайтесь на приём в любое время без звонков" },
-    { icon: FileText, title: "Электронная карта", description: "Вся история лечения в одном месте, доступная всегда" },
-    { icon: CreditCard, title: "Онлайн-оплата", description: "Удобная оплата через Payme, Click или Apelsin" },
-    { icon: MessageSquare, title: "Чат с врачом", description: "Задавайте вопросы врачу напрямую через мессенджер" },
-    { icon: Heart, title: "Семейные профили", description: "Управляйте записями всей семьи в одном аккаунте" }
+    { icon: Search, title: t("about.ptSearchTitle"), description: t("about.ptSearchDesc") },
+    { icon: Calendar, title: t("about.ptBookTitle"), description: t("about.ptBookDesc") },
+    { icon: FileText, title: t("about.ptCardTitle"), description: t("about.ptCardDesc") },
+    { icon: CreditCard, title: t("about.ptPayTitle"), description: t("about.ptPayDesc") },
+    { icon: MessageSquare, title: t("about.ptChatTitle"), description: t("about.ptChatDesc") },
+    { icon: Heart, title: t("about.ptFamilyTitle"), description: t("about.ptFamilyDesc") },
   ];
 
   const forDoctors = [
-    { icon: Calendar, title: "Управление расписанием", description: "Гибкое планирование рабочего времени и приёмов" },
-    { icon: Users, title: "База пациентов", description: "Полная история пациентов с медицинскими картами" },
-    { icon: Star, title: "Профессиональный профиль", description: "Витрина ваших достижений, портфолио и отзывов" },
-    { icon: Award, title: "Рейтинг и отзывы", description: "Повышайте репутацию благодаря отзывам пациентов" },
-    { icon: FileText, title: "Медицинские записи", description: "Удобное ведение электронной документации" },
-    { icon: MessageSquare, title: "Коммуникация", description: "Общайтесь с пациентами и коллегами онлайн" }
+    { icon: Calendar, title: t("about.drScheduleTitle"), description: t("about.drScheduleDesc") },
+    { icon: Users, title: t("about.drBaseTitle"), description: t("about.drBaseDesc") },
+    { icon: Star, title: t("about.drProfileTitle"), description: t("about.drProfileDesc") },
+    { icon: Award, title: t("about.drRatingTitle"), description: t("about.drRatingDesc") },
+    { icon: FileText, title: t("about.drRecordsTitle"), description: t("about.drRecordsDesc") },
+    { icon: MessageSquare, title: t("about.drCommTitle"), description: t("about.drCommDesc") },
   ];
 
   const forClinics = [
-    { icon: BarChart3, title: "Аналитика и отчёты", description: "Полная статистика по работе клиники в реальном времени" },
-    { icon: Users, title: "Управление персоналом", description: "Контроль расписания и эффективности врачей" },
-    { icon: CreditCard, title: "Финансовый учёт", description: "Автоматический расчёт зарплат и выручки" },
-    { icon: Settings, title: "CRM-система", description: "Полноценная система управления клиникой" },
-    { icon: Shield, title: "Безопасность данных", description: "Надёжное хранение данных пациентов" },
-    { icon: Clock, title: "Автоматизация", description: "Автоматические уведомления и напоминания" }
+    { icon: BarChart3, title: t("about.clAnalyticsTitle"), description: t("about.clAnalyticsDesc") },
+    { icon: Users, title: t("about.clStaffTitle"), description: t("about.clStaffDesc") },
+    { icon: CreditCard, title: t("about.clFinanceTitle"), description: t("about.clFinanceDesc") },
+    { icon: Settings, title: t("about.clCrmTitle"), description: t("about.clCrmDesc") },
+    { icon: Shield, title: t("about.clSecurityTitle"), description: t("about.clSecurityDesc") },
+    { icon: Clock, title: t("about.clAutomationTitle"), description: t("about.clAutomationDesc") },
   ];
 
-  const faqItems = [
-    {
-      question: "Как зарегистрироваться на портале?",
-      answer: "Нажмите кнопку «Войти» в правом верхнем углу, затем выберите «Регистрация». Заполните форму с вашими данными и подтвердите email. Для врачей и клиник потребуется дополнительная верификация документов."
-    },
-    {
-      question: "Как найти нужного врача?",
-      answer: "Используйте страницу поиска, где можно фильтровать врачей по специализации, городу, рейтингу и цене. Также доступна карта с расположением клиник и врачей."
-    },
-    {
-      question: "Как записаться на приём?",
-      answer: "Откройте профиль понравившегося врача, выберите удобную дату и время из доступных слотов, подтвердите запись. Вы получите уведомление с подтверждением."
-    },
-    {
-      question: "Можно ли отменить или перенести запись?",
-      answer: "Да, вы можете отменить или перенести запись в личном кабинете в разделе «Мои записи» не позднее чем за 2 часа до приёма."
-    },
-    {
-      question: "Как оплатить услуги?",
-      answer: "Оплата доступна онлайн через Payme, Click или Apelsin, а также наличными или картой в клинике после приёма."
-    },
-    {
-      question: "Безопасно ли хранятся мои данные?",
-      answer: "Да, мы используем шифрование данных и соответствуем всем требованиям по защите персональных данных. Медицинская информация доступна только вам и вашему врачу."
-    },
-    {
-      question: "Как врачу зарегистрироваться на портале?",
-      answer: "Врач должен подать заявку через форму регистрации, прикрепить диплом, лицензию и сертификаты. После проверки модераторами профиль будет активирован."
-    },
-    {
-      question: "Сколько стоит использование портала для врачей?",
-      answer: "Базовое использование бесплатно. Для продвижения профиля доступны платные рекламные пакеты: топ дня, недели, месяца."
-    },
-    {
-      question: "Как клинике подключиться к порталу?",
-      answer: "Подайте заявку через форму регистрации клиники, предоставьте лицензию и учредительные документы. После верификации вы получите доступ к CRM-системе."
-    },
-    {
-      question: "Какие возможности даёт CRM для клиник?",
-      answer: "CRM включает: управление расписанием, базу пациентов, медицинские карты, финансовый учёт, управление персоналом, складской учёт, лабораторные заказы и аналитику."
-    },
-    {
-      question: "Можно ли добавить нескольких врачей в одну клинику?",
-      answer: "Да, клиника может добавлять неограниченное количество врачей. Каждый врач получит свой аккаунт с доступом к расписанию и пациентам."
-    },
-    {
-      question: "Как работает система уведомлений?",
-      answer: "Пациенты и врачи получают уведомления о записях, напоминания за 24 часа до приёма, информацию об изменениях через SMS, Email или Telegram."
-    },
-    {
-      question: "Есть ли мобильное приложение?",
-      answer: "Мобильное приложение находится в разработке. Пока вы можете использовать адаптивную веб-версию на любом устройстве."
-    },
-    {
-      question: "Как оставить отзыв о враче?",
-      answer: "После завершённого приёма вы сможете оставить отзыв и оценку в профиле врача. Отзывы проходят модерацию перед публикацией."
-    },
-    {
-      question: "Можно ли вести записи для членов семьи?",
-      answer: "Да, в личном кабинете есть раздел «Семья», где можно добавить профили детей и других членов семьи и управлять их записями."
-    },
-    {
-      question: "Как врачу изменить своё расписание?",
-      answer: "В личном кабинете врача есть раздел «Расписание», где можно настроить рабочие часы, добавить выходные и управлять доступными слотами."
-    },
-    {
-      question: "Что такое рейтинг врача и как он формируется?",
-      answer: "Рейтинг формируется на основе отзывов пациентов, количества успешных приёмов, качества профиля и активности на портале."
-    },
-    {
-      question: "Как связаться с технической поддержкой?",
-      answer: "Напишите нам на support@prodent.uz или позвоните по номеру +998 71 200 00 00. Поддержка работает с 9:00 до 21:00."
-    },
-    {
-      question: "Работает ли портал в других городах Узбекистана?",
-      answer: "Да, портал работает по всему Узбекистану, включая Ташкент, Самарканд, Бухару, Фергану, Наманган и другие города."
-    },
-    {
-      question: "Как продвигать свой профиль врача или клиники?",
-      answer: "Доступны рекламные пакеты: показ в топе поиска, баннерная реклама, выделенный профиль. Обратитесь к администрации для подключения рекламы."
-    }
-  ];
+  // FAQ items: 20 question/answer pairs sourced from t('about.faqNQ' / 'faqNA').
+  // Other languages fall back to Russian until translated separately.
+  const faqItems = Array.from({ length: 20 }, (_, i) => ({
+    question: t(`about.faq${i + 1}Q`),
+    answer: t(`about.faq${i + 1}A`),
+  }));
 
   return (
     <div className="min-h-screen bg-background">
+      <PageMeta
+        title="О проекте — PRODENT"
+        description="PRODENT — премиум-портал стоматологов Центральной Азии. Узнайте, как пациенты, врачи и клиники используют платформу: поиск, онлайн-запись, медкарты и CRM."
+        canonical="https://prodent.uz/about"
+      />
       <Header />
-      
+
       <main className="pt-24 pb-16">
         {/* Hero Section */}
         <section className="container mx-auto px-4 mb-16">
           <div className="max-w-4xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-primary to-tashkent-sky bg-clip-text text-transparent">
-              О проекте PRODENT
+              {t("about.heroTitle")}
             </h1>
             <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
-              PRODENT — премиум портал стоматологов Центральной Азии. Мы объединяем пациентов, 
-              врачей и клиники на единой платформе, делая стоматологическую помощь доступной и удобной.
+              {t("about.heroDescription")}
             </p>
             <div className="flex flex-wrap justify-center gap-4">
               <Link to="/search">
                 <Button size="lg" className="gap-2">
                   <Search className="w-5 h-5" />
-                  Найти врача
+                  {t("about.findDoctor")}
                 </Button>
               </Link>
               {!user && (
                 <Link to="/auth">
                   <Button size="lg" variant="outline" className="gap-2">
                     <Users className="w-5 h-5" />
-                    Присоединиться
+                    {t("about.join")}
                   </Button>
                 </Link>
               )}
@@ -205,10 +119,10 @@ const About = () => {
         <section className="container mx-auto px-4 mb-20">
           <div className="max-w-5xl mx-auto">
             <div className="text-center mb-12">
-              <h2 className="text-3xl font-bold mb-4">Как пользоваться порталом</h2>
-              <p className="text-muted-foreground">Простые шаги для начала работы</p>
+              <h2 className="text-3xl font-bold mb-4">{t("about.howToUseTitle")}</h2>
+              <p className="text-muted-foreground">{t("about.howToUseSubtitle")}</p>
             </div>
-            
+
             <div className="grid md:grid-cols-4 gap-6">
               {howToUseSteps.map((item, index) => (
                 <Card key={index} className="relative overflow-hidden group hover:shadow-lg transition-shadow">
@@ -237,11 +151,11 @@ const About = () => {
                   <Users className="w-6 h-6 text-primary" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold">Для пациентов</h2>
-                  <p className="text-muted-foreground">Удобный доступ к качественной стоматологии</p>
+                  <h2 className="text-2xl font-bold">{t("about.forPatientsTitle")}</h2>
+                  <p className="text-muted-foreground">{t("about.forPatientsSubtitle")}</p>
                 </div>
               </div>
-              
+
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {forPatients.map((item, index) => (
                   <Card key={index} className="group hover:shadow-md transition-shadow">
@@ -271,11 +185,11 @@ const About = () => {
                 <Stethoscope className="w-6 h-6 text-tashkent-sky" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold">Для врачей</h2>
-                <p className="text-muted-foreground">Развивайте практику и расширяйте аудиторию</p>
+                <h2 className="text-2xl font-bold">{t("about.forDoctorsTitle")}</h2>
+                <p className="text-muted-foreground">{t("about.forDoctorsSubtitle")}</p>
               </div>
             </div>
-            
+
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {forDoctors.map((item, index) => (
                 <Card key={index} className="group hover:shadow-md transition-shadow border-tashkent-sky/20">
@@ -305,11 +219,11 @@ const About = () => {
                   <Building2 className="w-6 h-6 text-oriental-emerald" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold">Для клиник</h2>
-                  <p className="text-muted-foreground">Полноценная CRM-система для управления клиникой</p>
+                  <h2 className="text-2xl font-bold">{t("about.forClinicsTitle")}</h2>
+                  <p className="text-muted-foreground">{t("about.forClinicsSubtitle")}</p>
                 </div>
               </div>
-              
+
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {forClinics.map((item, index) => (
                   <Card key={index} className="group hover:shadow-md transition-shadow">
@@ -338,14 +252,14 @@ const About = () => {
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
                 <HelpCircle className="w-8 h-8 text-primary" />
               </div>
-              <h2 className="text-3xl font-bold mb-4">Часто задаваемые вопросы</h2>
-              <p className="text-muted-foreground">Ответы на популярные вопросы о работе портала</p>
+              <h2 className="text-3xl font-bold mb-4">{t("about.faqTitle")}</h2>
+              <p className="text-muted-foreground">{t("about.faqSubtitle")}</p>
             </div>
 
             <Accordion type="single" collapsible className="space-y-3">
               {faqItems.map((item, index) => (
-                <AccordionItem 
-                  key={index} 
+                <AccordionItem
+                  key={index}
                   value={`item-${index}`}
                   className="border rounded-xl px-6 data-[state=open]:bg-muted/50"
                 >
@@ -360,12 +274,10 @@ const About = () => {
             </Accordion>
 
             <div className="mt-12 text-center">
-              <p className="text-muted-foreground mb-4">
-                Не нашли ответ на свой вопрос?
-              </p>
+              <p className="text-muted-foreground mb-4">{t("about.noAnswer")}</p>
               <Button variant="outline" size="lg" className="gap-2">
                 <MessageSquare className="w-5 h-5" />
-                Связаться с поддержкой
+                {t("about.contactSupport")}
               </Button>
             </div>
           </div>

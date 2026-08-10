@@ -1,6 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useTodayAppointments } from "@/hooks/useTodayAppointments";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Clock, User, ChevronRight } from "lucide-react";
@@ -8,10 +7,17 @@ import { format, setHours, setMinutes, isWithinInterval, addMinutes } from "date
 import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface TimelineScheduleProps {
   doctorId?: string;
   clinicId?: string;
+}
+
+interface TimelineProfile {
+  full_name: string | null;
+  phone: string | null;
+  avatar_url: string | null;
 }
 
 // Working hours configuration
@@ -29,81 +35,45 @@ function generateTimeSlots() {
 }
 
 export function TimelineSchedule({ doctorId, clinicId }: TimelineScheduleProps) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const timeSlots = generateTimeSlots();
 
-  const { data: appointments, isLoading } = useQuery({
-    queryKey: ["timeline-appointments", clinicId, doctorId],
-    queryFn: async () => {
-      if (!clinicId) return [];
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      let query = supabase
-        .from("appointments")
-        .select(`
-          id,
-          appointment_date,
-          service,
-          status,
-          notes,
-          patient_id,
-          profiles:patient_id (
-            full_name,
-            phone,
-            avatar_url
-          )
-        `)
-        .eq("clinic_id", clinicId)
-        .gte("appointment_date", today.toISOString())
-        .lt("appointment_date", tomorrow.toISOString())
-        .order("appointment_date", { ascending: true });
-
-      if (doctorId) {
-        query = query.eq("doctor_id", doctorId);
-      }
-
-      const { data } = await query;
-      return data || [];
-    },
-    enabled: !!clinicId,
-    refetchInterval: 30000,
-  });
+  // Запрос вынесен в общий хук: те же записи считает «Главная» для чисел
+  // «Завершено» и «Не подтвердили». Ключ общий, поэтому запрос один на двоих.
+  const { appointments, isLoading } = useTodayAppointments(clinicId, doctorId);
 
   const getStatusConfig = (status: string) => {
     const config: Record<string, { bg: string; border: string; text: string; label: string }> = {
-      pending: { 
-        bg: "bg-amber-500/10", 
-        border: "border-amber-500/30", 
-        text: "text-amber-600 dark:text-amber-400",
-        label: "Ожидает"
+      pending: {
+        bg: "bg-status-warning/10",
+        border: "border-status-warning/30",
+        text: "text-status-warning",
+        label: t('crmTimelineSchedule.stPending')
       },
-      confirmed: { 
-        bg: "bg-blue-500/10", 
-        border: "border-blue-500/30", 
-        text: "text-blue-600 dark:text-blue-400",
-        label: "Подтверждено"
+      confirmed: {
+        bg: "bg-status-info/10",
+        border: "border-status-info/30",
+        text: "text-status-info",
+        label: t('crmTimelineSchedule.stConfirmed')
       },
-      completed: { 
-        bg: "bg-emerald-500/10", 
-        border: "border-emerald-500/30", 
-        text: "text-emerald-600 dark:text-emerald-400",
-        label: "Завершено"
+      completed: {
+        bg: "bg-status-success/10",
+        border: "border-status-success/30",
+        text: "text-status-success",
+        label: t('crmTimelineSchedule.stCompleted')
       },
-      cancelled: { 
-        bg: "bg-red-500/10", 
-        border: "border-red-500/30", 
-        text: "text-red-600 dark:text-red-400",
-        label: "Отменено"
+      cancelled: {
+        bg: "bg-status-danger/10",
+        border: "border-status-danger/30",
+        text: "text-status-danger",
+        label: t('crmTimelineSchedule.stCancelled')
       },
-      in_progress: { 
-        bg: "bg-primary/10", 
-        border: "border-primary/30", 
+      in_progress: {
+        bg: "bg-primary/10",
+        border: "border-primary/30",
         text: "text-primary",
-        label: "На приёме"
+        label: t('crmTimelineSchedule.stInProgress')
       },
     };
     return config[status] || config.pending;
@@ -127,16 +97,19 @@ export function TimelineSchedule({ doctorId, clinicId }: TimelineScheduleProps) 
 
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-foreground flex items-center gap-2">
-          <Clock className="w-5 h-5 text-primary" />
-          Расписание на сегодня
+      {/* Шапка панели по макету: 11px/14px, заголовок 14px/700, снизу граница.
+          Было p-6 и заголовок 20px — шапка занимала больше места, чем две
+          строки расписания под ней. */}
+      <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
+        <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
+          <Clock className="h-4 w-4 text-primary" />
+          {t('crmTimelineSchedule.todaySchedule')}
         </CardTitle>
-        <button 
+        <button
           onClick={() => navigate("/crm/schedule")}
-          className="text-sm text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+          className="cabinet-control flex items-center gap-1 text-meta font-semibold text-muted-foreground transition-colors hover:text-primary"
         >
-          Все записи
+          {t('crmTimelineSchedule.allAppts')}
           <ChevronRight className="w-4 h-4" />
         </button>
       </CardHeader>
@@ -151,12 +124,14 @@ export function TimelineSchedule({ doctorId, clinicId }: TimelineScheduleProps) 
           <div className="overflow-x-auto">
             <div className="min-w-[600px]">
               {/* Timeline header */}
-              <div className="flex border-b border-border/50 px-4 py-2 bg-muted/30">
-                <div className="w-16 shrink-0 text-xs font-medium text-muted-foreground">
-                  Время
+              {/* Шапка списка — как шапка таблицы: 36px на своей поверхности,
+                  12px/600. Отличает заголовки столбцов от самих строк. */}
+              <div className="flex h-row-head items-center border-b border-border/50 bg-surface-2 px-card-x">
+                <div className="w-16 shrink-0 text-xs font-semibold text-muted-foreground">
+                  {t('crmTimelineSchedule.timeHeader')}
                 </div>
-                <div className="flex-1 text-xs font-medium text-muted-foreground">
-                  Записи
+                <div className="flex-1 text-xs font-semibold text-muted-foreground">
+                  {t('crmTimelineSchedule.apptsHeader')}
                 </div>
               </div>
 
@@ -168,24 +143,26 @@ export function TimelineSchedule({ doctorId, clinicId }: TimelineScheduleProps) 
                     ((minute === 0 && currentMinute < 30) || (minute === 30 && currentMinute >= 30));
                   const isPast = hour < currentHour || (hour === currentHour && minute + 30 <= currentMinute);
                   const status = appointment ? getStatusConfig(appointment.status || "pending") : null;
-                  const patient = appointment?.profiles as any;
+                  const patient = appointment?.profiles as TimelineProfile | null;
 
                   return (
                     <div
                       key={index}
                       className={cn(
-                        "flex items-stretch min-h-[52px] transition-colors group",
+                        // 42px по макету. Было min-h-[52px], а с отступом
+                        // содержимого строка вырастала до 59px — замерено живьём.
+                        "group flex min-h-row items-stretch transition-colors",
                         isCurrentSlot && "bg-primary/5",
                         isPast && !appointment && "opacity-50"
                       )}
                     >
                       {/* Time column */}
                       <div className={cn(
-                        "w-16 shrink-0 flex items-center px-4 border-r border-border/30",
+                        "w-16 shrink-0 flex items-center px-card-x border-r border-border/30",
                         isCurrentSlot && "bg-primary/10"
                       )}>
                         <span className={cn(
-                          "text-sm font-medium",
+                          "text-cell font-medium",
                           isCurrentSlot ? "text-primary" : "text-muted-foreground"
                         )}>
                           {String(hour).padStart(2, "0")}:{String(minute).padStart(2, "0")}
@@ -193,18 +170,23 @@ export function TimelineSchedule({ doctorId, clinicId }: TimelineScheduleProps) 
                       </div>
 
                       {/* Content column */}
-                      <div className="flex-1 p-2">
+                      {/* Пустой слот не должен добавлять высоты: отступ только
+                          по горизонтали, иначе 42px превращаются в 58px. */}
+                      <div className="flex flex-1 items-center px-card-x py-0">
                         {appointment ? (
                           <div
                             className={cn(
-                              "flex items-center gap-3 p-3 rounded-lg border cursor-pointer",
+                              // Плашка записи живёт ВНУТРИ строки 42px, поэтому
+                              // отступ ужат: с p-3 (12px) плюс аватар 36px
+                              // строка вырастала вдвое.
+                              "flex w-full items-center gap-2 rounded-field border px-2 py-1 cursor-pointer",
                               "transition-all duration-200 hover:shadow-soft",
                               status?.bg,
                               status?.border
                             )}
                             onClick={() => navigate(`/crm/patients/${appointment.patient_id}`)}
                           >
-                            <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center shrink-0">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted">
                               {patient?.avatar_url ? (
                                 <img 
                                   src={patient.avatar_url} 
@@ -218,9 +200,9 @@ export function TimelineSchedule({ doctorId, clinicId }: TimelineScheduleProps) 
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="font-medium text-sm text-foreground truncate">
-                                  {patient?.full_name || "Пациент"}
+                                  {patient?.full_name || t('crmTimelineSchedule.patientFallback')}
                                 </span>
-                                <Badge variant="outline" className={cn("text-[10px] px-1.5", status?.text)}>
+                                <Badge variant="outline" className={cn("text-xs px-1.5", status?.text)}>
                                   {status?.label}
                                 </Badge>
                               </div>

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useNavigate } from 'react-router-dom';
 import type { AppointmentLimitInfo } from '@/hooks/useSubscriptionPlan';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface AppointmentLimitBannerProps {
   limitInfo: AppointmentLimitInfo | null;
@@ -13,9 +14,10 @@ interface AppointmentLimitBannerProps {
 
 export function AppointmentLimitBanner({ limitInfo, entityType, compact }: AppointmentLimitBannerProps) {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
-  if (!limitInfo || limitInfo.limit === null) {
-    // Unlimited plan, no banner needed
+  if (!limitInfo || typeof limitInfo.limit !== 'number') {
+    // Unlimited plan or no plan data — no banner
     return null;
   }
 
@@ -28,17 +30,17 @@ export function AppointmentLimitBanner({ limitInfo, entityType, compact }: Appoi
     return (
       <div className="flex items-center gap-2 text-sm">
         <span className={isAtLimit ? 'text-destructive' : isNearLimit ? 'text-amber-600' : 'text-muted-foreground'}>
-          {count}/{limit} записей
+          {count}/{limit} {t('billingDialogs.appointmentsLeft')}
         </span>
         {isAtLimit && (
-          <Button 
-            size="sm" 
-            variant="outline" 
+          <Button
+            size="sm"
+            variant="outline"
             className="h-6 text-xs"
             onClick={() => navigate(entityType === 'doctor' ? '/doctor/billing' : '/crm/billing')}
           >
             <Crown className="w-3 h-3 mr-1" />
-            Улучшить
+            {t('billingDialogs.upgradeShort')}
           </Button>
         )}
       </div>
@@ -49,20 +51,19 @@ export function AppointmentLimitBanner({ limitInfo, entityType, compact }: Appoi
     return (
       <Alert variant="destructive" className="mb-4">
         <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>Лимит записей исчерпан</AlertTitle>
+        <AlertTitle>{t('billingDialogs.limitExhaustedTitle')}</AlertTitle>
         <AlertDescription className="flex flex-col gap-3">
           <p>
-            Вы использовали все {limit} записей в этом месяце. 
-            Для создания новых записей перейдите на платный план.
+            {t('billingDialogs.limitExhaustedText').replace('{limit}', String(limit))}
           </p>
-          <Button 
-            variant="default" 
-            size="sm" 
+          <Button
+            variant="default"
+            size="sm"
             className="w-fit"
             onClick={() => navigate(entityType === 'doctor' ? '/doctor/billing' : '/crm/billing')}
           >
             <Crown className="w-4 h-4 mr-2" />
-            Улучшить план
+            {t('billingDialogs.upgradePlanBtn')}
           </Button>
         </AlertDescription>
       </Alert>
@@ -73,22 +74,22 @@ export function AppointmentLimitBanner({ limitInfo, entityType, compact }: Appoi
     return (
       <Alert className="mb-4 border-amber-500 bg-amber-500/10">
         <TrendingUp className="h-4 w-4 text-amber-600" />
-        <AlertTitle className="text-amber-700">Приближается лимит записей</AlertTitle>
+        <AlertTitle className="text-amber-700">{t('billingDialogs.approachingLimitTitle')}</AlertTitle>
         <AlertDescription className="space-y-3">
           <div>
             <p className="text-sm text-amber-700 mb-2">
-              Использовано {count} из {limit} записей. Осталось: {remaining}
+              {t('billingDialogs.approachingLimitText').replace('{count}', String(count)).replace('{limit}', String(limit)).replace('{remaining}', String(remaining))}
             </p>
             <Progress value={usagePercent} className="h-2" />
           </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             className="border-amber-500 text-amber-700 hover:bg-amber-500/20"
             onClick={() => navigate(entityType === 'doctor' ? '/doctor/billing' : '/crm/billing')}
           >
             <Crown className="w-4 h-4 mr-2" />
-            Перейти на безлимит
+            {t('billingDialogs.goUnlimited')}
           </Button>
         </AlertDescription>
       </Alert>

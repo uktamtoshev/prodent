@@ -44,7 +44,7 @@ export function PaginationControls({
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">На странице:</span>
           <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-            <SelectTrigger className="w-[70px] h-9 bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700">
+            <SelectTrigger className="w-[70px] h-9 bg-card dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -98,7 +98,7 @@ export function PaginationControls({
                   size="icon"
                   className={`h-9 w-9 ${
                     pageNum === currentPage 
-                      ? "bg-neutral-900 dark:bg-white text-white dark:text-neutral-900" 
+                      ? "bg-neutral-900 dark:bg-card text-white dark:text-neutral-900" 
                       : "border-neutral-200 dark:border-neutral-700"
                   }`}
                   onClick={() => onPageChange(pageNum)}

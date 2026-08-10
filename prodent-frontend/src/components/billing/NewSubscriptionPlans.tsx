@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PlanCard } from './PlanCard';
 import { useSubscriptionPlans, type EntityType, type SubscriptionPlan } from '@/hooks/useSubscriptionPlan';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface NewSubscriptionPlansProps {
   entityType: EntityType;
@@ -20,6 +21,7 @@ export function NewSubscriptionPlans({
   onSubscribe,
   isLoading,
 }: NewSubscriptionPlansProps) {
+  const { t } = useLanguage();
   const [selectedPlan, setSelectedPlan] = useState<SubscriptionPlan | null>(null);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
 
@@ -29,19 +31,11 @@ export function NewSubscriptionPlans({
     return new Intl.NumberFormat('ru-RU').format(value);
   };
 
-  // Map current DB plan value to our plan ID
-  const mapDbPlanToId = (dbPlan: string | null): string => {
-    if (!dbPlan || dbPlan === 'free') return 'basic';
-    if (dbPlan === 'premium' || dbPlan === 'standard') return 'standard';
-    if (dbPlan === 'top' || dbPlan === 'gold') return 'gold';
-    return 'basic';
-  };
-
-  const currentMappedPlanId = mapDbPlanToId(currentPlanId);
+  // Current plan is the entity's subscription_plan slug (FREE/BASIC/PREMIUM/ENTERPRISE).
+  const currentSlug = (currentPlanId || 'FREE').toUpperCase();
 
   const handleSelectPlan = (plan: SubscriptionPlan) => {
-    const planKey = plan.name.toLowerCase();
-    if (planKey === currentMappedPlanId) return;
+    if (plan.slug === currentSlug) return;
     if (plan.price > balance) return;
     setSelectedPlan(plan);
     setIsConfirmOpen(true);
@@ -49,8 +43,7 @@ export function NewSubscriptionPlans({
 
   const handleConfirm = () => {
     if (!selectedPlan) return;
-    const planKey = selectedPlan.name.toLowerCase();
-    onSubscribe(planKey, selectedPlan.price);
+    onSubscribe(selectedPlan.slug, selectedPlan.price);
     setIsConfirmOpen(false);
     setSelectedPlan(null);
   };
@@ -69,13 +62,12 @@ export function NewSubscriptionPlans({
     <>
       <div className="grid gap-4 md:grid-cols-3">
         {plans?.map((plan) => {
-          const planKey = plan.name.toLowerCase();
-          const isCurrent = planKey === currentMappedPlanId;
+          const isCurrent = plan.slug === currentSlug;
           const canAfford = balance >= plan.price;
 
           return (
             <PlanCard
-              key={plan.id}
+              key={plan.slug}
               plan={plan}
               isCurrentPlan={isCurrent}
               canAfford={canAfford}
@@ -89,25 +81,25 @@ export function NewSubscriptionPlans({
       <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Подтверждение подписки</DialogTitle>
+            <DialogTitle>{t('billingDialogs.confirmSubscriptionTitle')}</DialogTitle>
             <DialogDescription>
-              Вы выбрали план "{selectedPlan?.name_ru}"
+              {t('billingDialogs.youSelectedPlan')} "{selectedPlan?.name_ru}"
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="p-4 rounded-lg bg-muted">
               <div className="flex justify-between mb-2">
-                <span>Стоимость:</span>
+                <span>{t('billingDialogs.cost')}</span>
                 <span className="font-bold">
-                  {formatAmount(selectedPlan?.price || 0)} UZS / месяц
+                  {formatAmount(selectedPlan?.price || 0)} UZS / {t('billingDialogs.perMonth')}
                 </span>
               </div>
               <div className="flex justify-between mb-2">
-                <span>Текущий баланс:</span>
+                <span>{t('billingDialogs.currentBalance')}</span>
                 <span className="font-bold text-green-600">{formatAmount(balance)} UZS</span>
               </div>
               <div className="flex justify-between pt-2 border-t">
-                <span>После оплаты:</span>
+                <span>{t('billingDialogs.afterPayment')}</span>
                 <span className="font-bold">
                   {formatAmount(balance - (selectedPlan?.price || 0))} UZS
                 </span>
@@ -115,10 +107,10 @@ export function NewSubscriptionPlans({
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setIsConfirmOpen(false)}>
-                Отмена
+                {t('common.cancel')}
               </Button>
               <Button className="flex-1" onClick={handleConfirm} disabled={isLoading}>
-                Подтвердить
+                {t('billingDialogs.confirmBtn')}
               </Button>
             </div>
           </div>

@@ -4,6 +4,7 @@ import { Shield, Lock, Clock, CheckCircle } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface LockedMedicalRecordProps {
   onRequestAccess: () => void;
@@ -20,6 +21,8 @@ export function LockedMedicalRecord({
   hasAccess = false,
   accessExpiresAt
 }: LockedMedicalRecordProps) {
+  const { t } = useLanguage();
+
   if (hasAccess && accessExpiresAt) {
     return (
       <Card className="border-emerald-500/20 bg-emerald-500/5">
@@ -31,10 +34,10 @@ export function LockedMedicalRecord({
               </div>
               <div>
                 <h4 className="font-medium text-emerald-700 dark:text-emerald-400">
-                  Доступ активен
+                  {t('medicalAccess.accessActiveTitle')}
                 </h4>
                 <p className="text-sm text-muted-foreground">
-                  До {format(accessExpiresAt, "d MMMM, HH:mm", { locale: ru })} 
+                  {t('medicalAccess.until')} {format(accessExpiresAt, "d MMMM, HH:mm", { locale: ru })}
                   <span className="ml-1">
                     ({formatDistanceToNow(accessExpiresAt, { locale: ru, addSuffix: true })})
                   </span>
@@ -43,7 +46,7 @@ export function LockedMedicalRecord({
             </div>
             <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
               <Clock className="w-3 h-3 mr-1" />
-              Активен
+              {t('medicalAccess.accessActiveBadge')}
             </Badge>
           </div>
         </CardContent>
@@ -61,19 +64,19 @@ export function LockedMedicalRecord({
             </div>
             <div>
               <h4 className="font-semibold text-amber-700 dark:text-amber-400">
-                Ожидание одобрения
+                {t('medicalAccess.awaitingApproval')}
               </h4>
               <p className="text-sm text-muted-foreground mt-1">
-                Запрос отправлен пациенту
+                {t('medicalAccess.requestSentToPatient')}
                 {pendingRequestDate && (
                   <span className="block">
-                    {format(new Date(pendingRequestDate), "d MMMM в HH:mm", { locale: ru })}
+                    {format(new Date(pendingRequestDate), "d MMMM HH:mm", { locale: ru })}
                   </span>
                 )}
               </p>
             </div>
             <Badge variant="outline" className="border-amber-500/50 text-amber-600">
-              Ожидает подтверждения
+              {t('medicalAccess.pendingConfirmationBadge')}
             </Badge>
           </div>
         </CardContent>
@@ -88,24 +91,23 @@ export function LockedMedicalRecord({
           <div className="inline-flex p-4 rounded-full bg-muted">
             <Lock className="h-10 w-10 text-muted-foreground" />
           </div>
-          
+
           <div className="space-y-2">
             <h4 className="font-semibold text-lg">
-              Медицинская карта защищена
+              {t('medicalAccess.cardProtectedTitle')}
             </h4>
             <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-              Для просмотра медицинских данных пациента необходимо получить его согласие.
-              Доступ будет ограничен по времени.
+              {t('medicalAccess.cardProtectedDesc')}
             </p>
           </div>
 
           <Button onClick={onRequestAccess} className="gap-2">
             <Shield className="h-4 w-4" />
-            Запросить доступ к медкарте
+            {t('medicalAccess.requestMedicalCardAccess')}
           </Button>
 
           <p className="text-xs text-muted-foreground">
-            Пациент получит уведомление и сможет одобрить или отклонить запрос
+            {t('medicalAccess.patientWillBeNotified')}
           </p>
         </div>
       </CardContent>

@@ -13,6 +13,13 @@ import { SmartToothDetailCard } from "./SmartToothDetailCard";
 import { cn } from "@/lib/utils";
 
 type ToothStatus = 'healthy' | 'caries' | 'filling' | 'crown' | 'implant' | 'removed' | 'watch' | 'endo' | 'periodontitis';
+type ViewMode = 'planning' | 'history';
+
+const isViewMode = (value: string): value is ViewMode =>
+  value === 'planning' || value === 'history';
+
+const isToothStatus = (value: unknown): value is ToothStatus =>
+  typeof value === 'string' && value in STATUS_CONFIG;
 
 const STATUS_CONFIG: Record<ToothStatus, { label: string; baseColor: string; darkColor: string }> = {
   healthy: { label: 'Здоровый', baseColor: '#E8E0F5', darkColor: '#C5BAD8' },
@@ -530,7 +537,7 @@ export function RealTeethChart({ patientId, birthDate }: { patientId?: string; b
   const effectivePatientId = patientId || user?.id;
 
   const [selectedTooth, setSelectedTooth] = useState<number | null>(null);
-  const [viewMode, setViewMode] = useState<'planning' | 'history'>('planning');
+  const [viewMode, setViewMode] = useState<ViewMode>('planning');
 
   // Определяем возраст и тип зубной формулы
   const age = useMemo(() => calculateAge(birthDate), [birthDate]);
@@ -583,13 +590,25 @@ export function RealTeethChart({ patientId, birthDate }: { patientId?: string; b
   });
 
   const teethMap = useMemo(() => {
-    const m = new Map<number, any>();
+    type ToothRow = NonNullable<typeof teethData>[number];
+    type ToothWithDoctor = ToothRow & { doctor_name?: string | null };
+    const m = new Map<number, ToothWithDoctor>();
     teethData?.forEach(t => m.set(t.tooth_number, { ...t, doctor_name: t.doctors?.profiles?.full_name }));
     return m;
   }, [teethData]);
 
-  const getStatus = (n: number): ToothStatus => teethMap.get(n)?.status || 'healthy';
-  const getToothData = (n: number) => ({ tooth_number: n, ...teethMap.get(n) });
+  const getStatus = (n: number): ToothStatus => {
+    const status = teethMap.get(n)?.status;
+    return isToothStatus(status) ? status : 'healthy';
+  };
+  const getToothData = (n: number) => {
+    const tooth = teethMap.get(n);
+    return {
+      ...tooth,
+      tooth_number: n,
+      status: isToothStatus(tooth?.status) ? tooth.status : 'healthy',
+    };
+  };
 
   const problemCount = teethData?.filter(t => !['healthy', 'filling', 'crown', 'implant'].includes(t.status)).length || 0;
 
@@ -709,7 +728,12 @@ export function RealTeethChart({ patientId, birthDate }: { patientId?: string; b
             </Badge>
           )}
         </div>
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+        <Tabs
+          value={viewMode}
+          onValueChange={(value) => {
+            if (isViewMode(value)) setViewMode(value);
+          }}
+        >
           <TabsList className="h-8 bg-muted/40">
             <TabsTrigger value="planning" className="text-xs h-7 px-3">Планирование</TabsTrigger>
             <TabsTrigger value="history" className="text-xs h-7 px-3">История</TabsTrigger>

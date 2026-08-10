@@ -1,10 +1,10 @@
 import { useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { ArrowLeft, Calendar, Clock, Share2, BookOpen, ChevronRight, User, Heart } from "lucide-react";
-import DOMPurify from "dompurify";
+import { ArrowLeft, Calendar, Clock, Share2, BookOpen, ChevronRight, User, Heart, Eye } from "lucide-react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { formatCount, hasLiked, recordShare, recordView, shareOrCopy, toggleLike } from "@/lib/engagement";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,6 +12,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { uzLatinToCyrl } from "@/lib/uzbek-transliterate";
+import { PageMeta } from "@/components/PageMeta";
+import { ArticleSchema, BreadcrumbListSchema } from "@/components/StructuredData";
 
 // Import default cover images
 import dentalGeneral from "@/assets/articles/dental-general.jpg";
@@ -40,6 +44,12 @@ import dentalInlay from "@/assets/articles/dental-inlay.jpg";
 import dentalMouthUlcer from "@/assets/articles/dental-mouth-ulcer.jpg";
 import dentalNightGuard from "@/assets/articles/dental-night-guard.jpg";
 import dentalSmoker from "@/assets/articles/dental-smoker.jpg";
+
+const ArticleMarkdown = lazy(() =>
+  import("@/components/articles/ArticleMarkdown").then((module) => ({
+    default: module.ArticleMarkdown,
+  })),
+);
 
 const articleCovers: Record<string, string> = {
   'stomatologiya-namangan': dentalNamanganClinic,
@@ -73,39 +83,93 @@ const defaultCovers = [
   dentalBraces,
 ];
 
+interface BlogPostResponse {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt?: string | null;
+  content?: string | null;
+  coverUrl?: string | null;
+  publishedAt?: string | null;
+  tags?: string[];
+  viewCount?: number;
+  likesCount?: number;
+  sharesCount?: number;
+}
+
+interface ArticleView {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null | undefined;
+  content: string | null | undefined;
+  cover_url: string | null | undefined;
+  published_at: string | null | undefined;
+  meta_keywords: string[];
+  view_count: number;
+  likes_count: number;
+  shares_count: number;
+}
+
 const ArticleDetail = () => {
   const { slug } = useParams<{ slug: string }>();
+  const { language, t } = useLanguage();
+  // uz_cyrl грузит uz (latin) и транслитерирует на лету.
+  const articleLang =
+    language === 'uz' || language === 'uz_cyrl' ? 'uz'
+    : language === 'ru' ? 'ru'
+    : 'ru';
+  const needCyrl = language === 'uz_cyrl';
 
   const { data: article, isLoading, error } = useQuery({
-    queryKey: ["article", slug],
+    queryKey: ["article", slug, articleLang, needCyrl],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("blog_posts")
-        .select("*")
-        .eq("slug", slug)
-        .eq("published", true)
-        .single();
-
-      if (error) throw error;
-      return data;
+      const res = await fetch(`/api/v1/public/blog/${slug}?lang=${articleLang}`);
+      if (!res.ok) throw new Error(`Failed to load article: ${res.status}`);
+      const p = await res.json() as BlogPostResponse;
+      return {
+        id: p.id,
+        title: needCyrl ? uzLatinToCyrl(p.title) : p.title,
+        slug: p.slug,
+        excerpt: needCyrl ? uzLatinToCyrl(p.excerpt ?? "") : p.excerpt,
+        content: needCyrl ? uzLatinToCyrl(p.content ?? "") : p.content,
+        cover_url: p.coverUrl,
+        published_at: p.publishedAt,
+        meta_keywords: needCyrl
+          ? (p.tags ?? []).map((t: string) => uzLatinToCyrl(t))
+          : p.tags ?? [],
+        view_count: p.viewCount ?? 0,
+        likes_count: p.likesCount ?? 0,
+        shares_count: p.sharesCount ?? 0,
+      };
     },
   });
 
   const { data: relatedArticles } = useQuery({
-    queryKey: ["related-articles", article?.id],
+    queryKey: ["related-articles", article?.id, articleLang, needCyrl],
     queryFn: async () => {
       if (!article) return [];
-      const { data, error } = await supabase
-        .from("blog_posts")
-        .select("id, title, slug, excerpt, cover_image, published_at, meta_keywords")
-        .eq("published", true)
-        .neq("id", article.id)
-        .limit(3);
-
-      if (error) throw error;
-      return data;
+      const res = await fetch(`/api/v1/public/blog?lang=${articleLang}&size=10`);
+      if (!res.ok) return [];
+      const json = await res.json();
+      const rows = ((json.content ?? []) as BlogPostResponse[])
+        .filter((p) => p.id !== article.id)
+        .slice(0, 3);
+      return rows.map((p): ArticleView => ({
+        id: p.id,
+        title: needCyrl ? uzLatinToCyrl(p.title) : p.title,
+        slug: p.slug,
+        excerpt: needCyrl ? uzLatinToCyrl(p.excerpt ?? "") : p.excerpt,
+        cover_url: p.coverUrl,
+        published_at: p.publishedAt,
+        meta_keywords: needCyrl
+          ? (p.tags ?? []).map((t: string) => uzLatinToCyrl(t))
+          : p.tags ?? [],
+        view_count: p.viewCount ?? 0,
+        likes_count: p.likesCount ?? 0,
+        shares_count: p.sharesCount ?? 0,
+      }));
     },
-    enabled: !!article,
   });
 
   const estimateReadTime = (content: string | null) => {
@@ -114,26 +178,51 @@ const ArticleDetail = () => {
     return Math.max(3, Math.ceil(words / 200));
   };
 
-  const handleShare = async () => {
-    const url = window.location.href;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: article?.title,
-          text: article?.excerpt || "",
-          url,
-        });
-      } catch {
-        // User cancelled
-      }
-    } else {
-      await navigator.clipboard.writeText(url);
-      toast.success("Ссылка скопирована в буфер обмена");
+  // ── Engagement state (likes / shares / views) ───────────────────────────
+  const [liked, setLiked] = useState(false);
+  const [likesCount, setLikesCount] = useState<number>(0);
+  const [sharesCount, setSharesCount] = useState<number>(0);
+  const [viewCount, setViewCount] = useState<number>(0);
+
+  // Hydrate state from server payload, then bump view (deduped per session).
+  useEffect(() => {
+    if (!article || !slug) return;
+    setLikesCount(article.likes_count ?? 0);
+    setSharesCount(article.shares_count ?? 0);
+    setViewCount(article.view_count ?? 0);
+    setLiked(hasLiked(slug, articleLang));
+    recordView(slug, articleLang).then((fresh) => {
+      if (typeof fresh === "number") setViewCount(fresh);
+    });
+  }, [article, slug, articleLang]);
+
+  const handleLike = async () => {
+    if (!slug) return;
+    const result = await toggleLike(slug, articleLang);
+    if (result) {
+      setLiked(result.liked);
+      setLikesCount(result.likesCount);
     }
   };
 
-  const getArticleCover = (articleSlug: string, index: number) => {
-    return articleCovers[articleSlug] || defaultCovers[index % defaultCovers.length];
+  const handleShare = async () => {
+    if (!article || !slug) return;
+    const url = window.location.href;
+    const outcome = await shareOrCopy(url, article.title, article.excerpt || "");
+    if (outcome === "shared" || outcome === "copied") {
+      const fresh = await recordShare(slug, articleLang);
+      if (typeof fresh === "number") setSharesCount(fresh);
+      if (outcome === "copied") toast.success("Ссылка скопирована в буфер обмена");
+    } else if (outcome === "failed") {
+      toast.error("Не удалось поделиться");
+    }
+  };
+
+  const getArticleCover = (articleSlug: string, index: number, fromDb?: string | null) => {
+    // Prefer the cover saved in the DB (set by seed / admin) over the hard-
+    // coded fallback map. Falls back to a category-themed default when the
+    // article doesn't have a cover yet.
+    return fromDb || articleCovers[articleSlug] || defaultCovers[index % defaultCovers.length];
   };
 
   if (isLoading) {
@@ -184,10 +273,42 @@ const ArticleDetail = () => {
     );
   }
 
+  // ── SEO ──────────────────────────────────────────────────
+  const canonicalUrl = `https://prodent.uz/articles/${article.slug}`;
+  const seoTitle = `${article.title} | PRODENT`;
+  const seoDescription =
+    article.excerpt ||
+    (article.content
+      ? article.content.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 160)
+      : article.title);
+  const seoImage = getArticleCover(article.slug, 0, article.cover_url);
+
   return (
     <div className="min-h-screen bg-background">
+      <PageMeta
+        title={seoTitle}
+        description={seoDescription}
+        canonical={canonicalUrl}
+        ogType="article"
+        ogImage={seoImage}
+      />
+      <ArticleSchema
+        headline={article.title}
+        description={article.excerpt || undefined}
+        image={seoImage}
+        authorName="PRODENT"
+        publishedAt={article.published_at || new Date().toISOString()}
+        url={canonicalUrl}
+      />
+      <BreadcrumbListSchema
+        items={[
+          { name: t("nav.home"), url: "https://prodent.uz/" },
+          { name: t("nav.articles"), url: "https://prodent.uz/articles" },
+          { name: article.title, url: canonicalUrl },
+        ]}
+      />
       <Header />
-      
+
       <main>
         {/* Breadcrumb */}
         <div className="border-b border-border/50 bg-muted/30">
@@ -209,7 +330,7 @@ const ArticleDetail = () => {
         {/* Hero Image */}
         <div className="relative h-[300px] md:h-[450px] lg:h-[500px] overflow-hidden">
           <img
-            src={getArticleCover(article.slug, 0)}
+            src={getArticleCover(article.slug, 0, article.cover_url)}
             alt={article.title}
             className="w-full h-full object-cover"
           />
@@ -277,29 +398,62 @@ const ArticleDetail = () => {
                 {/* Divider */}
                 <div className="h-px bg-border mb-8" />
 
+                {/* Inline cover photo — sits at the top of the article body
+                    so readers see the same image inside the post (not only
+                    behind the title hero). Falls back to default if missing. */}
+                {article.cover_url && (
+                  <figure className="mb-8 -mx-6 md:-mx-10 lg:-mx-12">
+                    <img
+                      src={getArticleCover(article.slug, 0, article.cover_url)}
+                      alt={article.title}
+                      className="w-full h-auto max-h-[480px] object-cover"
+                      loading="lazy"
+                    />
+                  </figure>
+                )}
+
                 {/* Article content */}
-                <div 
-                  className="prose prose-lg max-w-none dark:prose-invert 
-                    prose-headings:text-foreground prose-headings:font-bold prose-headings:mt-8 prose-headings:mb-4
-                    prose-h2:text-2xl prose-h3:text-xl
-                    prose-p:text-foreground/85 prose-p:leading-relaxed prose-p:mb-6
-                    prose-a:text-primary prose-a:no-underline hover:prose-a:underline
-                    prose-strong:text-foreground prose-strong:font-semibold
-                    prose-ul:text-foreground/85 prose-ol:text-foreground/85
-                    prose-li:mb-2
-                    prose-blockquote:border-l-4 prose-blockquote:border-primary prose-blockquote:bg-muted/50 prose-blockquote:py-4 prose-blockquote:px-6 prose-blockquote:rounded-r-lg prose-blockquote:text-muted-foreground prose-blockquote:italic
-                    prose-code:bg-muted prose-code:px-2 prose-code:py-1 prose-code:rounded prose-code:text-sm
-                    prose-img:rounded-xl prose-img:shadow-lg"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(article.content || "") }}
-                />
+                <Suspense
+                  fallback={
+                    <div className="space-y-4" aria-label="Загрузка статьи">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-3/4" />
+                    </div>
+                  }
+                >
+                  <ArticleMarkdown content={article.content} />
+                </Suspense>
 
                 {/* Divider */}
                 <div className="h-px bg-border my-8" />
 
-                {/* Share & Actions */}
+                {/* Engagement counters & actions */}
                 <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">Поделиться:</span>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1.5" title="Просмотры">
+                      <Eye className="h-4 w-4" />
+                      {formatCount(viewCount)}
+                    </span>
+                    <span className="flex items-center gap-1.5" title="Лайки">
+                      <Heart className="h-4 w-4" />
+                      {formatCount(likesCount)}
+                    </span>
+                    <span className="flex items-center gap-1.5" title="Поделились">
+                      <Share2 className="h-4 w-4" />
+                      {formatCount(sharesCount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={liked ? "default" : "outline"}
+                      size="sm"
+                      onClick={handleLike}
+                      className={`rounded-full ${liked ? "bg-red-500 hover:bg-red-600 border-red-500 text-white" : ""}`}
+                    >
+                      <Heart className={`h-4 w-4 mr-2 ${liked ? "fill-current" : ""}`} />
+                      {liked ? "Нравится" : "Нравится"}
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -310,10 +464,6 @@ const ArticleDetail = () => {
                       Поделиться
                     </Button>
                   </div>
-                  <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-red-500">
-                    <Heart className="h-4 w-4 mr-2" />
-                    Добавить в избранное
-                  </Button>
                 </div>
               </div>
             </div>
@@ -358,7 +508,7 @@ const ArticleDetail = () => {
                     <Card className="h-full overflow-hidden border-0 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-2">
                       <div className="relative h-48 overflow-hidden">
                         <img
-                          src={getArticleCover(related.slug, index)}
+                          src={getArticleCover(related.slug, index, related.cover_url)}
                           alt={related.title}
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />

@@ -20,9 +20,33 @@ import { Textarea } from "@/components/ui/textarea";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Building2, Plus, Check, DollarSign, AlertTriangle, Loader2 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+type ProfileSummary = { full_name: string | null };
+type DoctorProfile = ProfileSummary | ProfileSummary[] | null;
+type RentalDoctor = {
+  id: string;
+  profiles: DoctorProfile;
+};
+type RentalPaymentDoctor = {
+  id: string;
+  profiles: DoctorProfile;
+};
+type RentalPaymentWithDoctor = {
+  doctor: RentalPaymentDoctor | RentalPaymentDoctor[] | null;
+};
+
+const getProfileName = (profile: DoctorProfile | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const getDoctorName = (
+  doctor: RentalPaymentDoctor | RentalPaymentDoctor[] | null | undefined,
+) => getProfileName(Array.isArray(doctor) ? doctor[0]?.profiles : doctor?.profiles);
 
 export function RentalPaymentsList() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
@@ -86,14 +110,14 @@ export function RentalPaymentsList() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rental-payments"] });
-      toast.success("Арендный платёж создан");
+      toast.success(t('crmFinanceComponents.rentalPaymentCreated'));
       setAddDialogOpen(false);
       setSelectedDoctor("");
       setAmount("");
       setNotes("");
     },
     onError: () => {
-      toast.error("Ошибка создания платежа");
+      toast.error(t('crmFinanceComponents.paymentCreateError'));
     },
   });
 
@@ -111,7 +135,7 @@ export function RentalPaymentsList() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rental-payments"] });
-      toast.success("Платёж отмечен как оплаченный");
+      toast.success(t('crmFinanceComponents.paymentMarkedPaid'));
     },
   });
 
@@ -126,10 +150,10 @@ export function RentalPaymentsList() {
   const isLoading = loadingDoctors || loadingPayments;
 
   const getStatusBadge = (status: string) => {
-    const variants: Record<string, { label: string; className: string; icon: any }> = {
-      pending: { label: "Ожидает", className: "bg-amber-500/20 text-amber-400 border-amber-500/50", icon: AlertTriangle },
-      paid: { label: "Оплачено", className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/50", icon: Check },
-      overdue: { label: "Просрочен", className: "bg-red-500/20 text-red-400 border-red-500/50", icon: AlertTriangle },
+    const variants: Record<string, { label: string; className: string; icon: LucideIcon }> = {
+      pending: { label: t('crmFinanceComponents.statusPending'), className: "bg-status-warning/20 text-status-warning border-status-warning/50", icon: AlertTriangle },
+      paid: { label: t('crmFinanceComponents.statusPaid'), className: "bg-status-success/20 text-status-success border-status-success/50", icon: Check },
+      overdue: { label: t('crmFinanceComponents.statusOverdue'), className: "bg-status-danger/20 text-status-danger border-status-danger/50", icon: AlertTriangle },
     };
     return variants[status] || variants.pending;
   };
@@ -143,9 +167,20 @@ export function RentalPaymentsList() {
     return <Skeleton className="h-96 w-full bg-muted" />;
   }
 
+  if (!currentClinic) {
+    return (
+      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
+        <CardContent className="py-16 text-center">
+          <Building2 className="mx-auto mb-4 h-12 w-12 text-muted-foreground opacity-40" />
+          <p className="text-sm text-muted-foreground">{t("crmReports.selectClinicForReports")}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Select value={selectedMonth} onValueChange={setSelectedMonth}>
           <SelectTrigger className="w-[200px] bg-background border-border">
             <SelectValue />
@@ -161,20 +196,20 @@ export function RentalPaymentsList() {
 
         <Button onClick={() => setAddDialogOpen(true)} disabled={!rentalDoctors?.length}>
           <Plus className="w-4 h-4 mr-2" />
-          Добавить платёж
+          {t('crmFinanceComponents.addPaymentBtn')}
         </Button>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="bg-card/80 border-border/50">
-          <CardContent className="pt-6">
+          <CardContent className="px-card-x pb-card-x pt-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-amber-500" />
+              <div className="w-10 h-10 rounded-xl bg-status-warning/20 flex items-center justify-center">
+                <Building2 className="w-5 h-5 text-status-warning" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ожидаемая аренда</p>
+                <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.expectedRental')}</p>
                 <p className="text-xl font-bold text-foreground">{totalExpected.toLocaleString()} UZS</p>
               </div>
             </div>
@@ -182,28 +217,28 @@ export function RentalPaymentsList() {
         </Card>
 
         <Card className="bg-card/80 border-border/50">
-          <CardContent className="pt-6">
+          <CardContent className="px-card-x pb-card-x pt-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <Check className="w-5 h-5 text-emerald-500" />
+              <div className="w-10 h-10 rounded-xl bg-status-success/20 flex items-center justify-center">
+                <Check className="w-5 h-5 text-status-success" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Оплачено</p>
-                <p className="text-xl font-bold text-emerald-400">{totalPaid.toLocaleString()} UZS</p>
+                <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.statusPaid')}</p>
+                <p className="text-xl font-bold text-status-success">{totalPaid.toLocaleString()} UZS</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-card/80 border-border/50">
-          <CardContent className="pt-6">
+          <CardContent className="px-card-x pb-card-x pt-0">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5 text-red-500" />
+              <div className="w-10 h-10 rounded-xl bg-status-danger/20 flex items-center justify-center">
+                <AlertTriangle className="w-5 h-5 text-status-danger" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">К оплате</p>
-                <p className="text-xl font-bold text-red-400">{totalPending.toLocaleString()} UZS</p>
+                <p className="text-sm text-muted-foreground">{t('crmFinanceComponents.toPay')}</p>
+                <p className="text-xl font-bold text-status-danger">{totalPending.toLocaleString()} UZS</p>
               </div>
             </div>
           </CardContent>
@@ -213,9 +248,9 @@ export function RentalPaymentsList() {
       {/* Payments list */}
       <Card className="bg-card/80 border-border/50">
         <CardHeader>
-          <CardTitle className="text-foreground flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <Building2 className="w-5 h-5" />
-            Арендные платежи за {format(periodStart, "LLLL yyyy", { locale: ru })}
+            {t('crmFinanceComponents.rentalPaymentsFor')} {format(periodStart, "LLLL yyyy", { locale: ru })}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -226,18 +261,18 @@ export function RentalPaymentsList() {
                 const StatusIcon = statusBadge.icon;
                 
                 return (
-                  <div key={payment.id} className="p-4 bg-muted/30 rounded-lg">
-                    <div className="flex items-start justify-between">
+                  <div key={payment.id} className="p-4 bg-muted/30 rounded-2xl">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                          <Building2 className="w-5 h-5 text-amber-500" />
+                        <div className="w-10 h-10 rounded-full bg-status-warning/20 flex items-center justify-center">
+                          <Building2 className="w-5 h-5 text-status-warning" />
                         </div>
                         <div>
                           <p className="font-medium text-foreground">
-                            {(payment.doctor as any)?.profiles?.full_name || "Врач"}
+                            {getDoctorName((payment as typeof payment & RentalPaymentWithDoctor).doctor) || t('crmFinanceComponents.doctor')}
                           </p>
                           <p className="text-sm text-muted-foreground">
-                            Аренда кресла
+                            {t('crmFinanceComponents.chairRental')}
                           </p>
                         </div>
                       </div>
@@ -247,7 +282,7 @@ export function RentalPaymentsList() {
                       </Badge>
                     </div>
 
-                    <div className="flex items-center justify-between mt-4">
+                    <div className="flex flex-col gap-3 mt-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="text-xl font-bold text-foreground">
                         {payment.amount.toLocaleString()} {payment.currency}
                       </p>
@@ -259,7 +294,7 @@ export function RentalPaymentsList() {
                           disabled={markPaidMutation.isPending}
                         >
                           <DollarSign className="w-4 h-4 mr-1" />
-                          Отметить оплату
+                          {t('crmFinanceComponents.markPaid')}
                         </Button>
                       )}
                     </div>
@@ -274,15 +309,15 @@ export function RentalPaymentsList() {
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <Building2 className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Арендных платежей нет</p>
+              <p>{t('crmFinanceComponents.noRentalPayments')}</p>
               {rentalDoctors && rentalDoctors.length > 0 && (
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="mt-4"
                   onClick={() => setAddDialogOpen(true)}
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Добавить платёж
+                  {t('crmFinanceComponents.addPaymentBtn')}
                 </Button>
               )}
             </div>
@@ -294,20 +329,20 @@ export function RentalPaymentsList() {
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Добавить арендный платёж</DialogTitle>
+            <DialogTitle>{t('crmFinanceComponents.addRentalPayment')}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Врач-арендатор</Label>
+              <Label>{t('crmFinanceComponents.tenantDoctor')}</Label>
               <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите врача" />
+                  <SelectValue placeholder={t('crmFinanceComponents.selectDoctor')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {rentalDoctors?.map((doctor) => (
+                  {(rentalDoctors as RentalDoctor[] | undefined)?.map((doctor) => (
                     <SelectItem key={doctor.id} value={doctor.id}>
-                      {(doctor.profiles as any)?.full_name || "Врач"}
+                      {getProfileName(doctor.profiles) || t('crmFinanceComponents.doctor')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -315,8 +350,8 @@ export function RentalPaymentsList() {
             </div>
 
             <div className="space-y-2">
-              <Label>Сумма (UZS)</Label>
-              <Input
+              <Label htmlFor="rental-payments-list-field-1">{t('crmFinanceComponents.amountUZS')}</Label>
+              <Input id="rental-payments-list-field-1"
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
@@ -325,25 +360,25 @@ export function RentalPaymentsList() {
             </div>
 
             <div className="space-y-2">
-              <Label>Примечание</Label>
-              <Textarea
+              <Label htmlFor="rental-payments-list-field-2">{t('crmFinanceComponents.note')}</Label>
+              <Textarea id="rental-payments-list-field-2"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Аренда за месяц..."
+                placeholder={t('crmFinanceComponents.rentalForMonth')}
               />
             </div>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
-              Отмена
+              {t('crmFinanceComponents.cancel')}
             </Button>
-            <Button 
+            <Button
               onClick={() => createPaymentMutation.mutate()}
               disabled={!selectedDoctor || !amount || createPaymentMutation.isPending}
             >
               {createPaymentMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              Создать
+              {t('crmFinanceComponents.create')}
             </Button>
           </DialogFooter>
         </DialogContent>

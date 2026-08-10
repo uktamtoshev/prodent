@@ -2,12 +2,14 @@ import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface SidebarThemeToggleProps {
   collapsed: boolean;
 }
 
 export function SidebarThemeToggle({ collapsed }: SidebarThemeToggleProps) {
+  const { t } = useLanguage();
   const { theme, setTheme } = useTheme();
   const isLight = theme === "light";
 
@@ -33,7 +35,7 @@ export function SidebarThemeToggle({ collapsed }: SidebarThemeToggleProps) {
           </Button>
         </TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
-          {isLight ? "Тёмная тема" : "Светлая тема"}
+          {isLight ? t('crmSidebarMisc.darkTheme') : t('crmSidebarMisc.lightTheme')}
         </TooltipContent>
       </Tooltip>
     );
@@ -49,12 +51,12 @@ export function SidebarThemeToggle({ collapsed }: SidebarThemeToggleProps) {
       {isLight ? (
         <>
           <Moon className="w-3.5 h-3.5" />
-          Тёмная тема
+          {t('crmSidebarMisc.darkTheme')}
         </>
       ) : (
         <>
           <Sun className="w-3.5 h-3.5 text-amber-500" />
-          Светлая тема
+          {t('crmSidebarMisc.lightTheme')}
         </>
       )}
     </Button>

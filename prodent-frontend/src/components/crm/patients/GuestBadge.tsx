@@ -22,10 +22,10 @@ export function GuestBadge({ size = "default", showIcon = true, className }: Gue
           <Badge
             variant="outline"
             className={cn(
-              "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400",
-              "border-slate-300 dark:border-slate-600",
-              "cursor-help transition-colors hover:bg-slate-200 dark:hover:bg-slate-700",
-              size === "sm" && "text-[10px] px-1.5 py-0",
+              "bg-muted text-muted-foreground",
+              "border-border dark:border-border",
+              "cursor-help transition-colors hover:bg-accent",
+              size === "sm" && "text-xs px-1.5 py-0",
               className
             )}
           >
@@ -42,13 +42,13 @@ export function GuestBadge({ size = "default", showIcon = true, className }: Gue
 }
 
 // Styling constants for guest patients
-export const GUEST_PATIENT_STYLE = {
+const GUEST_PATIENT_STYLE = {
   label: "Гость",
   sublabel: "Без регистрации",
-  color: "text-slate-600 dark:text-slate-400",
-  bgColor: "bg-slate-50 dark:bg-slate-900/50",
-  borderColor: "border-slate-300 dark:border-slate-700",
-  badgeBg: "bg-slate-100 dark:bg-slate-800",
-  badgeText: "text-slate-600 dark:text-slate-400",
-  badgeBorder: "border-slate-300 dark:border-slate-600",
+  color: "text-muted-foreground dark:text-muted-foreground",
+  bgColor: "bg-muted/50",
+  borderColor: "border-border dark:border-border",
+  badgeBg: "bg-muted",
+  badgeText: "text-muted-foreground dark:text-muted-foreground",
+  badgeBorder: "border-border dark:border-border",
 };

@@ -3,6 +3,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { NotificationService } from "./useNotifications";
+import { tGlobal } from "@/contexts/LanguageContext";
+import {
+  medicalAccessApi,
+  type MedicalAccessApiRecord,
+} from "@/lib/medical-access-api";
+
+const fmt = (key: string, vars: Record<string, string | number> = {}) =>
+  Object.entries(vars).reduce(
+    (s, [k, v]) => s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v)),
+    tGlobal(key),
+  );
 
 export type AccessSource = 'search' | 'chat' | 'appointment';
 export type AccessStatus = 'pending' | 'active' | 'expired' | 'revoked';
@@ -23,7 +34,97 @@ export interface MedicalAccessRequest {
   patient_consent: boolean;
   patient_consent_at: string | null;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
+  profiles?: {
+    id: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    phone: string | null;
+  } | null;
+  doctors?: {
+    id: string;
+    specialty: string;
+    profiles: {
+      full_name: string;
+      avatar_url: string | null;
+    } | null;
+  } | null;
+  clinics?: {
+    id: string;
+    name: string;
+    images: string[] | null;
+  } | null;
+}
+
+const toMedicalAccessRequest = (row: MedicalAccessApiRecord): MedicalAccessRequest => ({
+  id: row.id,
+  patient_id: row.patientId,
+  doctor_id: row.doctorId,
+  clinic_id: row.clinicId,
+  source: row.source,
+  reason: row.reason,
+  valid_from: row.validFrom,
+  valid_to: row.validTo,
+  status: row.status,
+  granted_by: row.grantedBy,
+  patient_consent: row.patientConsent,
+  patient_consent_at: row.patientConsentAt,
+  created_at: row.createdAt,
+});
+
+async function enrichPatientRequests(rows: MedicalAccessRequest[]) {
+  const doctorIds = [...new Set(rows.map((row) => row.doctor_id).filter(Boolean))] as string[];
+  const clinicIds = [...new Set(rows.map((row) => row.clinic_id).filter(Boolean))] as string[];
+  const doctorMap = new Map<string, MedicalAccessRequest["doctors"]>();
+  const clinicMap = new Map<string, MedicalAccessRequest["clinics"]>();
+
+  if (doctorIds.length > 0) {
+    const { data: doctors } = await supabase
+      .from("doctors")
+      .select("id, specialty, user_id")
+      .in("id", doctorIds);
+    const userIds = [...new Set((doctors || []).map((doctor) => doctor.user_id).filter(Boolean))];
+    const { data: profiles } = userIds.length > 0
+      ? await supabase.from("profiles").select("id, full_name, avatar_url").in("id", userIds)
+      : { data: [] };
+    const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+    (doctors || []).forEach((doctor) => {
+      const profile = profileMap.get(doctor.user_id);
+      doctorMap.set(doctor.id, {
+        id: doctor.id,
+        specialty: doctor.specialty,
+        profiles: profile
+          ? { full_name: profile.full_name || "", avatar_url: profile.avatar_url }
+          : null,
+      });
+    });
+  }
+
+  if (clinicIds.length > 0) {
+    const { data: clinics } = await supabase
+      .from("clinics")
+      .select("id, name, images")
+      .in("id", clinicIds);
+    (clinics || []).forEach((clinic) => clinicMap.set(clinic.id, clinic));
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    doctors: row.doctor_id ? doctorMap.get(row.doctor_id) || null : null,
+    clinics: row.clinic_id ? clinicMap.get(row.clinic_id) || null : null,
+  }));
+}
+
+async function enrichDoctorRequests(rows: MedicalAccessRequest[]) {
+  const patientIds = [...new Set(rows.map((row) => row.patient_id))];
+  const { data: profiles } = patientIds.length > 0
+    ? await supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url, phone")
+        .in("id", patientIds)
+    : { data: [] };
+  const profileMap = new Map((profiles || []).map((profile) => [profile.id, profile]));
+  return rows.map((row) => ({ ...row, profiles: profileMap.get(row.patient_id) || null }));
 }
 
 interface RequestAccessParams {
@@ -41,53 +142,33 @@ interface RespondToAccessParams {
   customDurationHours?: number; // Patient can modify duration
 }
 
-// Hook to check if doctor/clinic has active access to patient's medical records
+// Hook to check the medical-access state for a doctor/clinic ↔ patient pair.
+// Returns the most recent request regardless of status so the UI can show
+// "pending" / "active" / "revoked" / "expired" / "none" plus the request
+// timestamp. `hasAccess` stays a convenient boolean derived from the latest
+// row's status and validity window.
 export function useMedicalAccess(patientId: string | undefined, doctorId?: string, clinicId?: string) {
   return useQuery({
     queryKey: ['medical-access', patientId, doctorId, clinicId],
     queryFn: async () => {
       if (!patientId) return null;
-      
-      // Build OR conditions for doctor_id and clinic_id
-      const orConditions: string[] = [];
-      if (doctorId) {
-        orConditions.push(`doctor_id.eq.${doctorId}`);
-      }
-      if (clinicId) {
-        orConditions.push(`clinic_id.eq.${clinicId}`);
-      }
 
-      if (orConditions.length === 0) return null;
-
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .select('*')
-        .eq('patient_id', patientId)
-        .eq('status', 'active')
-        .lte('valid_from', new Date().toISOString())
-        .gte('valid_to', new Date().toISOString())
-        .or(orConditions.join(','));
-      
-      if (error) {
-        console.error('Error checking medical access:', error);
-        return null;
-      }
-
-      // Return the first matching access record
-      const activeAccess = data && data.length > 0 ? data[0] : null;
-
+      const response = await medicalAccessApi.effective(patientId);
       return {
-        hasAccess: !!activeAccess,
-        request: activeAccess as MedicalAccessRequest | null,
-        expiresAt: activeAccess?.valid_to ? new Date(activeAccess.valid_to) : null
+        hasAccess: response.hasAccess,
+        status: response.status,
+        request: response.request ? toMedicalAccessRequest(response.request) : null,
+        requestedAt: response.requestedAt ? new Date(response.requestedAt) : null,
+        expiresAt: response.expiresAt ? new Date(response.expiresAt) : null,
       };
     },
     enabled: !!patientId && (!!doctorId || !!clinicId),
-    refetchInterval: 30000 // Check every 30 seconds
+    staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 }
 
-// Hook to get pending access requests for a patient
+// Hook to get the patient's complete access history
 export function usePatientAccessRequests() {
   const { user } = useAuth();
 
@@ -96,34 +177,8 @@ export function usePatientAccessRequests() {
     queryFn: async () => {
       if (!user?.id) return [];
 
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .select(`
-          *,
-          doctors:doctor_id (
-            id,
-            specialty,
-            profiles:user_id (
-              full_name,
-              avatar_url
-            )
-          ),
-          clinics:clinic_id (
-            id,
-            name,
-            images
-          )
-        `)
-        .eq('patient_id', user.id)
-        .in('status', ['pending', 'active'])
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching access requests:', error);
-        return [];
-      }
-
-      return data;
+      const rows = (await medicalAccessApi.patientRequests()).map(toMedicalAccessRequest);
+      return enrichPatientRequests(rows);
     },
     enabled: !!user?.id,
     refetchInterval: 10000
@@ -137,26 +192,8 @@ export function useDoctorAccessRequests(doctorId: string | undefined) {
     queryFn: async () => {
       if (!doctorId) return [];
 
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .select(`
-          *,
-          profiles:patient_id (
-            id,
-            full_name,
-            avatar_url,
-            phone
-          )
-        `)
-        .eq('doctor_id', doctorId)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching doctor access requests:', error);
-        return [];
-      }
-
-      return data;
+      const rows = (await medicalAccessApi.doctorRequests()).map(toMedicalAccessRequest);
+      return enrichDoctorRequests(rows);
     },
     enabled: !!doctorId
   });
@@ -168,29 +205,16 @@ export function useRequestMedicalAccess() {
 
   return useMutation({
     mutationFn: async ({ patientId, doctorId, clinicId, source, reason, durationHours }: RequestAccessParams) => {
-      const validFrom = new Date();
-      const validTo = new Date(validFrom.getTime() + durationHours * 60 * 60 * 1000);
-
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .insert({
-          patient_id: patientId,
-          doctor_id: doctorId || null,
-          clinic_id: clinicId || null,
-          source,
-          reason,
-          valid_from: validFrom.toISOString(),
-          valid_to: validTo.toISOString(),
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
+      const data = toMedicalAccessRequest(await medicalAccessApi.createRequest({
+        patientId,
+        source,
+        reason,
+        durationHours,
+      }));
 
       // Get doctor and clinic names for notification
-      let doctorName = 'Врач';
-      let clinicName = 'Клиника';
+      let doctorName = tGlobal('apiMessages.defaultDoctor');
+      let clinicName = tGlobal('apiMessages.defaultClinic');
 
       if (doctorId) {
         const { data: doctorData } = await supabase
@@ -198,10 +222,10 @@ export function useRequestMedicalAccess() {
           .select('profiles:user_id (full_name)')
           .eq('id', doctorId)
           .single();
-        
+
         if (doctorData?.profiles) {
           const profile = doctorData.profiles as { full_name: string | null };
-          doctorName = profile.full_name || 'Врач';
+          doctorName = profile.full_name || tGlobal('apiMessages.defaultDoctor');
         }
       }
 
@@ -211,8 +235,8 @@ export function useRequestMedicalAccess() {
           .select('name')
           .eq('id', clinicId)
           .single();
-        
-        clinicName = clinicData?.name || 'Клиника';
+
+        clinicName = clinicData?.name || tGlobal('apiMessages.defaultClinic');
       }
 
       // Send in-app notification to patient
@@ -232,8 +256,8 @@ export function useRequestMedicalAccess() {
 
       // Send SMS notification if patient has phone
       if (patientProfile?.phone) {
-        const smsMessage = `ProDent: ${doctorName} so'rayapti sizning tibbiy kartangizga kirish / запрашивает доступ к медкарте. Ilova orqali tasdiqlang / Подтвердите в приложении`;
-        
+        const smsMessage = fmt('apiMessages.smsMrAccessRequest', { doctor: doctorName });
+
         await NotificationService.sendExternal('sms', patientProfile.phone, smsMessage);
       }
 
@@ -243,11 +267,11 @@ export function useRequestMedicalAccess() {
       queryClient.invalidateQueries({ queryKey: ['medical-access'] });
       queryClient.invalidateQueries({ queryKey: ['patient-access-requests'] });
       queryClient.invalidateQueries({ queryKey: ['doctor-access-requests'] });
-      toast.success('Запрос на доступ отправлен пациенту');
+      toast.success(tGlobal('apiMessages.mrRequestSent'));
     },
     onError: (error) => {
       console.error('Error requesting access:', error);
-      toast.error('Ошибка при отправке запроса');
+      toast.error(tGlobal('apiMessages.mrRequestSendError'));
     }
   });
 }
@@ -258,57 +282,42 @@ export function useRespondToAccess() {
 
   return useMutation({
     mutationFn: async ({ requestId, approve, customDurationHours }: RespondToAccessParams) => {
-      // If patient wants to change duration, calculate new valid_to
-      let updateData: Record<string, any> = {
-        status: approve ? 'active' : 'revoked',
-        patient_consent: approve,
-        patient_consent_at: new Date().toISOString(),
-        granted_by: 'patient'
-      };
-
-      // If approving with custom duration, update valid_to
-      if (approve && customDurationHours) {
-        const validTo = new Date(Date.now() + customDurationHours * 60 * 60 * 1000);
-        updateData.valid_to = validTo.toISOString();
-      }
-
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .update(updateData)
-        .eq('id', requestId)
-        .select('*, doctors:doctor_id (user_id, profiles:user_id (full_name))')
-        .single();
-
-      if (error) throw error;
+      const data = toMedicalAccessRequest(
+        await medicalAccessApi.decide(requestId, approve, customDurationHours),
+      );
 
       // Get patient name for notification
       const { data: currentUser } = await supabase.auth.getUser();
-      let patientName = 'Пациент';
-      
+      let patientName = tGlobal('apiMessages.defaultPatient');
+
       if (currentUser?.user?.id) {
         const { data: profile } = await supabase
           .from('profiles')
           .select('full_name')
           .eq('id', currentUser.user.id)
           .single();
-        
-        patientName = profile?.full_name || 'Пациент';
+
+        patientName = profile?.full_name || tGlobal('apiMessages.defaultPatient');
       }
 
+      const { data: doctorRow } = data.doctor_id
+        ? await supabase.from("doctors").select("user_id").eq("id", data.doctor_id).maybeSingle()
+        : { data: null };
+
       // Send notification to doctor
-      if (data.doctors?.user_id) {
+      if (doctorRow?.user_id) {
         if (approve) {
           await NotificationService.notifyMedicalAccessApproved(
-            data.doctors.user_id,
+            doctorRow.user_id,
             patientName
           );
         } else {
           // Notify about rejection
           await NotificationService.create(
-            data.doctors.user_id,
+            doctorRow.user_id,
             'medical_access_denied',
-            'Запрос на доступ отклонён',
-            `Пациент ${patientName} отклонил ваш запрос на доступ к медицинской карте`,
+            tGlobal('apiMessages.mrAccessDenied'),
+            fmt('apiMessages.mrAccessDeniedBody', { patient: patientName }),
             { link: '/doctor/patients' }
           );
         }
@@ -321,11 +330,11 @@ export function useRespondToAccess() {
       queryClient.invalidateQueries({ queryKey: ['patient-access-requests'] });
       queryClient.invalidateQueries({ queryKey: ['doctor-access-requests'] });
       queryClient.invalidateQueries({ queryKey: ['patient-chat-access-requests'] });
-      toast.success(variables.approve ? 'Доступ предоставлен' : 'Запрос отклонён');
+      toast.success(variables.approve ? tGlobal('apiMessages.mrAccessGranted') : tGlobal('apiMessages.mrRequestDeclined'));
     },
     onError: (error) => {
       console.error('Error responding to access:', error);
-      toast.error('Ошибка при обработке запроса');
+      toast.error(tGlobal('apiMessages.mrProcessError'));
     }
   });
 }
@@ -335,28 +344,17 @@ export function useRevokeAccess() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (requestId: string) => {
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .update({
-          status: 'revoked'
-        })
-        .eq('id', requestId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: async (requestId: string) =>
+      toMedicalAccessRequest(await medicalAccessApi.revoke(requestId)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['medical-access'] });
       queryClient.invalidateQueries({ queryKey: ['patient-access-requests'] });
       queryClient.invalidateQueries({ queryKey: ['doctor-access-requests'] });
-      toast.success('Доступ отозван');
+      toast.success(tGlobal('apiMessages.mrAccessRevoked'));
     },
     onError: (error) => {
       console.error('Error revoking access:', error);
-      toast.error('Ошибка при отзыве доступа');
+      toast.error(tGlobal('apiMessages.mrRevokeError'));
     }
   });
 }
@@ -366,115 +364,40 @@ export function useExtendAccess() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ requestId, additionalHours }: { requestId: string; additionalHours: number }) => {
-      // First get current valid_to
-      const { data: current, error: fetchError } = await supabase
-        .from('medical_record_access')
-        .select('valid_to')
-        .eq('id', requestId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Calculate new valid_to from current end time
-      const currentEnd = new Date(current.valid_to);
-      const now = new Date();
-      const baseTime = currentEnd > now ? currentEnd : now;
-      const newValidTo = new Date(baseTime.getTime() + additionalHours * 60 * 60 * 1000);
-
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .update({
-          valid_to: newValidTo.toISOString(),
-          status: 'active' // Ensure it's active
-        })
-        .eq('id', requestId)
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: async ({ requestId, additionalHours }: { requestId: string; additionalHours: number }) =>
+      toMedicalAccessRequest(await medicalAccessApi.extend(requestId, additionalHours)),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['medical-access'] });
       queryClient.invalidateQueries({ queryKey: ['patient-access-requests'] });
       queryClient.invalidateQueries({ queryKey: ['doctor-access-requests'] });
-      toast.success('Срок доступа продлён');
+      // The backend creates a new pending extension request; access is not extended yet.
+      toast.success(tGlobal('apiMessages.mrRequestSent'));
     },
     onError: (error) => {
       console.error('Error extending access:', error);
-      toast.error('Ошибка при продлении доступа');
-    }
-  });
-}
-
-// Hook to create auto-access for appointments
-export function useCreateAppointmentAccess() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ 
-      patientId, 
-      doctorId, 
-      clinicId,
-      appointmentStart, 
-      appointmentEnd 
-    }: {
-      patientId: string;
-      doctorId?: string;
-      clinicId?: string;
-      appointmentStart: Date;
-      appointmentEnd: Date;
-    }) => {
-      // Access starts 30 minutes before appointment
-      const validFrom = new Date(appointmentStart.getTime() - 30 * 60 * 1000);
-      // Access ends 24 hours after appointment
-      const validTo = new Date(appointmentEnd.getTime() + 24 * 60 * 60 * 1000);
-
-      const { data, error } = await supabase
-        .from('medical_record_access')
-        .insert({
-          patient_id: patientId,
-          doctor_id: doctorId || null,
-          clinic_id: clinicId || null,
-          source: 'appointment',
-          reason: 'Запись на приём',
-          valid_from: validFrom.toISOString(),
-          valid_to: validTo.toISOString(),
-          status: 'active',
-          granted_by: 'system',
-          patient_consent: true,
-          patient_consent_at: new Date().toISOString()
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['medical-access'] });
+      toast.error(tGlobal('apiMessages.mrExtendError'));
     }
   });
 }
 
 // Utility function to get duration label
 export function getDurationLabel(hours: number): string {
-  if (hours === 24) return '24 часа';
-  if (hours === 72) return '3 дня';
-  if (hours === 168) return '7 дней';
-  return `${hours} часов`;
+  if (hours === 24) return tGlobal('apiMessages.duration24h');
+  if (hours === 72) return tGlobal('apiMessages.duration3d');
+  if (hours === 168) return tGlobal('apiMessages.duration7d');
+  return fmt('apiMessages.durationHoursFmt', { hours });
 }
 
 // Utility function to get reason label
 export function getReasonLabel(reason: string): string {
   const labels: Record<string, string> = {
-    consultation: 'Консультация',
-    diagnosis: 'Диагностика',
-    second_opinion: 'Второе мнение',
-    treatment: 'Лечение',
-    'Консультация': 'Консультация',
-    'Запись на приём': 'Запись на приём'
+    consultation: tGlobal('apiMessages.reasonConsultation'),
+    diagnosis: tGlobal('apiMessages.reasonDiagnosis'),
+    second_opinion: tGlobal('apiMessages.reasonSecondOpinion'),
+    treatment: tGlobal('apiMessages.reasonTreatment'),
+    // Backwards-compatible: legacy stored Russian-canonical strings
+    'Консультация': tGlobal('apiMessages.reasonConsultation'),
+    'Запись на приём': tGlobal('apiMessages.reasonAppointmentBooking'),
   };
   return labels[reason] || reason;
 }

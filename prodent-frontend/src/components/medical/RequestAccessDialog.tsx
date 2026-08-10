@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { useRequestMedicalAccess, AccessReason, AccessDuration } from "@/hooks/useMedicalAccess";
 import { Shield, Clock, FileText, Loader2 } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface RequestAccessDialogProps {
   open: boolean;
@@ -30,19 +31,6 @@ interface RequestAccessDialogProps {
   defaultReason?: AccessReason;
 }
 
-const REASONS: { value: AccessReason; label: string }[] = [
-  { value: 'consultation', label: 'Консультация' },
-  { value: 'diagnosis', label: 'Диагностика' },
-  { value: 'second_opinion', label: 'Второе мнение' },
-  { value: 'treatment', label: 'Лечение' },
-];
-
-const DURATIONS: { value: AccessDuration; hours: number; label: string }[] = [
-  { value: '24h', hours: 24, label: '24 часа' },
-  { value: '72h', hours: 72, label: '3 дня' },
-  { value: '7d', hours: 168, label: '7 дней' },
-];
-
 export function RequestAccessDialog({
   open,
   onOpenChange,
@@ -53,9 +41,24 @@ export function RequestAccessDialog({
   source,
   defaultReason = 'consultation'
 }: RequestAccessDialogProps) {
+  const { t } = useLanguage();
+
+  const REASONS: { value: AccessReason; label: string }[] = [
+    { value: 'consultation', label: t('medicalAccess.reasonConsultation') },
+    { value: 'diagnosis', label: t('medicalAccess.reasonDiagnosis') },
+    { value: 'second_opinion', label: t('medicalAccess.reasonSecondOpinion') },
+    { value: 'treatment', label: t('medicalAccess.reasonTreatment') },
+  ];
+
+  const DURATIONS: { value: AccessDuration; hours: number; label: string }[] = [
+    { value: '24h', hours: 24, label: t('medicalAccess.duration24h') },
+    { value: '72h', hours: 72, label: t('medicalAccess.duration72h') },
+    { value: '7d', hours: 168, label: t('medicalAccess.duration7d') },
+  ];
+
   const [reason, setReason] = useState<AccessReason>(defaultReason);
   const [duration, setDuration] = useState<AccessDuration>('24h');
-  
+
   const requestAccess = useRequestMedicalAccess();
 
   const handleSubmit = async () => {
@@ -82,12 +85,12 @@ export function RequestAccessDialog({
             <div className="p-2 rounded-full bg-primary/10">
               <Shield className="h-5 w-5 text-primary" />
             </div>
-            <DialogTitle>Запрос доступа к медкарте</DialogTitle>
+            <DialogTitle>{t('medicalAccess.requestAccessTitle')}</DialogTitle>
           </div>
           <DialogDescription>
-            {patientName 
-              ? `Запросите доступ к медицинской карте пациента ${patientName}`
-              : 'Запросите доступ к медицинской карте пациента'
+            {patientName
+              ? t('medicalAccess.requestAccessForPatient').replace('{name}', patientName)
+              : t('medicalAccess.requestAccessGeneric')
             }
           </DialogDescription>
         </DialogHeader>
@@ -96,7 +99,7 @@ export function RequestAccessDialog({
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-muted-foreground" />
-              Причина запроса
+              {t('medicalAccess.reasonLabel')}
             </Label>
             <Select value={reason} onValueChange={(v) => setReason(v as AccessReason)}>
               <SelectTrigger>
@@ -115,7 +118,7 @@ export function RequestAccessDialog({
           <div className="space-y-2">
             <Label className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
-              Срок доступа
+              {t('medicalAccess.durationField')}
             </Label>
             <Select value={duration} onValueChange={(v) => setDuration(v as AccessDuration)}>
               <SelectTrigger>
@@ -133,19 +136,18 @@ export function RequestAccessDialog({
 
           <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
             <p>
-              После одобрения пациентом вы получите доступ к медицинской карте на указанный срок.
-              Доступ автоматически закончится по истечении времени.
+              {t('medicalAccess.afterPatientApproval')}
             </p>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Отмена
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={requestAccess.isPending}>
             {requestAccess.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Отправить запрос
+            {t('medicalAccess.sendRequest')}
           </Button>
         </DialogFooter>
       </DialogContent>

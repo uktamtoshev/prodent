@@ -1,4 +1,4 @@
-import { Suspense, useRef, useState, useEffect } from 'react';
+import { Suspense, useMemo, useRef, useState, useEffect } from 'react';
 import { Canvas, useLoader, useThree } from '@react-three/fiber';
 import { OrbitControls, Center, Grid, Environment } from '@react-three/drei';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { RotateCw, ZoomIn, ZoomOut, Maximize2, Palette, Loader2, Box } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface STLModelProps {
   url: string;
@@ -50,11 +51,12 @@ function CameraController({ resetTrigger }: { resetTrigger: number }) {
 }
 
 function LoadingSpinner() {
+  const { t } = useLanguage();
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
       <div className="flex flex-col items-center gap-3">
         <Loader2 className="w-10 h-10 animate-spin text-primary" />
-        <p className="text-sm text-muted-foreground">Загрузка 3D модели...</p>
+        <p className="text-sm text-muted-foreground">{t('crmStlViewer.loading3d')}</p>
       </div>
     </div>
   );
@@ -66,16 +68,16 @@ interface STLViewerProps {
   onFullscreen?: () => void;
 }
 
-const colorPresets = [
-  { name: 'Белый', value: '#f0f0f0' },
-  { name: 'Кость', value: '#e8d4b8' },
-  { name: 'Синий', value: '#4a90d9' },
-  { name: 'Зелёный', value: '#4ad99f' },
-  { name: 'Красный', value: '#d94a4a' },
-  { name: 'Золотой', value: '#d9b44a' },
-];
-
 export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps) {
+  const { t } = useLanguage();
+  const colorPresets = useMemo(() => ([
+    { name: t('crmStlViewer.colorWhite'), value: '#f0f0f0' },
+    { name: t('crmStlViewer.colorBone'), value: '#e8d4b8' },
+    { name: t('crmStlViewer.colorBlue'), value: '#4a90d9' },
+    { name: t('crmStlViewer.colorGreen'), value: '#4ad99f' },
+    { name: t('crmStlViewer.colorRed'), value: '#d94a4a' },
+    { name: t('crmStlViewer.colorGold'), value: '#d9b44a' },
+  ]), [t]);
   const [color, setColor] = useState('#e8d4b8');
   const [resetTrigger, setResetTrigger] = useState(0);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -107,8 +109,8 @@ export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps)
           variant="secondary"
           onClick={handleReset}
           className="bg-background/90 hover:bg-background shadow-sm"
-          title="Сбросить вид"
-        >
+          title={t('crmStlViewer.resetView')}
+         aria-label={a11yLabel("refresh")}>
           <RotateCw className="w-4 h-4" />
         </Button>
         <Button
@@ -116,7 +118,7 @@ export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps)
           variant="secondary"
           onClick={() => setShowColorPicker(!showColorPicker)}
           className="bg-background/90 hover:bg-background shadow-sm"
-          title="Цвет модели"
+          title={t('crmStlViewer.modelColor')}
         >
           <Palette className="w-4 h-4" />
         </Button>
@@ -125,8 +127,8 @@ export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps)
           variant="secondary"
           onClick={handleFullscreen}
           className="bg-background/90 hover:bg-background shadow-sm"
-          title="Полноэкранный режим"
-        >
+          title={t('crmStlViewer.fullscreenMode')}
+         aria-label={a11yLabel("fullscreen")}>
           <Maximize2 className="w-4 h-4" />
         </Button>
       </div>
@@ -134,7 +136,7 @@ export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps)
       {/* Color picker */}
       {showColorPicker && (
         <div className="absolute top-14 left-3 z-20 bg-background/95 backdrop-blur rounded-lg p-3 shadow-lg border border-border">
-          <Label className="text-xs text-muted-foreground mb-2 block">Цвет модели</Label>
+          <Label className="text-xs text-muted-foreground mb-2 block">{t('crmStlViewer.modelColor')}</Label>
           <div className="flex flex-wrap gap-2 max-w-[180px]">
             {colorPresets.map((preset) => (
               <button
@@ -153,7 +155,7 @@ export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps)
 
       {/* Instructions */}
       <div className="absolute bottom-3 left-3 z-20 text-xs text-muted-foreground bg-background/80 backdrop-blur rounded px-2 py-1">
-        🔄 ЛКМ — вращение • 🔍 Скролл — зум • ↔️ ПКМ — панорама
+        {t('crmStlViewer.controlsHint')}
       </div>
 
       {/* 3D Canvas */}
@@ -212,6 +214,7 @@ export function STLViewer({ url, className = '', onFullscreen }: STLViewerProps)
 
 // Full screen viewer dialog
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface STLViewerDialogProps {
   open: boolean;
@@ -221,13 +224,14 @@ interface STLViewerDialogProps {
 }
 
 export function STLViewerDialog({ open, onOpenChange, url, title }: STLViewerDialogProps) {
+  const { t } = useLanguage();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] h-[90vh] p-0">
         <DialogHeader className="p-4 pb-0">
           <DialogTitle className="flex items-center gap-2">
             <Box className="w-5 h-5 text-primary" />
-            {title || '3D Модель'}
+            {title || t('crmStlViewer.threeDModel')}
           </DialogTitle>
         </DialogHeader>
         <div className="flex-1 p-4 pt-2">

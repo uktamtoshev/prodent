@@ -1,19 +1,24 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
-  FileText, Plus, Eye, Printer, QrCode, 
-  CheckCircle, Clock, Copy, ExternalLink, Send 
+  FileText, Plus, Eye, Printer,
+  CheckCircle, Clock,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { TreatmentPlanForm } from "./TreatmentPlanForm";
 import { TreatmentPlanPrintDialog } from "./TreatmentPlanPrintDialog";
-import { ShareTreatmentPlanDialog } from "./ShareTreatmentPlanDialog";
+import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  TreatmentPlanStatus,
+  getClinicPatientTreatmentPlans,
+  getPatientTreatmentPlans,
+} from "@/lib/treatment-plans-api";
 
 interface TreatmentPlansListProps {
   patientId: string;
@@ -22,84 +27,69 @@ interface TreatmentPlansListProps {
 }
 
 export function TreatmentPlansList({ patientId, doctorId, clinicId }: TreatmentPlansListProps) {
+  const { t } = useLanguage();
+  const navigate = useNavigate();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [printPlanId, setPrintPlanId] = useState<string | null>(null);
-  const [sharePlan, setSharePlan] = useState<{ name: string; token: string } | null>(null);
 
-  // Fetch patient phone for share dialog
-  const { data: patientProfile } = useQuery({
-    queryKey: ["patient-phone", patientId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("profiles")
-        .select("phone")
-        .eq("id", patientId)
-        .maybeSingle();
-      return data;
+  const { data: plans, isLoading, isError, refetch } = useQuery({
+    queryKey: [
+      "treatment-plans",
+      "patient",
+      patientId,
+      doctorId ? "doctor" : `clinic:${clinicId}`,
+    ],
+    queryFn: async ({ signal }) => {
+      const result = doctorId
+        ? await getPatientTreatmentPlans(patientId, signal)
+        : await getClinicPatientTreatmentPlans(patientId, clinicId);
+      return result.sort(
+        (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
+      );
     },
-    enabled: !!patientId,
+    enabled: !!patientId && (!!doctorId || !!clinicId),
   });
 
-  const { data: plans, isLoading, refetch } = useQuery({
-    queryKey: ["treatment-plans", patientId],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("treatment_plans")
-        .select(`
-          *,
-          doctor:doctor_id(
-            id,
-            profiles:user_id(full_name)
-          ),
-          items:treatment_plan_items(count)
-        `)
-        .eq("patient_id", patientId)
-        .order("created_at", { ascending: false });
-      return data || [];
-    },
-    enabled: !!patientId,
-  });
-
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat("uz-UZ").format(price || 0) + " UZS";
+  const formatPrice = (price: number, currency = "UZS") => {
+    try {
+      return new Intl.NumberFormat("uz-UZ", {
+        style: "currency",
+        currency,
+        maximumFractionDigits: currency === "UZS" ? 0 : 2,
+      }).format(price || 0);
+    } catch {
+      return `${new Intl.NumberFormat("uz-UZ").format(price || 0)} ${currency}`;
+    }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: TreatmentPlanStatus) => {
     switch (status) {
-      case "approved":
+      case "COMPLETED":
         return (
-          <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+          <Badge className="bg-status-success/20 text-status-success border-status-success/30">
             <CheckCircle className="w-3 h-3 mr-1" />
-            Утверждён
+            {t("crmTreatmentDialogs.statusCompleted")}
           </Badge>
         );
-      case "draft":
+      case "PLANNED":
         return (
           <Badge variant="secondary">
             <Clock className="w-3 h-3 mr-1" />
-            Черновик
+            {t("crmTreatmentDialogs.statusDraft")}
           </Badge>
         );
-      case "active":
+      case "IN_PROGRESS":
         return (
-          <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+          <Badge className="bg-primary/20 text-primary border-primary/30">
             <Clock className="w-3 h-3 mr-1" />
-            Активный
+            {t("crmTreatmentDialogs.statusActive")}
           </Badge>
         );
-      case "completed":
+      case "CANCELLED":
         return (
-          <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
-            <CheckCircle className="w-3 h-3 mr-1" />
-            Завершён
-          </Badge>
-        );
-      case "cancelled":
-        return (
-          <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
-            Отменён
+          <Badge className="bg-status-danger/20 text-status-danger border-status-danger/30">
+            {t("crmTreatmentDialogs.statusCancelled")}
           </Badge>
         );
       default:
@@ -112,10 +102,6 @@ export function TreatmentPlansList({ patientId, doctorId, clinicId }: TreatmentP
     setPrintDialogOpen(true);
   };
 
-  const handleOpenPublicLink = (token: string) => {
-    window.open(`/treatment-plan/${token}`, "_blank");
-  };
-
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -126,124 +112,120 @@ export function TreatmentPlansList({ patientId, doctorId, clinicId }: TreatmentP
     );
   }
 
+  if (isError) {
+    return (
+      <Card className="border-border/50">
+        <CardContent className="py-8 text-center">
+          <FileText className="w-10 h-10 mx-auto text-muted-foreground/50 mb-3" />
+          <p className="text-muted-foreground">{t("common.error")}</p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => refetch()}>
+            {t("treatmentPlanPublic.retry")}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-medium flex items-center gap-2">
           <FileText className="w-4 h-4" />
-          Планы лечения ({plans?.length || 0})
+          {t("crmTreatmentDialogs.treatmentPlans")} ({plans?.length || 0})
         </h3>
-        <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
-          <Plus className="w-4 h-4 mr-2" />
-          Создать план
-        </Button>
+        {doctorId && (
+          <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+            <Plus className="w-4 h-4 mr-2" />
+            {t("crmTreatmentDialogs.createPlan")}
+          </Button>
+        )}
       </div>
 
       {plans?.length === 0 ? (
         <Card className="border-border/50">
           <CardContent className="py-8 text-center">
             <FileText className="w-10 h-10 mx-auto text-muted-foreground/50 mb-3" />
-            <p className="text-muted-foreground">Нет планов лечения</p>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="mt-4"
-              onClick={() => setCreateDialogOpen(true)}
-            >
-              Создать первый план
-            </Button>
+            <p className="text-muted-foreground">{t("crmTreatmentDialogs.noTreatmentPlans")}</p>
+            {doctorId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => setCreateDialogOpen(true)}
+              >
+                {t("crmTreatmentDialogs.createFirstPlan")}
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {plans?.map((plan: any) => (
+          {plans?.map((plan) => (
             <Card key={plan.id} className="border-border/50 hover:border-border transition-colors">
-              <CardContent className="p-4">
+              <CardContent className="p-card-x">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="font-mono text-sm text-muted-foreground">
-                        {plan.plan_number}
+                      <span className="font-medium text-foreground truncate">
+                        {plan.title}
                       </span>
                       {getStatusBadge(plan.status)}
                     </div>
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                       <div>
-                        <span className="text-muted-foreground">Врач:</span>
+                        <span className="text-muted-foreground">{t("crmTreatmentDialogs.doctorShort")}</span>
                         <p className="font-medium truncate">
-                          {plan.doctor?.profiles?.full_name || "—"}
+                          {plan.doctorName || "—"}
                         </p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Услуг:</span>
-                        <p className="font-medium">{plan.items?.[0]?.count || 0}</p>
+                        <span className="text-muted-foreground">{t("crmTreatmentDialogs.servicesShort")}</span>
+                        <p className="font-medium">{plan.items.length}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Сумма:</span>
-                        <p className="font-medium">{formatPrice(plan.final_price)}</p>
+                        <span className="text-muted-foreground">{t("crmTreatmentDialogs.sumLabel")}</span>
+                        <p className="font-medium">{formatPrice(plan.totalCost, plan.currency)}</p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Дата:</span>
+                        <span className="text-muted-foreground">{t("crmTreatmentDialogs.dateLabel")}</span>
                         <p className="font-medium">
-                          {format(new Date(plan.created_at), "dd.MM.yyyy", { locale: ru })}
+                          {format(new Date(plan.createdAt), "dd.MM.yyyy", { locale: ru })}
                         </p>
                       </div>
                     </div>
 
-                    {plan.discount_value > 0 && (
+                    {plan.discountAmount > 0 && (
                       <div className="mt-2 text-sm">
-                        <Badge variant="outline" className="text-green-500 border-green-500/30">
-                          Скидка: {plan.discount_type === "percent" 
-                            ? `${plan.discount_value}%` 
-                            : formatPrice(plan.discount_value)}
+                        <Badge variant="outline" className="text-status-success border-status-success/30">
+                          {t("crmTreatmentDialogs.discount")}: {plan.discountType === "PERCENT"
+                            ? `${plan.discountValue}%`
+                            : formatPrice(plan.discountValue, plan.currency)}
                         </Badge>
                       </div>
                     )}
+
                   </div>
 
                   <div className="flex gap-1">
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setSelectedPlanId(plan.id)}
-                      title="Открыть"
+                      onClick={() => navigate(`/crm/treatment-plans/${plan.id}`)}
+                      title={t("crmTreatmentDialogs.open")}
                     >
                       <Eye className="w-4 h-4" />
                     </Button>
                     
-                    {plan.status === "approved" && (
-                      <>
+                    {plan.status !== "CANCELLED" && (
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => handlePrint(plan.id)}
-                          title="Печать"
+                          title={t("crmTreatmentDialogs.print")}
                         >
                           <Printer className="w-4 h-4" />
                         </Button>
-                        {plan.public_access_token && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleOpenPublicLink(plan.public_access_token)}
-                              title="Публичная ссылка"
-                            >
-                              <QrCode className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setSharePlan({ name: plan.plan_number || plan.name || "План лечения", token: plan.public_access_token })}
-                              title="Отправить пациенту"
-                              className="text-primary"
-                            >
-                              <Send className="w-4 h-4" />
-                            </Button>
-                          </>
-                        )}
-                      </>
                     )}
                   </div>
                 </div>
@@ -254,20 +236,16 @@ export function TreatmentPlansList({ patientId, doctorId, clinicId }: TreatmentP
       )}
 
       {/* Create/Edit Dialog */}
-      <TreatmentPlanForm
-        open={createDialogOpen || !!selectedPlanId}
-        onOpenChange={(open) => {
-          if (!open) {
-            setCreateDialogOpen(false);
-            setSelectedPlanId(null);
-          }
-        }}
-        patientId={patientId}
-        doctorId={doctorId}
-        clinicId={clinicId}
-        planId={selectedPlanId || undefined}
-        onSuccess={() => refetch()}
-      />
+      {doctorId && (
+        <TreatmentPlanForm
+          open={createDialogOpen}
+          onOpenChange={setCreateDialogOpen}
+          patientId={patientId}
+          doctorId={doctorId}
+          clinicId={clinicId}
+          onSuccess={() => refetch()}
+        />
+      )}
 
       {/* Print Dialog */}
       {printPlanId && (
@@ -278,16 +256,6 @@ export function TreatmentPlansList({ patientId, doctorId, clinicId }: TreatmentP
         />
       )}
 
-      {/* Share Dialog */}
-      {sharePlan && (
-        <ShareTreatmentPlanDialog
-          open={!!sharePlan}
-          onOpenChange={(open) => !open && setSharePlan(null)}
-          planName={sharePlan.name}
-          publicToken={sharePlan.token}
-          patientPhone={patientProfile?.phone}
-        />
-      )}
     </div>
   );
 }

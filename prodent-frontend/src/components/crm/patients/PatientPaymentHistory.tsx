@@ -7,12 +7,26 @@ import { CreditCard, Receipt, ArrowUpRight, ArrowDownRight } from "lucide-react"
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useClinic } from "@/contexts/ClinicContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PatientPaymentHistoryProps {
   patientId: string;
 }
 
+type ProfileSummary = { full_name: string | null };
+type LinkedDoctor =
+  | { profiles: ProfileSummary | ProfileSummary[] | null }
+  | { profiles: ProfileSummary | ProfileSummary[] | null }[]
+  | null;
+
+const getProfileName = (profile: ProfileSummary | ProfileSummary[] | null | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const getLinkedDoctorName = (doctor: LinkedDoctor | undefined) =>
+  getProfileName(Array.isArray(doctor) ? doctor[0]?.profiles : doctor?.profiles);
+
 export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
 
   // Получаем счета пациента
@@ -97,21 +111,21 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; className: string }> = {
-      new: { label: "Новый", className: "bg-blue-500/10 text-blue-500 border-blue-500/20" },
-      pending: { label: "Ожидает", className: "bg-yellow-500/10 text-yellow-500 border-yellow-500/20" },
-      paid: { label: "Оплачен", className: "bg-green-500/10 text-green-500 border-green-500/20" },
-      completed: { label: "Завершён", className: "bg-green-500/10 text-green-500 border-green-500/20" },
-      cancelled: { label: "Отменён", className: "bg-red-500/10 text-red-500 border-red-500/20" },
-      partial: { label: "Частично", className: "bg-orange-500/10 text-orange-500 border-orange-500/20" },
+      new: { label: t('crmPaymentHistory.statusNew'), className: "bg-status-info/10 text-status-info border-status-info/20" },
+      pending: { label: t('crmPaymentHistory.statusPending'), className: "bg-status-warning/10 text-status-warning border-status-warning/20" },
+      paid: { label: t('crmPaymentHistory.statusPaid'), className: "bg-status-success/10 text-status-success border-status-success/20" },
+      completed: { label: t('crmPaymentHistory.statusCompleted'), className: "bg-status-success/10 text-status-success border-status-success/20" },
+      cancelled: { label: t('crmPaymentHistory.statusCancelled'), className: "bg-status-danger/10 text-status-danger border-status-danger/20" },
+      partial: { label: t('crmPaymentHistory.statusPartial'), className: "bg-status-warning/25 text-status-warning border-status-warning/50" },
     };
     return variants[status] || variants.pending;
   };
 
   const getPaymentMethodLabel = (method: string | null) => {
     const methods: Record<string, string> = {
-      cash: "Наличные",
-      card: "Карта",
-      transfer: "Перевод",
+      cash: t('crmPaymentHistory.methodCash'),
+      card: t('crmPaymentHistory.methodCard'),
+      transfer: t('crmPaymentHistory.methodTransfer'),
       uzum: "Uzum",
       payme: "Payme",
       click: "Click",
@@ -130,13 +144,13 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
       {/* Статистика */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card className="border-border/50 bg-card/80">
-          <CardContent className="p-4">
+          <CardContent className="p-card-x">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-blue-500/10">
-                <Receipt className="w-5 h-5 text-blue-500" />
+              <div className="p-2 rounded-lg bg-status-info/10">
+                <Receipt className="w-5 h-5 text-status-info" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Всего счетов</p>
+                <p className="text-sm text-muted-foreground">{t('crmPaymentHistory.totalInvoiced')}</p>
                 <p className="text-xl font-bold">{totalInvoiced.toLocaleString()} UZS</p>
               </div>
             </div>
@@ -144,28 +158,28 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
         </Card>
 
         <Card className="border-border/50 bg-card/80">
-          <CardContent className="p-4">
+          <CardContent className="p-card-x">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-green-500/10">
-                <ArrowUpRight className="w-5 h-5 text-green-500" />
+              <div className="p-2 rounded-lg bg-status-success/10">
+                <ArrowUpRight className="w-5 h-5 text-status-success" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Оплачено</p>
-                <p className="text-xl font-bold text-green-500">{totalPaid.toLocaleString()} UZS</p>
+                <p className="text-sm text-muted-foreground">{t('crmPaymentHistory.paid')}</p>
+                <p className="text-xl font-bold text-status-success">{totalPaid.toLocaleString()} UZS</p>
               </div>
             </div>
           </CardContent>
         </Card>
 
         <Card className="border-border/50 bg-card/80">
-          <CardContent className="p-4">
+          <CardContent className="p-card-x">
             <div className="flex items-center gap-3">
-              <div className={`p-2 rounded-lg ${(balance?.balance || 0) < 0 ? 'bg-red-500/10' : 'bg-primary/10'}`}>
-                <CreditCard className={`w-5 h-5 ${(balance?.balance || 0) < 0 ? 'text-red-500' : 'text-primary'}`} />
+              <div className={`p-2 rounded-lg ${(balance?.balance || 0) < 0 ? 'bg-status-danger/10' : 'bg-primary/10'}`}>
+                <CreditCard className={`w-5 h-5 ${(balance?.balance || 0) < 0 ? 'text-status-danger' : 'text-primary'}`} />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Баланс</p>
-                <p className={`text-xl font-bold ${(balance?.balance || 0) < 0 ? 'text-red-500' : 'text-primary'}`}>
+                <p className="text-sm text-muted-foreground">{t('crmPaymentHistory.balance')}</p>
+                <p className={`text-xl font-bold ${(balance?.balance || 0) < 0 ? 'text-status-danger' : 'text-primary'}`}>
                   {(balance?.balance || 0).toLocaleString()} UZS
                 </p>
               </div>
@@ -177,9 +191,9 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
       {/* Счета */}
       <Card className="border-border/50 bg-card/80">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-foreground">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <Receipt className="w-5 h-5" />
-            Счета
+            {t('crmPaymentHistory.invoicesTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -193,7 +207,7 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
             <div className="space-y-3">
               {invoices.map((invoice) => {
                 const status = getStatusBadge(invoice.status || "new");
-                const doctor = invoice.doctors as any;
+                const doctorName = getLinkedDoctorName(invoice.doctors);
                 
                 return (
                   <div
@@ -218,19 +232,19 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
                         </p>
                         {invoice.discount_amount && invoice.discount_amount > 0 && (
                           <p className="text-xs text-muted-foreground">
-                            Скидка: {invoice.discount_amount.toLocaleString()} UZS
+                            {t('crmPaymentHistory.discount')} {invoice.discount_amount.toLocaleString()} UZS
                           </p>
                         )}
                       </div>
                     </div>
-                    {doctor?.profiles?.full_name && (
+                    {doctorName && (
                       <p className="text-sm text-muted-foreground">
-                        Врач: {doctor.profiles.full_name}
+                        {t('crmPaymentHistory.doctor')} {doctorName}
                       </p>
                     )}
                     {invoice.paid_at && (
-                      <p className="text-sm text-green-500 mt-1">
-                        Оплачен: {format(new Date(invoice.paid_at), "d MMM yyyy", { locale: ru })} 
+                      <p className="text-sm text-status-success mt-1">
+                        {t('crmPaymentHistory.paidLabel')} {format(new Date(invoice.paid_at), "d MMM yyyy", { locale: ru })}
                         {invoice.payment_method && ` • ${getPaymentMethodLabel(invoice.payment_method)}`}
                       </p>
                     )}
@@ -241,7 +255,7 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <Receipt className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Счетов нет</p>
+              <p>{t('crmPaymentHistory.noInvoices')}</p>
             </div>
           )}
         </CardContent>
@@ -250,9 +264,9 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
       {/* Платежи */}
       <Card className="border-border/50 bg-card/80">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-foreground">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <CreditCard className="w-5 h-5" />
-            Платежи
+            {t('crmPaymentHistory.paymentsTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -273,11 +287,11 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
                     className="p-4 bg-muted/50 rounded-lg border border-border/50 flex items-center justify-between"
                   >
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-lg ${payment.status === 'completed' ? 'bg-green-500/10' : 'bg-yellow-500/10'}`}>
+                      <div className={`p-2 rounded-lg ${payment.status === 'completed' ? 'bg-status-success/10' : 'bg-status-warning/10'}`}>
                         {payment.status === 'completed' ? (
-                          <ArrowUpRight className="w-4 h-4 text-green-500" />
+                          <ArrowUpRight className="w-4 h-4 text-status-success" />
                         ) : (
-                          <ArrowDownRight className="w-4 h-4 text-yellow-500" />
+                          <ArrowDownRight className="w-4 h-4 text-status-warning" />
                         )}
                       </div>
                       <div>
@@ -304,7 +318,7 @@ export function PatientPaymentHistory({ patientId }: PatientPaymentHistoryProps)
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <CreditCard className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Платежей нет</p>
+              <p>{t('crmPaymentHistory.noPayments')}</p>
             </div>
           )}
         </CardContent>

@@ -1,584 +1,575 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  getPatientBillingHistory,
+  type PatientInvoice,
+  type PatientPayment,
+} from "@/lib/patient-billing-api";
 import { PatientLayout } from "@/components/patient/PatientLayout";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { AddPaymentNoteDialog } from "@/components/patient/AddPaymentNoteDialog";
-import { 
-  CreditCard, 
-  FileText, 
-  Download, 
-  Wallet, 
-  Loader2, 
-  CheckCircle2, 
-  TrendingUp, 
-  Receipt,
-  Zap,
-  ArrowRight,
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Check,
+  CheckCircle2,
   Clock,
-  Shield,
+  CreditCard,
+  Download,
+  FileText,
+  Loader2,
   Plus,
+  Receipt,
+  Shield,
   Trash2,
-  Check
+  TrendingUp,
+  Zap,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/utils";
 
-interface PaymentNote {
-  id: string;
-  amount: number;
-  type: "payment" | "debt";
-  description: string | null;
-  clinic_name: string | null;
-  date: string;
-  is_resolved: boolean;
-  created_at: string;
-}
+import type { Database } from "@/integrations/supabase/types";
+
+type Invoice = PatientInvoice;
+type Payment = PatientPayment;
+type PaymentNote = Database["public"]["Tables"]["patient_payment_notes"]["Row"];
+
+type TabKey = "my-notes" | "invoices" | "payments";
 
 const PatientPaymentsPage = () => {
   const { user } = useAuth();
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
+  const { t } = useLanguage();
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [paymentNotes, setPaymentNotes] = useState<PaymentNote[]>([]);
   const [totalDebt, setTotalDebt] = useState(0);
   const [totalPaid, setTotalPaid] = useState(0);
   const [myDebts, setMyDebts] = useState(0);
   const [myPayments, setMyPayments] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [tab, setTab] = useState<TabKey>("my-notes");
+  const [pendingNoteId, setPendingNoteId] = useState<string | null>(null);
+  const [dataUserId, setDataUserId] = useState<string | undefined>();
+  const activeUserIdRef = useRef(user?.id);
+  const loadSequenceRef = useRef(0);
 
-  useEffect(() => {
-    if (user?.id) fetchPaymentData();
+  const fetchPaymentData = useCallback(async () => {
+    const requestedUserId = user?.id;
+    if (!requestedUserId) {
+      setLoading(false);
+      return true;
+    }
+    const sequence = ++loadSequenceRef.current;
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const [billing, notesResult] = await Promise.all([
+        getPatientBillingHistory(),
+        supabase
+          .from("patient_payment_notes")
+          .select("*")
+          .eq("patient_id", requestedUserId)
+          .order("date", { ascending: false }),
+      ]);
+      if (
+        sequence !== loadSequenceRef.current ||
+        activeUserIdRef.current !== requestedUserId
+      ) {
+        return true;
+      }
+      if (notesResult.error) throw notesResult.error;
+
+      setInvoices(billing.invoices);
+      setPayments(billing.payments);
+      setTotalDebt(
+        billing.invoices.reduce((sum, invoice) => sum + Number(invoice.balance_due || 0), 0),
+      );
+      setTotalPaid(
+        billing.payments
+          .filter((payment) => payment.status.toUpperCase() === "COMPLETED")
+          .reduce((sum, payment) => sum + Number(payment.amount || 0), 0),
+      );
+
+      const notes = notesResult.data ?? [];
+      setPaymentNotes(notes);
+      setMyDebts(
+        notes
+          .filter((note) => note.type === "debt" && !note.is_resolved)
+          .reduce((sum, note) => sum + note.amount, 0),
+      );
+      setMyPayments(
+        notes
+          .filter((note) => note.type === "payment")
+          .reduce((sum, note) => sum + note.amount, 0),
+      );
+      setDataUserId(requestedUserId);
+      return true;
+    } catch (error) {
+      if (
+        sequence !== loadSequenceRef.current ||
+        activeUserIdRef.current !== requestedUserId
+      ) {
+        return true;
+      }
+      console.error("Error:", error);
+      setLoadError(true);
+      setDataUserId(requestedUserId);
+      return false;
+    } finally {
+      if (
+        sequence === loadSequenceRef.current &&
+        activeUserIdRef.current === requestedUserId
+      ) {
+        setLoading(false);
+      }
+    }
   }, [user?.id]);
 
-  const fetchPaymentData = async () => {
-    setLoading(true);
-    try {
-      const { data: invoicesData } = await supabase
-        .from('invoices')
-        .select('*')
-        .eq('patient_id', user?.id)
-        .order('created_at', { ascending: false }) as any;
-
-      if (invoicesData) {
-        setInvoices(invoicesData);
-        const debt = invoicesData.filter((inv: any) => inv.status !== 'paid').reduce((sum: number, inv: any) => sum + inv.final_amount, 0);
-        setTotalDebt(debt);
-      }
-
-      const paymentsResult = await supabase
-        .from('payments')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false });
-      const paymentsData = paymentsResult.data;
-
-      if (paymentsData) {
-        setPayments(paymentsData);
-        const paid = paymentsData.reduce((sum: number, p: any) => sum + (p.amount || 0), 0);
-        setTotalPaid(paid);
-      }
-
-      // Fetch personal notes
-      const { data: notesData } = await supabase
-        .from('patient_payment_notes')
-        .select('*')
-        .eq('patient_id', user?.id)
-        .order('date', { ascending: false });
-
-      if (notesData) {
-        setPaymentNotes(notesData as PaymentNote[]);
-        const debts = notesData
-          .filter((n: any) => n.type === 'debt' && !n.is_resolved)
-          .reduce((sum: number, n: any) => sum + n.amount, 0);
-        const pays = notesData
-          .filter((n: any) => n.type === 'payment')
-          .reduce((sum: number, n: any) => sum + n.amount, 0);
-        setMyDebts(debts);
-        setMyPayments(pays);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
+  useEffect(() => {
+    activeUserIdRef.current = user?.id;
+    loadSequenceRef.current += 1;
+    setInvoices([]);
+    setPayments([]);
+    setPaymentNotes([]);
+    setTotalDebt(0);
+    setTotalPaid(0);
+    setMyDebts(0);
+    setMyPayments(0);
+    setLoadError(false);
+    setShowAddDialog(false);
+    setPendingNoteId(null);
+    setDataUserId(undefined);
+    if (user?.id) {
+      setLoading(true);
+      void fetchPaymentData();
+    } else {
       setLoading(false);
     }
-  };
-
-  
+    return () => {
+      loadSequenceRef.current += 1;
+    };
+  }, [user?.id, fetchPaymentData]);
 
   const handleResolveDebt = async (noteId: string) => {
+    if (pendingNoteId) return;
+    const operationUserId = user?.id;
+    setPendingNoteId(noteId);
     try {
       const { error } = await supabase
-        .from('patient_payment_notes')
+        .from("patient_payment_notes")
         .update({ is_resolved: true })
-        .eq('id', noteId);
-
+        .eq("id", noteId);
       if (error) throw error;
-      toast.success("Долг погашен");
-      fetchPaymentData();
-    } catch (error) {
-      toast.error("Ошибка обновления");
+      if (activeUserIdRef.current !== operationUserId) return;
+      const resolved = paymentNotes.find((note) => note.id === noteId);
+      setPaymentNotes((current) =>
+        current.map((note) => (note.id === noteId ? { ...note, is_resolved: true } : note)),
+      );
+      if (resolved?.type === "debt" && !resolved.is_resolved) {
+        setMyDebts((current) => Math.max(0, current - resolved.amount));
+      }
+      toast.success(t("patientCabinet.debtPaid"));
+      if (!(await fetchPaymentData())) toast.warning(t("common.error"));
+    } catch {
+      if (activeUserIdRef.current === operationUserId) {
+        toast.error(t("patientCabinet.updateError"));
+      }
+    } finally {
+      if (activeUserIdRef.current === operationUserId) setPendingNoteId(null);
     }
   };
 
   const handleDeleteNote = async (noteId: string) => {
+    if (pendingNoteId) return;
+    const operationUserId = user?.id;
+    setPendingNoteId(noteId);
     try {
       const { error } = await supabase
-        .from('patient_payment_notes')
+        .from("patient_payment_notes")
         .delete()
-        .eq('id', noteId);
-
+        .eq("id", noteId);
       if (error) throw error;
-      toast.success("Запись удалена");
-      fetchPaymentData();
-    } catch (error) {
-      toast.error("Ошибка удаления");
+      if (activeUserIdRef.current !== operationUserId) return;
+      const deleted = paymentNotes.find((note) => note.id === noteId);
+      setPaymentNotes((current) => current.filter((note) => note.id !== noteId));
+      if (deleted?.type === "debt" && !deleted.is_resolved) {
+        setMyDebts((current) => Math.max(0, current - deleted.amount));
+      } else if (deleted?.type === "payment") {
+        setMyPayments((current) => Math.max(0, current - deleted.amount));
+      }
+      toast.success(t("patientCabinet.recordDeleted"));
+      if (!(await fetchPaymentData())) toast.warning(t("common.error"));
+    } catch {
+      if (activeUserIdRef.current === operationUserId) {
+        toast.error(t("patientCabinet.deleteError"));
+      }
+    } finally {
+      if (activeUserIdRef.current === operationUserId) setPendingNoteId(null);
     }
   };
 
-  if (loading) {
+  if (loading || (Boolean(user?.id) && dataUserId !== user?.id)) {
     return (
       <PatientLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center space-y-4">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-full bg-gradient-jade mx-auto animate-pulse-soft" />
-              <Loader2 className="w-8 h-8 animate-spin text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-            </div>
-            <p className="text-muted-foreground">Загрузка данных...</p>
+        <div className="flex min-h-[400px] items-center justify-center">
+          <div className="flex items-center gap-3 text-sm text-muted-foreground" role="status" aria-live="polite">
+            <Loader2 className="h-8 w-8 animate-spin text-[hsl(var(--brand))]" aria-hidden="true" />
+            <span>{t("common.loading")}</span>
           </div>
         </div>
       </PatientLayout>
     );
   }
 
-  const unresolvedDebts = paymentNotes.filter(n => n.type === 'debt' && !n.is_resolved);
-  const resolvedDebts = paymentNotes.filter(n => n.type === 'debt' && n.is_resolved);
-  const myPaymentNotes = paymentNotes.filter(n => n.type === 'payment');
+  const unresolvedDebts = paymentNotes.filter(
+    (n) => n.type === "debt" && !n.is_resolved
+  );
+  const resolvedDebts = paymentNotes.filter(
+    (n) => n.type === "debt" && n.is_resolved
+  );
+  const myPaymentNotes = paymentNotes.filter((n) => n.type === "payment");
+  const totalDue = totalDebt + myDebts;
 
   return (
     <PatientLayout>
-      <div className="p-6 lg:p-8 space-y-8 max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="relative">
-          <div className="absolute -top-4 -left-4 w-32 h-32 bg-primary/5 rounded-full blur-3xl" />
-          <div className="relative flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 rounded-xl bg-gradient-jade">
-                  <Wallet className="w-5 h-5 text-white" />
-                </div>
-                <h1 className="text-2xl lg:text-3xl font-bold font-heading text-foreground">
-                  Счета и оплаты
-                </h1>
-              </div>
-              <p className="text-muted-foreground ml-12">Управляйте вашими финансами</p>
-            </div>
-            <Button 
-              onClick={() => setShowAddDialog(true)}
-              className="bg-gradient-jade text-white shadow-medium hover:shadow-strong"
+      <div className="mx-auto max-w-[1100px] p-4 sm:p-6">
+        {loadError && (
+          <div
+            className="mb-4 flex flex-col gap-3 rounded-xl border border-[hsl(var(--destructive)/0.3)] bg-[hsl(var(--destructive)/0.1)] px-4 py-3 text-sm text-destructive sm:flex-row sm:items-center"
+            role="alert"
+          >
+            <span className="min-w-0 flex-1">{t("common.error")}</span>
+            <button
+              type="button"
+              className="min-h-11 rounded-[10px] border border-border bg-card px-4 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => void fetchPaymentData()}
             >
-              <Plus className="w-4 h-4 mr-2" />
-              Добавить запись
-            </Button>
+              {t("common.retry")}
+            </button>
           </div>
+        )}
+        {/* Header */}
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[12.5px] text-muted-foreground">{t("patientCabinet.payments")}</div>
+            <h2 className="font-heading text-[24px] font-bold tracking-tight text-foreground">
+              {t("patientCabinet.billsAndPayments")}
+            </h2>
+          </div>
+          <button
+            onClick={() => setShowAddDialog(true)}
+            className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-[10px] bg-[hsl(var(--brand))] px-4 py-2 text-[13px] font-medium text-primary-foreground hover:bg-[hsl(var(--brand-700))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <Plus className="h-4 w-4" />
+            {t("patientCabinet.addRecord")}
+          </button>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* My Debts */}
-          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent shadow-medium">
-            <CardContent className="p-5 relative">
-              <div className="flex flex-col">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Мои долги</p>
-                <p className="text-2xl font-bold text-foreground">{formatPrice(myDebts)}</p>
-                {unresolvedDebts.length > 0 && (
-                  <Badge className="mt-2 w-fit bg-amber-500/20 text-amber-600 border-0">
-                    {unresolvedDebts.length} записей
-                  </Badge>
-                )}
-              </div>
-              <Receipt className="absolute top-4 right-4 w-8 h-8 text-amber-500/30" />
-            </CardContent>
-          </Card>
-
-          {/* My Payments */}
-          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent shadow-medium">
-            <CardContent className="p-5 relative">
-              <div className="flex flex-col">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Мои оплаты</p>
-                <p className="text-2xl font-bold text-foreground">{formatPrice(myPayments)}</p>
-                {myPaymentNotes.length > 0 && (
-                  <Badge className="mt-2 w-fit bg-emerald-500/20 text-emerald-600 border-0">
-                    {myPaymentNotes.length} записей
-                  </Badge>
-                )}
-              </div>
-              <CheckCircle2 className="absolute top-4 right-4 w-8 h-8 text-emerald-500/30" />
-            </CardContent>
-          </Card>
-
-          {/* Clinic Debt */}
-          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent shadow-medium">
-            <CardContent className="p-5 relative">
-              <div className="flex flex-col">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Долг клиникам</p>
-                <p className="text-2xl font-bold text-foreground">{formatPrice(totalDebt)}</p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  По счетам
-                </p>
-              </div>
-              <FileText className="absolute top-4 right-4 w-8 h-8 text-primary/30" />
-            </CardContent>
-          </Card>
-
-          {/* Total Paid */}
-          <Card className="relative overflow-hidden border-0 bg-gradient-to-br from-tashkent-sky/10 via-tashkent-sky/5 to-transparent shadow-medium">
-            <CardContent className="p-5 relative">
-              <div className="flex flex-col">
-                <p className="text-xs font-medium text-muted-foreground mb-1">Оплачено</p>
-                <p className="text-2xl font-bold text-foreground">{formatPrice(totalPaid)}</p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Через систему
-                </p>
-              </div>
-              <CreditCard className="absolute top-4 right-4 w-8 h-8 text-tashkent-sky/30" />
-            </CardContent>
-          </Card>
+        {/* KPI tiles */}
+        <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <KpiCard
+            label={t("patientCabinet.kpiToPay")}
+            value={formatPrice(totalDue)}
+            accent="rose"
+            cta={
+              totalDue > 0
+                ? {
+                    label: t("patientCabinet.payOnline"),
+                    icon: <CreditCard className="h-3.5 w-3.5" />,
+                  }
+                : undefined
+            }
+          />
+          <KpiCard
+            label={t("patientCabinet.kpiTotalPaid")}
+            value={formatPrice(totalPaid + myPayments)}
+            hint={`${payments.length + myPaymentNotes.length} ${t("patientCabinet.records")}`}
+          />
+          <KpiCard
+            label={t("patientCabinet.kpiClinicBills")}
+            value={formatPrice(totalDebt)}
+            hint={`${invoices.length} ${t("patientCabinet.bills")}`}
+          />
         </div>
 
-        {/* Online Payment Section */}
-        {(totalDebt > 0 || myDebts > 0) && (
-          <Card className="relative overflow-hidden border-0 bg-gradient-to-r from-primary/5 via-accent/5 to-primary/5 shadow-strong">
-            <div className="absolute inset-0 bg-gradient-mesh opacity-50" />
-            <CardContent className="p-6 relative">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                <div className="space-y-2">
+        {/* Online payment section */}
+        {totalDue > 0 && (
+          <div className="mb-5 overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div
+              className="px-5 py-4"
+              style={{
+                background:
+                  "linear-gradient(180deg, hsl(var(--brand-50)), hsl(var(--card)))",
+              }}
+            >
+              <div className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+                <div>
                   <div className="flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-accent" />
-                    <h3 className="text-lg font-semibold font-heading">Быстрая оплата онлайн</h3>
+                    <Zap className="h-4 w-4 text-[hsl(var(--brand-700))]" />
+                    <div className="font-heading text-[14px] font-semibold text-foreground">
+                      {t("patientCabinet.quickOnlinePayment")}
+                    </div>
                   </div>
-                  <p className="text-sm text-muted-foreground max-w-md">
-                    Оплатите счёт удобным способом. Мгновенное зачисление, безопасные транзакции.
-                  </p>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Shield className="w-3.5 h-3.5 text-primary" />
-                    <span>Защищённое соединение</span>
+                  <div className="mt-1 max-w-md text-[12.5px] text-muted-foreground">
+                    {t("patientCabinet.instantTransactions")}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <Shield className="h-3 w-3 text-[hsl(var(--brand-700))]" />
+                    {t("patientCabinet.secureConnection")}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button 
-                    className="bg-[#00CDBE] hover:bg-[#00CDBE]/90 text-white font-bold px-6 h-12 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105"
-                  >
-                    <span className="mr-2">💳</span> Payme
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
-                  <Button 
-                    className="bg-[#0099FF] hover:bg-[#0099FF]/90 text-white font-bold px-6 h-12 rounded-xl shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105"
-                  >
-                    <span className="mr-2">💎</span> Click
-                    <ArrowRight className="w-4 h-4 ml-2" />
-                  </Button>
+                {/* Онлайн-оплата (Payme/Click) недоступна на пилоте — кнопки честно
+                    задизейблены, чтобы не имитировать рабочий платёжный поток. */}
+                <div className="flex flex-col items-start gap-2 md:items-end">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      disabled
+                      title="Онлайн-оплата скоро"
+                      className="inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-[10px] bg-[hsl(var(--brand))] px-4 py-2 text-[13px] font-bold text-primary-foreground opacity-50 shadow-sm"
+                    >
+                      <span>💳</span> Payme
+                    </button>
+                    <button
+                      disabled
+                      title="Онлайн-оплата скоро"
+                      className="inline-flex min-h-11 cursor-not-allowed items-center gap-2 rounded-[10px] bg-[hsl(var(--accent))] px-4 py-2 text-[13px] font-bold text-accent-foreground opacity-50 shadow-sm"
+                    >
+                      <span>💎</span> Click
+                    </button>
+                  </div>
+                  <div className="text-xs font-medium text-muted-foreground">Онлайн-оплата скоро</div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {/* Tabs */}
-        <Tabs defaultValue="my-notes" className="space-y-6">
-          <TabsList className="bg-muted/30 p-1.5 h-auto flex-wrap">
-            <TabsTrigger value="my-notes" className="data-[state=active]:bg-card data-[state=active]:shadow-sm px-5 py-2.5 rounded-lg">
-              <Receipt className="w-4 h-4 mr-2" />
-              Мои записи
-              {paymentNotes.length > 0 && (
-                <Badge variant="secondary" className="ml-2 bg-amber-500/10 text-amber-600">
-                  {paymentNotes.length}
-                </Badge>
+        <div className="mb-4 flex max-w-full items-center gap-1 overflow-x-auto rounded-[10px] bg-muted p-1">
+          {(
+            [
+              { k: "my-notes" as const, label: `${t("patientCabinet.tabMyNotes")} · ${paymentNotes.length}` },
+              { k: "invoices" as const, label: `${t("patientCabinet.tabInvoices")} · ${invoices.length}` },
+              { k: "payments" as const, label: `${t("patientCabinet.tabPayments")} · ${payments.length}` },
+            ]
+          ).map((tt) => (
+            <button
+              key={tt.k}
+              type="button"
+              data-testid={`patient-payments-tab-${tt.k}`}
+              aria-pressed={tab === tt.k}
+              onClick={() => setTab(tt.k)}
+              className={cn(
+                "min-h-11 shrink-0 rounded-[7px] px-3.5 text-[12.5px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                tab === tt.k
+                  ? "bg-card text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
-            </TabsTrigger>
-            <TabsTrigger value="invoices" className="data-[state=active]:bg-card data-[state=active]:shadow-sm px-5 py-2.5 rounded-lg">
-              <FileText className="w-4 h-4 mr-2" />
-              Счета
-              {invoices.length > 0 && (
-                <Badge variant="secondary" className="ml-2 bg-primary/10 text-primary">
-                  {invoices.length}
-                </Badge>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="payments" className="data-[state=active]:bg-card data-[state=active]:shadow-sm px-5 py-2.5 rounded-lg">
-              <CreditCard className="w-4 h-4 mr-2" />
-              Оплаты системы
-            </TabsTrigger>
-          </TabsList>
+            >
+              {tt.label}
+            </button>
+          ))}
+        </div>
 
-          {/* My Notes Tab */}
-          <TabsContent value="my-notes" className="space-y-6 animate-fade-in">
-            {/* Unresolved Debts */}
+        {tab === "my-notes" && (
+          <div className="space-y-5">
             {unresolvedDebts.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  Активные долги
-                </h3>
+              <Section
+                icon={<Clock className="h-3.5 w-3.5" />}
+                title={t("patientCabinet.activeDebts")}
+              >
                 {unresolvedDebts.map((note) => (
-                  <Card key={note.id} className="border-amber-500/20 bg-amber-500/5 hover:shadow-medium transition-all">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 rounded-lg bg-amber-500/20">
-                            <Receipt className="w-5 h-5 text-amber-600" />
-                          </div>
-                          <div>
-                            <p className="text-lg font-bold text-foreground">{formatPrice(note.amount)}</p>
-                            {note.clinic_name && (
-                              <p className="text-sm text-foreground/80">{note.clinic_name}</p>
-                            )}
-                            {note.description && (
-                              <p className="text-sm text-muted-foreground">{note.description}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(note.date), "d MMMM yyyy", { locale: ru })}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button 
-                            size="sm" 
-                            onClick={() => handleResolveDebt(note.id)}
-                            className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                          >
-                            <Check className="w-4 h-4 mr-1" />
-                            Погасить
-                          </Button>
-                          <Button 
-                            size="icon" 
-                            variant="ghost"
-                            onClick={() => handleDeleteNote(note.id)}
-                            className="text-muted-foreground hover:text-destructive"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    tone="amber"
+                    onResolve={() => handleResolveDebt(note.id)}
+                    onDelete={() => handleDeleteNote(note.id)}
+                    pending={pendingNoteId === note.id}
+                  />
                 ))}
-              </div>
+              </Section>
             )}
 
-            {/* My Payments */}
             {myPaymentNotes.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Мои оплаты
-                </h3>
+              <Section
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                title={t("patientCabinet.myPayments")}
+              >
                 {myPaymentNotes.map((note) => (
-                  <Card key={note.id} className="border-emerald-500/20 bg-emerald-500/5 hover:shadow-medium transition-all">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 rounded-lg bg-emerald-500/20">
-                            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          </div>
-                          <div>
-                            <p className="text-lg font-bold text-foreground">{formatPrice(note.amount)}</p>
-                            {note.clinic_name && (
-                              <p className="text-sm text-foreground/80">{note.clinic_name}</p>
-                            )}
-                            {note.description && (
-                              <p className="text-sm text-muted-foreground">{note.description}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(note.date), "d MMMM yyyy", { locale: ru })}
-                            </p>
-                          </div>
-                        </div>
-                        <Button 
-                          size="icon" 
-                          variant="ghost"
-                          onClick={() => handleDeleteNote(note.id)}
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    tone="emerald"
+                    onDelete={() => handleDeleteNote(note.id)}
+                    pending={pendingNoteId === note.id}
+                  />
                 ))}
-              </div>
+              </Section>
             )}
 
-            {/* Resolved Debts */}
             {resolvedDebts.length > 0 && (
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4" />
-                  Погашенные долги
-                </h3>
+              <Section
+                icon={<TrendingUp className="h-3.5 w-3.5" />}
+                title={t("patientCabinet.paidDebts")}
+              >
                 {resolvedDebts.map((note) => (
-                  <Card key={note.id} className="border-muted bg-muted/30 opacity-70 hover:opacity-100 transition-all">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex items-start gap-3">
-                          <div className="p-2 rounded-lg bg-muted">
-                            <CheckCircle2 className="w-5 h-5 text-muted-foreground" />
-                          </div>
-                          <div>
-                            <p className="text-lg font-bold text-muted-foreground line-through">{formatPrice(note.amount)}</p>
-                            {note.clinic_name && (
-                              <p className="text-sm text-muted-foreground">{note.clinic_name}</p>
-                            )}
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {format(new Date(note.date), "d MMMM yyyy", { locale: ru })}
-                            </p>
-                          </div>
-                        </div>
-                        <Badge className="bg-muted text-muted-foreground">Погашено</Badge>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <NoteCard
+                    key={note.id}
+                    note={note}
+                    tone="muted"
+                    resolved
+                  />
                 ))}
-              </div>
+              </Section>
             )}
 
-            {/* Empty State */}
             {paymentNotes.length === 0 && (
-              <Card className="border-dashed border-2 border-muted-foreground/20">
-                <CardContent className="text-center py-16">
-                  <div className="w-16 h-16 rounded-full bg-muted/50 mx-auto flex items-center justify-center mb-4">
-                    <Receipt className="w-8 h-8 text-muted-foreground/50" />
-                  </div>
-                  <p className="text-lg font-medium text-muted-foreground">Нет записей</p>
-                  <p className="text-sm text-muted-foreground/70 mt-1 mb-4">
-                    Добавьте долги или оплаты чтобы не забыть
-                  </p>
-                  <Button onClick={() => setShowAddDialog(true)} className="bg-gradient-jade text-white">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Добавить запись
-                  </Button>
-                </CardContent>
-              </Card>
+              <EmptyState
+                icon={<Receipt className="h-10 w-10 text-muted-foreground" />}
+                title={t("patientCabinet.noRecords")}
+                subtitle={t("patientCabinet.noRecordsDesc")}
+                ctaLabel={t("patientCabinet.addRecord")}
+                onCta={() => setShowAddDialog(true)}
+              />
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="invoices" className="space-y-4 animate-fade-in">
-            {invoices.length > 0 ? invoices.map((inv, index) => (
-              <Card 
-                key={inv.id} 
-                className="border-border/30 hover:border-primary/30 hover:shadow-medium transition-all duration-200 group"
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                <CardContent className="p-5">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className={`p-3 rounded-xl ${inv.status === 'paid' ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
-                        {inv.status === 'paid' ? (
-                          <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                        ) : (
-                          <Clock className="w-5 h-5 text-amber-500" />
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge 
-                            className={`${
-                              inv.status === 'paid' 
-                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' 
-                                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                            } border`}
-                          >
-                            {inv.status === 'paid' ? '✓ Оплачен' : '⏳ Ожидает'}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            #{inv.invoice_number || inv.id.slice(0, 8)}
-                          </span>
-                        </div>
-                        <p className="text-xl font-bold text-foreground">{formatPrice(inv.final_amount)}</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {format(new Date(inv.created_at), "d MMMM yyyy, HH:mm", { locale: ru })}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 sm:self-center">
-                      {inv.status !== 'paid' && (
-                        <Button size="sm" className="bg-gradient-jade text-white">
-                          Оплатить
-                        </Button>
+        {tab === "invoices" && (
+          <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            {invoices.length === 0 ? (
+              <EmptyInline
+                icon={<FileText className="h-10 w-10 text-muted-foreground" />}
+                title={t("patientCabinet.noBills")}
+                subtitle={t("patientCabinet.noBillsDesc")}
+              />
+            ) : (
+              <>
+                <div className="hidden grid-cols-[auto_1fr_140px_auto] items-center gap-4 border-b border-border bg-muted/60 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground md:grid">
+                  <div>{t("patientCabinet.colStatus")}</div>
+                  <div>{t("patientCabinet.colInvoice")}</div>
+                  <div className="text-right">{t("patientCabinet.colAmount")}</div>
+                  <div />
+                </div>
+                {invoices.map((inv) => (
+                  <div
+                    key={inv.id}
+                    data-testid="patient-invoice-row"
+                    data-invoice-id={inv.id}
+                    data-invoice-status={inv.status.toLowerCase()}
+                    className="grid grid-cols-1 items-center gap-3 border-b border-border px-4 py-4 last:border-b-0 hover:bg-muted/60 sm:px-5 md:grid-cols-[auto_1fr_140px_auto] md:gap-4"
+                  >
+                    <div>
+                      {inv.status.toUpperCase() === "PAID" ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--success-green)/0.1)] px-2 py-0.5 text-xs font-medium text-[hsl(var(--success-green))] ring-1 ring-[hsl(var(--success-green)/0.3)]">
+                          <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                          {t("patientCabinet.paid")}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[hsl(var(--warning-amber)/0.1)] px-2 py-0.5 text-xs font-medium text-[hsl(var(--warning-amber))] ring-1 ring-[hsl(var(--warning-amber)/0.3)]">
+                          <Clock className="h-2.5 w-2.5" />
+                          {t("patientCabinet.pendingShort")}
+                        </span>
                       )}
-                      <Button variant="outline" size="sm" className="group-hover:border-primary/50">
-                        <Download className="w-4 h-4 mr-2" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-[13.5px] font-medium text-foreground">
+                        #{inv.invoice_number || inv.id.slice(0, 8)}
+                      </div>
+                      <div className="text-xs tabular-nums text-muted-foreground">
+                        {format(new Date(inv.created_at ?? 0), "d MMMM yyyy", {
+                          locale: ru,
+                        })}
+                      </div>
+                    </div>
+                    <div className="font-heading text-[14px] font-bold tabular-nums md:text-right">
+                      {formatPrice(inv.total)}
+                    </div>
+                    {/* "Оплатить" и "PDF" не реализованы на пилоте — честно
+                        задизейблены, а не имитируют успешную оплату/скачивание. */}
+                    <div className="flex gap-2 md:justify-end">
+                      {inv.status.toUpperCase() !== "PAID" && (
+                        <button
+                          disabled
+                          title="Онлайн-оплата скоро"
+                          className="inline-flex min-h-11 cursor-not-allowed items-center gap-1 rounded-[10px] bg-[hsl(var(--brand))] px-3 py-1.5 text-xs font-medium text-primary-foreground opacity-50"
+                        >
+                          {t("patientCabinet.payNow")}
+                        </button>
+                      )}
+                      <button
+                        disabled
+                        title="Скачивание счёта скоро"
+                        className="inline-flex min-h-11 cursor-not-allowed items-center gap-1 rounded-[10px] border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-60"
+                      >
+                        <Download className="h-3.5 w-3.5" />
                         PDF
-                      </Button>
+                      </button>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )) : (
-              <Card className="border-dashed border-2 border-muted-foreground/20">
-                <CardContent className="text-center py-16">
-                  <div className="w-16 h-16 rounded-full bg-muted/50 mx-auto flex items-center justify-center mb-4">
-                    <FileText className="w-8 h-8 text-muted-foreground/50" />
-                  </div>
-                  <p className="text-lg font-medium text-muted-foreground">Нет счетов</p>
-                  <p className="text-sm text-muted-foreground/70 mt-1">Счета появятся после визита</p>
-                </CardContent>
-              </Card>
+                ))}
+              </>
             )}
-          </TabsContent>
+          </div>
+        )}
 
-          <TabsContent value="payments" className="space-y-4 animate-fade-in">
-            {payments.length > 0 ? payments.map((p, index) => (
-              <Card 
-                key={p.id} 
-                className="border-border/30 hover:border-primary/30 hover:shadow-medium transition-all duration-200"
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-xl bg-emerald-500/10">
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                      </div>
-                      <div>
-                        <p className="text-xl font-bold text-foreground">{formatPrice(p.amount)}</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Badge variant="outline" className="text-xs">
-                            {p.payment_method || 'Наличные'}
-                          </Badge>
-                          <span className="text-sm text-muted-foreground">
-                            {format(new Date(p.created_at), "d MMMM yyyy", { locale: ru })}
-                          </span>
-                        </div>
-                      </div>
+        {tab === "payments" && (
+          <div className="overflow-hidden rounded-[14px] border border-border bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            {payments.length === 0 ? (
+              <EmptyInline
+                icon={<CreditCard className="h-10 w-10 text-muted-foreground" />}
+                title={t("patientCabinet.noPayments")}
+                subtitle={t("patientCabinet.noPaymentsDesc")}
+              />
+            ) : (
+              <>
+                <div className="hidden grid-cols-[auto_1fr_160px_140px] items-center gap-4 border-b border-border bg-muted/60 px-5 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground md:grid">
+                  <div />
+                  <div>{t("patientCabinet.colDate")}</div>
+                  <div>{t("patientCabinet.colMethod")}</div>
+                  <div className="text-right">{t("patientCabinet.colAmount")}</div>
+                </div>
+                {payments.map((p) => (
+                  <div
+                    key={p.id}
+                    className="grid grid-cols-1 items-center gap-3 border-b border-border px-4 py-4 last:border-b-0 hover:bg-muted/60 sm:px-5 md:grid-cols-[auto_1fr_160px_140px] md:gap-4"
+                  >
+                    <div className="grid h-8 w-8 place-items-center rounded-full bg-[hsl(var(--success-green)/0.1)] text-[hsl(var(--success-green))]">
+                      <CheckCircle2 className="h-4 w-4" />
                     </div>
-                    <div className="text-right">
-                      <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                        Успешно
-                      </span>
+                    <div className="text-[13px] tabular-nums text-foreground">
+                      {format(new Date(p.created_at ?? 0), "d MMMM yyyy", {
+                        locale: ru,
+                      })}
+                    </div>
+                    <div className="text-[12.5px] text-muted-foreground">
+                      {p.method || t("patientCabinet.cash")}
+                    </div>
+                    <div className="font-heading text-[14px] font-bold tabular-nums md:text-right">
+                      {formatPrice(p.amount)}
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            )) : (
-              <Card className="border-dashed border-2 border-muted-foreground/20">
-                <CardContent className="text-center py-16">
-                  <div className="w-16 h-16 rounded-full bg-muted/50 mx-auto flex items-center justify-center mb-4">
-                    <CreditCard className="w-8 h-8 text-muted-foreground/50" />
-                  </div>
-                  <p className="text-lg font-medium text-muted-foreground">Нет оплат</p>
-                  <p className="text-sm text-muted-foreground/70 mt-1">История оплат появится здесь</p>
-                </CardContent>
-              </Card>
+                ))}
+              </>
             )}
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
       </div>
 
       <AddPaymentNoteDialog
@@ -589,5 +580,248 @@ const PatientPaymentsPage = () => {
     </PatientLayout>
   );
 };
+
+// ───────────────────────── KpiCard ─────────────────────────
+const KpiCard = ({
+  label,
+  value,
+  hint,
+  accent,
+  cta,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: "rose";
+  cta?: { label: string; icon?: React.ReactNode };
+}) => (
+  <div className="rounded-[14px] border border-border bg-card p-5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+    <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {label}
+    </div>
+    <div
+      className={cn(
+        "mt-1 font-heading text-[24px] font-bold tabular-nums",
+        accent === "rose" ? "text-destructive" : "text-foreground"
+      )}
+    >
+      {value}
+    </div>
+    {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+    {/* Онлайн-оплата недоступна на пилоте — CTA честно задизейблен. */}
+    {cta && (
+      <button
+        disabled
+        title="Онлайн-оплата скоро"
+        className="mt-3 inline-flex min-h-11 cursor-not-allowed items-center gap-1.5 rounded-[10px] bg-[hsl(var(--brand))] px-3 py-1.5 text-[12.5px] font-medium text-primary-foreground opacity-50"
+      >
+        {cta.icon}
+        {cta.label}
+      </button>
+    )}
+  </div>
+);
+
+// ───────────────────────── Section ─────────────────────────
+const Section = ({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) => (
+  <div className="space-y-2">
+    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      {icon}
+      {title}
+    </div>
+    <div className="space-y-2">{children}</div>
+  </div>
+);
+
+// ───────────────────────── NoteCard ─────────────────────────
+const TONE_MAP = {
+  amber: {
+    border: "border-[hsl(var(--warning-amber)/0.3)]",
+    bg: "bg-[hsl(var(--warning-amber)/0.1)]",
+    iconBg: "bg-[hsl(var(--warning-amber)/0.15)] text-[hsl(var(--warning-amber))]",
+  },
+  emerald: {
+    border: "border-[hsl(var(--success-green)/0.3)]",
+    bg: "bg-[hsl(var(--success-green)/0.1)]",
+    iconBg: "bg-[hsl(var(--success-green)/0.15)] text-[hsl(var(--success-green))]",
+  },
+  muted: {
+    border: "border-border",
+    bg: "bg-muted/60",
+    iconBg: "bg-muted text-muted-foreground",
+  },
+} as const;
+
+const NoteCard = ({
+  note,
+  tone,
+  resolved,
+  onResolve,
+  onDelete,
+  pending = false,
+}: {
+  note: PaymentNote;
+  tone: keyof typeof TONE_MAP;
+  resolved?: boolean;
+  onResolve?: () => void;
+  onDelete?: () => void;
+  pending?: boolean;
+}) => {
+  const { t: tt } = useLanguage();
+  const t = TONE_MAP[tone];
+  return (
+    <div
+      className={cn(
+        "flex flex-col items-stretch justify-between gap-4 rounded-[14px] border p-4 sm:flex-row sm:items-start",
+        t.border,
+        t.bg,
+        resolved && "opacity-80"
+      )}
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <div className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-[10px]", t.iconBg)}>
+          {note.type === "debt" ? (
+            <Receipt className="h-4 w-4" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4" />
+          )}
+        </div>
+        <div className="min-w-0">
+          <div
+            className={cn(
+              "font-heading text-[16px] font-bold tabular-nums",
+              resolved ? "text-muted-foreground line-through" : "text-foreground"
+            )}
+          >
+            {formatPrice(note.amount)}
+          </div>
+          {note.clinic_name && (
+            <div className="text-[12.5px] text-foreground">
+              {note.clinic_name}
+            </div>
+          )}
+          {note.description && (
+            <div className="text-xs text-muted-foreground">{note.description}</div>
+          )}
+          <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">
+            {format(new Date(note.date), "d MMMM yyyy", { locale: ru })}
+          </div>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {resolved ? (
+          <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+            {tt("patientCabinet.paidLabel")}
+          </span>
+        ) : (
+          <>
+            {onResolve && (
+              <button
+                type="button"
+                onClick={onResolve}
+                disabled={pending}
+                className="inline-flex min-h-11 items-center gap-1 rounded-[10px] bg-[hsl(var(--success-green))] px-3 py-1.5 text-xs font-medium text-card hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {tt("patientCabinet.payOff")}
+              </button>
+            )}
+            {onDelete && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={pending}
+                    className="grid h-11 w-11 place-items-center rounded-[8px] text-muted-foreground hover:bg-muted hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title={tt("common.delete")}
+                    aria-label={tt("common.delete")}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{tt("common.delete")}?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {formatPrice(note.amount)}
+                      {note.clinic_name ? ` · ${note.clinic_name}` : ""}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{tt("common.cancel")}</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={onDelete}
+                    >
+                      {tt("common.delete")}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ───────────────────────── Empty states ─────────────────────────
+const EmptyState = ({
+  icon,
+  title,
+  subtitle,
+  ctaLabel,
+  onCta,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  ctaLabel?: string;
+  onCta?: () => void;
+}) => (
+  <div className="rounded-[14px] border border-dashed border-border bg-card px-6 py-10 text-center">
+    <div className="mx-auto mb-3 grid h-10 w-10 place-items-center">{icon}</div>
+    <div className="font-heading text-[16px] font-semibold text-foreground">
+      {title}
+    </div>
+    <div className="mt-1 text-[13px] text-muted-foreground">{subtitle}</div>
+    {ctaLabel && onCta && (
+      <button
+        onClick={onCta}
+        className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-[10px] bg-[hsl(var(--brand))] px-4 py-2 text-[13px] font-medium text-primary-foreground hover:bg-[hsl(var(--brand-700))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <Plus className="h-4 w-4" />
+        {ctaLabel}
+      </button>
+    )}
+  </div>
+);
+
+const EmptyInline = ({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+}) => (
+  <div className="px-6 py-10 text-center">
+    <div className="mx-auto mb-3 grid h-10 w-10 place-items-center">{icon}</div>
+    <div className="font-heading text-[16px] font-semibold text-foreground">
+      {title}
+    </div>
+    <div className="mt-1 text-[13px] text-muted-foreground">{subtitle}</div>
+  </div>
+);
 
 export default PatientPaymentsPage;

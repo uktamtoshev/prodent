@@ -19,6 +19,7 @@ import { ru } from "date-fns/locale";
 import { PatientTags } from "./PatientTags";
 import { useQuery } from "@tanstack/react-query";
 import { UserCheck } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PatientsListProps {
   searchTerm: string;
@@ -47,6 +48,7 @@ export const PatientsList = ({
   statusFilter,
   onPatientSelect,
 }: PatientsListProps) => {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const { user } = useAuth();
   const { isDoctor, isSuperAdmin, isClinicAdmin, isClinicManager } = useUserRole();
@@ -136,11 +138,11 @@ export const PatientsList = ({
       let filtered = data || [];
 
       if (genderFilter !== "all") {
-        filtered = filtered.filter((p: any) => p.gender === genderFilter);
+        filtered = filtered.filter((p) => p.gender === genderFilter);
       }
 
       if (statusFilter !== "all") {
-        filtered = filtered.filter((p: any) =>
+        filtered = filtered.filter((p) =>
           statusFilter === "active" ? !p.is_archived : p.is_archived
         );
       }
@@ -160,7 +162,7 @@ export const PatientsList = ({
   };
 
   const getGenderLabel = (gender: string | null) => {
-    return gender === "male" ? "М" : gender === "female" ? "Ж" : "—";
+    return gender === "male" ? t('crmProfileComponents.male').charAt(0) : gender === "female" ? t('crmProfileComponents.female').charAt(0) : "—";
   };
 
   if (loading) {
@@ -178,15 +180,15 @@ export const PatientsList = ({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>ФИО</TableHead>
-            <TableHead>Телефон</TableHead>
-            <TableHead>Пол</TableHead>
-            <TableHead>Возраст</TableHead>
-            <TableHead>Тип</TableHead>
-            <TableHead>Последний визит</TableHead>
-            <TableHead>Всего оплат</TableHead>
-            <TableHead>Дата регистрации</TableHead>
-            <TableHead>Теги</TableHead>
+            <TableHead>{t('crmPatientComponents.colName')}</TableHead>
+            <TableHead>{t('crmPatientComponents.colPhone')}</TableHead>
+            <TableHead>{t('crmProfileComponents.gender')}</TableHead>
+            <TableHead>{t('doctorSettings.birthDateLabel')}</TableHead>
+            <TableHead>{t('crmLabComponents.colType')}</TableHead>
+            <TableHead>{t('crmPatientComponents.colLastVisit')}</TableHead>
+            <TableHead>{t('crmPatientComponents.colTotalSpent')}</TableHead>
+            <TableHead>{t('doctorSettings.birthDateLabel')}</TableHead>
+            <TableHead>{t('crmPatientComponents.tagsTitle')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -201,16 +203,16 @@ export const PatientsList = ({
               <TableCell>
                 <Badge variant="outline">{getGenderLabel(patient.gender)}</Badge>
               </TableCell>
-              <TableCell>{calculateAge(patient.birth_date)} лет</TableCell>
+              <TableCell>{calculateAge(patient.birth_date)} {t('doctorSettings.yearsOldUnit')}</TableCell>
               <TableCell>
                 {patient.isPersonalPatient ? (
                   <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/30">
                     <UserCheck className="w-3 h-3 mr-1" />
-                    Личный
+                    {t('crmPatientComponents.activeStatus')}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
-                    Клиника
+                    {t('crmPatientComponents.tagsTitle')}
                   </Badge>
                 )}
               </TableCell>
@@ -228,8 +230,8 @@ export const PatientsList = ({
             <TableRow>
               <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                 {isChairRental && !canViewAllPatients
-                  ? "У вас пока нет личных пациентов"
-                  : "Пациенты не найдены"}
+                  ? t('crmPatientComponents.noResults')
+                  : t('crmPatientComponents.noResults')}
               </TableCell>
             </TableRow>
           )}

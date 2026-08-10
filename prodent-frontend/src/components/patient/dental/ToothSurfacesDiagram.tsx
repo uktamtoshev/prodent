@@ -1,30 +1,31 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 type SurfaceStatus = 'healthy' | 'caries' | 'filling' | 'decay' | 'crown' | 'veneer';
 type SurfaceType = 'occlusal' | 'mesial' | 'distal' | 'buccal' | 'lingual' | 'incisal';
 
-const SURFACE_CONFIG: Record<SurfaceStatus, { label: string; color: string; bgColor: string }> = {
-  healthy: { label: 'Здоровая', color: '#10B981', bgColor: '#ECFDF5' },
-  caries: { label: 'Кариес', color: '#F59E0B', bgColor: '#FFFBEB' },
-  filling: { label: 'Пломба', color: '#3B82F6', bgColor: '#EFF6FF' },
-  decay: { label: 'Разрушение', color: '#EF4444', bgColor: '#FEF2F2' },
-  crown: { label: 'Коронка', color: '#8B5CF6', bgColor: '#F5F3FF' },
-  veneer: { label: 'Винир', color: '#06B6D4', bgColor: '#ECFEFF' },
-};
+const buildSurfaceConfig = (t: (k: string) => string): Record<SurfaceStatus, { label: string; color: string; bgColor: string }> => ({
+  healthy: { label: t("patientCabinet.surfaceHealthy"), color: '#10B981', bgColor: '#ECFDF5' },
+  caries: { label: t("patientCabinet.surfaceCaries"), color: '#F59E0B', bgColor: '#FFFBEB' },
+  filling: { label: t("patientCabinet.surfaceFilling"), color: '#3B82F6', bgColor: '#EFF6FF' },
+  decay: { label: t("patientCabinet.surfaceDecay"), color: '#EF4444', bgColor: '#FEF2F2' },
+  crown: { label: t("patientCabinet.surfaceCrown"), color: '#8B5CF6', bgColor: '#F5F3FF' },
+  veneer: { label: t("patientCabinet.surfaceVeneer"), color: '#06B6D4', bgColor: '#ECFEFF' },
+});
 
-const SURFACE_LABELS: Record<SurfaceType, { ru: string; short: string }> = {
-  occlusal: { ru: 'Окклюзионная', short: 'O' },
-  mesial: { ru: 'Мезиальная', short: 'M' },
-  distal: { ru: 'Дистальная', short: 'D' },
-  buccal: { ru: 'Буккальная', short: 'B' },
-  lingual: { ru: 'Лингвальная', short: 'L' },
-  incisal: { ru: 'Режущий край', short: 'I' },
-};
+const buildSurfaceLabels = (t: (k: string) => string): Record<SurfaceType, { ru: string; short: string }> => ({
+  occlusal: { ru: t("patientCabinet.surfaceOcclusal"), short: 'O' },
+  mesial: { ru: t("patientCabinet.surfaceMesial"), short: 'M' },
+  distal: { ru: t("patientCabinet.surfaceDistal"), short: 'D' },
+  buccal: { ru: t("patientCabinet.surfaceBuccal"), short: 'B' },
+  lingual: { ru: t("patientCabinet.surfaceLingual"), short: 'L' },
+  incisal: { ru: t("patientCabinet.surfaceIncisal"), short: 'I' },
+});
 
 interface ToothSurfacesDiagramProps {
   patientId: string;
@@ -34,13 +35,16 @@ interface ToothSurfacesDiagramProps {
   onSurfaceClick?: (surface: SurfaceType, status: SurfaceStatus) => void;
 }
 
-export function ToothSurfacesDiagram({ 
-  patientId, 
-  toothNumber, 
+export function ToothSurfacesDiagram({
+  patientId,
+  toothNumber,
   isMolar = true,
   readOnly = false,
   onSurfaceClick
 }: ToothSurfacesDiagramProps) {
+  const { t } = useLanguage();
+  const SURFACE_CONFIG = useMemo(() => buildSurfaceConfig(t), [t]);
+  const SURFACE_LABELS = useMemo(() => buildSurfaceLabels(t), [t]);
   const queryClient = useQueryClient();
   const [hoveredSurface, setHoveredSurface] = useState<SurfaceType | null>(null);
 
@@ -91,19 +95,19 @@ export function ToothSurfacesDiagram({
     onSurfaceClick?.(surface, nextStatus);
   };
 
-  // Выбираем какие поверхности показывать в зависимости от типа зуба
-  const surfaces: SurfaceType[] = isMolar 
+  // Pick which surfaces to render based on tooth type
+  const surfaces: SurfaceType[] = isMolar
     ? ['occlusal', 'mesial', 'distal', 'buccal', 'lingual']
     : ['incisal', 'mesial', 'distal', 'buccal', 'lingual'];
 
-  const centerSurface = surfaces[0]; // occlusal или incisal
+  const centerSurface = surfaces[0]; // occlusal or incisal
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <span className="text-sm font-medium text-muted-foreground">Поверхности зуба #{toothNumber}</span>
+        <span className="text-sm font-medium text-muted-foreground">{t("patientCabinet.toothSurfaces")} #{toothNumber}</span>
         {!readOnly && (
-          <Badge variant="outline" className="text-xs">Клик для изменения</Badge>
+          <Badge variant="outline" className="text-xs">{t("patientCabinet.clickToChange")}</Badge>
         )}
       </div>
 

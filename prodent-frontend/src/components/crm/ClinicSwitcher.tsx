@@ -15,29 +15,31 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
-
-const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Супер-админ',
-  clinic_admin: 'Администратор',
-  clinic_manager: 'Менеджер',
-  doctor: 'Врач',
-  assistant: 'Ассистент',
-  accountant: 'Бухгалтер',
-  patient: 'Пациент',
-};
+import { useLanguage } from '@/contexts/LanguageContext';
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface ClinicSwitcherProps {
   collapsed?: boolean;
 }
 
 export function ClinicSwitcher({ collapsed = false }: ClinicSwitcherProps) {
+  const { t } = useLanguage();
   const { currentClinic, clinics, switchClinic, isSuperAdmin } = useClinic();
   const [open, setOpen] = useState(false);
 
+  const ROLE_LABELS = useMemo<Record<string, string>>(() => ({
+    super_admin: t('crmSidebarMisc.roleSuperAdmin'),
+    clinic_admin: t('crmSidebarMisc.roleClinicAdmin'),
+    clinic_manager: t('crmSidebarMisc.roleClinicManager'),
+    doctor: t('crmSidebarMisc.roleDoctor'),
+    assistant: t('crmSidebarMisc.roleAssistant'),
+    accountant: t('crmSidebarMisc.roleAccountant'),
+    patient: t('crmSidebarMisc.rolePatient'),
+  }), [t]);
+
   if (clinics.length <= 1 && !isSuperAdmin) {
-    // Only one clinic, no need for switcher - show compact status
     return currentClinic ? (
       <div className={cn(
         "flex items-center gap-2 rounded-lg bg-primary/5 border border-primary/10",
@@ -45,19 +47,18 @@ export function ClinicSwitcher({ collapsed = false }: ClinicSwitcherProps) {
       )}>
         <div className="relative shrink-0">
           <Building2 className="w-4 h-4 text-primary" />
-          <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background bg-green-500" />
+          <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background bg-status-success" />
         </div>
         {!collapsed && (
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium truncate">{currentClinic.name}</p>
-            <p className="text-[10px] text-muted-foreground">Онлайн</p>
+            <p className="text-xs text-muted-foreground">{t('crmSidebarMisc.online')}</p>
           </div>
         )}
       </div>
     ) : null;
   }
 
-  // Collapsed mode - show only icon with tooltip
   if (collapsed) {
     return (
       <Popover open={open} onOpenChange={setOpen}>
@@ -66,16 +67,16 @@ export function ClinicSwitcher({ collapsed = false }: ClinicSwitcherProps) {
             variant="ghost"
             size="icon"
             className="w-full h-9 bg-primary/5 hover:bg-primary/10"
-          >
+           aria-label={a11yLabel("clinic")}>
             <Building2 className="w-4 h-4 text-primary" />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[280px] p-0" align="start" side="right">
           <Command>
-            <CommandInput placeholder="Поиск клиники..." />
+            <CommandInput placeholder={t('crmSidebarMisc.clinicSearch')} />
             <CommandList>
-              <CommandEmpty>Клиники не найдены</CommandEmpty>
-              <CommandGroup heading="Ваши клиники">
+              <CommandEmpty>{t('crmSidebarMisc.clinicsNotFound')}</CommandEmpty>
+              <CommandGroup heading={t('crmSidebarMisc.yourClinics')}>
                 {clinics.map((clinic) => (
                   <CommandItem
                     key={clinic.id}
@@ -122,11 +123,11 @@ export function ClinicSwitcher({ collapsed = false }: ClinicSwitcherProps) {
           <div className="flex items-center gap-2 truncate">
             <div className="relative shrink-0">
               <Building2 className="w-4 h-4 text-primary" />
-              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background bg-green-500" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background bg-status-success" />
             </div>
             <div className="text-left min-w-0">
-              <p className="text-xs font-medium truncate">{currentClinic?.name || 'Выберите клинику'}</p>
-              <p className="text-[10px] text-muted-foreground">Онлайн</p>
+              <p className="text-xs font-medium truncate">{currentClinic?.name || t('crmSidebarMisc.selectClinic')}</p>
+              <p className="text-xs text-muted-foreground">{t('crmSidebarMisc.online')}</p>
             </div>
           </div>
           <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
@@ -134,10 +135,10 @@ export function ClinicSwitcher({ collapsed = false }: ClinicSwitcherProps) {
       </PopoverTrigger>
       <PopoverContent className="w-[280px] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Поиск клиники..." />
+          <CommandInput placeholder={t('crmSidebarMisc.clinicSearch')} />
           <CommandList>
-            <CommandEmpty>Клиники не найдены</CommandEmpty>
-            <CommandGroup heading="Ваши клиники">
+            <CommandEmpty>{t('crmSidebarMisc.clinicsNotFound')}</CommandEmpty>
+            <CommandGroup heading={t('crmSidebarMisc.yourClinics')}>
               {clinics.map((clinic) => (
                 <CommandItem
                   key={clinic.id}

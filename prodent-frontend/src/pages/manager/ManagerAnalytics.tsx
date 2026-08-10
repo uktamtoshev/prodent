@@ -1,12 +1,10 @@
-import { ManagerLayout } from '@/components/manager/ManagerLayout';
+import { ManagerLayout } from "@/components/manager/ManagerLayout";
+import { PerformanceOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function ManagerAnalytics() {
   return (
     <ManagerLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Аналитика</h1>
-        <p className="text-muted-foreground">Детальная аналитика и отчёты</p>
-      </div>
+      <PerformanceOperations title="Аналитика" description="Сводка по серверному журналу операций клиники." />
     </ManagerLayout>
   );
 }

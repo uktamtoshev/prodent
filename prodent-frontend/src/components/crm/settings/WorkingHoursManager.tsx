@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useClinic } from '@/contexts/ClinicContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +8,8 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { Save, Clock } from 'lucide-react';
 import type { Json } from '@/integrations/supabase/types';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { fetchClinicSetting, saveClinicSetting } from '@/lib/clinic-settings';
 
 interface DaySchedule {
   enabled: boolean;
@@ -28,16 +29,6 @@ interface WorkingHours {
   sunday: DaySchedule;
 }
 
-const DAYS = [
-  { key: 'monday', label: 'Понедельник' },
-  { key: 'tuesday', label: 'Вторник' },
-  { key: 'wednesday', label: 'Среда' },
-  { key: 'thursday', label: 'Четверг' },
-  { key: 'friday', label: 'Пятница' },
-  { key: 'saturday', label: 'Суббота' },
-  { key: 'sunday', label: 'Воскресенье' },
-] as const;
-
 const DEFAULT_SCHEDULE: WorkingHours = {
   monday: { enabled: true, open: '09:00', close: '18:00' },
   tuesday: { enabled: true, open: '09:00', close: '18:00' },
@@ -49,31 +40,34 @@ const DEFAULT_SCHEDULE: WorkingHours = {
 };
 
 export function WorkingHoursManager() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [schedule, setSchedule] = useState<WorkingHours>(DEFAULT_SCHEDULE);
+
+  const DAYS = useMemo(() => ([
+    { key: 'monday' as const, label: t('crmWorkingHours.monday') },
+    { key: 'tuesday' as const, label: t('crmWorkingHours.tuesday') },
+    { key: 'wednesday' as const, label: t('crmWorkingHours.wednesday') },
+    { key: 'thursday' as const, label: t('crmWorkingHours.thursday') },
+    { key: 'friday' as const, label: t('crmWorkingHours.friday') },
+    { key: 'saturday' as const, label: t('crmWorkingHours.saturday') },
+    { key: 'sunday' as const, label: t('crmWorkingHours.sunday') },
+  ]), [t]);
 
   const { data: settings } = useQuery({
     queryKey: ['clinic-settings', currentClinic?.id, 'working_hours'],
     queryFn: async () => {
       if (!currentClinic?.id) return null;
-      
-      const { data, error } = await supabase
-        .from('clinic_settings')
-        .select('*')
-        .eq('clinic_id', currentClinic.id)
-        .eq('key', 'working_hours')
-        .single();
 
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
+      return fetchClinicSetting(currentClinic.id, 'working_hours');
     },
     enabled: !!currentClinic?.id,
   });
 
   useEffect(() => {
-    if (settings?.value) {
-      setSchedule(settings.value as unknown as WorkingHours);
+    if (settings) {
+      setSchedule(settings as unknown as WorkingHours);
     }
   }, [settings]);
 
@@ -81,25 +75,18 @@ export function WorkingHoursManager() {
     mutationFn: async () => {
       if (!currentClinic?.id) throw new Error('No clinic selected');
 
-      const { error } = await supabase
-        .from('clinic_settings')
-        .upsert([{
-          clinic_id: currentClinic.id,
-          key: 'working_hours',
-          value: schedule as unknown as Json,
-          description: 'Расписание работы клиники',
-        }], {
-          onConflict: 'clinic_id,key',
-        });
-
-      if (error) throw error;
+      await saveClinicSetting(
+        currentClinic.id,
+        'working_hours',
+        schedule as unknown as Json,
+      );
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clinic-settings'] });
-      toast.success('Расписание сохранено');
+      toast.success(t('crmWorkingHours.scheduleSaved'));
     },
     onError: () => {
-      toast.error('Ошибка при сохранении');
+      toast.error(t('crmWorkingHours.saveError'));
     },
   });
 
@@ -115,14 +102,14 @@ export function WorkingHoursManager() {
 
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
+      <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
+        <CardTitle className="flex items-center gap-2 text-base font-bold">
           <Clock className="w-5 h-5" />
-          Расписание работы
+          {t('crmWorkingHours.workingHours')}
         </CardTitle>
         <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
           <Save className="w-4 h-4 mr-2" />
-          Сохранить
+          {t('crmWorkingHours.save')}
         </Button>
       </CardHeader>
       <CardContent>
@@ -140,11 +127,11 @@ export function WorkingHoursManager() {
                   </span>
                 </div>
               </div>
-              
+
               {schedule[key].enabled && (
                 <div className="flex items-center gap-4 flex-1 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <label className="text-sm text-muted-foreground">Открытие:</label>
+                    <label className="text-sm text-muted-foreground">{t('crmWorkingHours.open')}:</label>
                     <Input
                       type="time"
                       value={schedule[key].open}
@@ -153,7 +140,7 @@ export function WorkingHoursManager() {
                     />
                   </div>
                   <div className="flex items-center gap-2">
-                    <label className="text-sm text-muted-foreground">Закрытие:</label>
+                    <label className="text-sm text-muted-foreground">{t('crmWorkingHours.close')}:</label>
                     <Input
                       type="time"
                       value={schedule[key].close}
@@ -162,13 +149,13 @@ export function WorkingHoursManager() {
                     />
                   </div>
                   <div className="flex items-center gap-2">
-                    <label className="text-sm text-muted-foreground">Перерыв:</label>
+                    <label className="text-sm text-muted-foreground">{t('crmWorkingHours.breakLabel')}:</label>
                     <Input
                       type="time"
                       value={schedule[key].break_start || ''}
                       onChange={(e) => updateDay(key, 'break_start', e.target.value)}
                       className="w-28"
-                      placeholder="с"
+                      placeholder={t('crmWorkingHours.breakFrom')}
                     />
                     <span>-</span>
                     <Input
@@ -176,14 +163,14 @@ export function WorkingHoursManager() {
                       value={schedule[key].break_end || ''}
                       onChange={(e) => updateDay(key, 'break_end', e.target.value)}
                       className="w-28"
-                      placeholder="до"
+                      placeholder={t('crmWorkingHours.breakTo')}
                     />
                   </div>
                 </div>
               )}
-              
+
               {!schedule[key].enabled && (
-                <span className="text-muted-foreground">Выходной</span>
+                <span className="text-muted-foreground">{t('crmWorkingHours.dayOff')}</span>
               )}
             </div>
           ))}

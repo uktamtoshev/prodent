@@ -11,7 +11,7 @@ export function useProfile() {
       if (!user?.id) return null;
       const { data } = await supabase
         .from("profiles")
-        .select("id, full_name, first_name, last_name, middle_name, avatar_url, phone, email, role")
+        .select("id, full_name, first_name, last_name, middle_name, avatar_url, phone, email, role, account_number")
         .eq("id", user.id)
         .maybeSingle();
       return data;
@@ -22,6 +22,7 @@ export function useProfile() {
 
   const displayName = profile?.full_name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Пользователь";
   const avatarUrl = profile?.avatar_url || user?.user_metadata?.avatar_url;
+  const accountNumber: string | null = profile?.account_number ?? null;
   const initials = displayName
     .split(" ")
     .map((n: string) => n.charAt(0).toUpperCase())
@@ -32,6 +33,7 @@ export function useProfile() {
     profile,
     displayName,
     avatarUrl,
+    accountNumber,
     initials,
     isLoading,
   };

@@ -1,7 +1,7 @@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Search, X, Filter, LayoutList, LayoutGrid } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ServicesFiltersProps {
   search: string;
@@ -26,6 +27,19 @@ interface ServicesFiltersProps {
   onViewModeChange: (mode: 'grouped' | 'flat') => void;
 }
 
+const categoryKeyMap: Record<string, string> = {
+  'Консультация': 'catConsultation',
+  'Диагностика': 'catDiagnostics',
+  'Терапия': 'catTherapy',
+  'Профилактика': 'catPrevention',
+  'Хирургия': 'catSurgery',
+  'Имплантация': 'catImplantation',
+  'Ортопедия': 'catProsthetics',
+  'Ортодонтия': 'catOrthodontics',
+  'Эстетика': 'catAesthetics',
+  'Детская стоматология': 'catPediatric',
+};
+
 export function ServicesFilters({
   search,
   onSearchChange,
@@ -40,20 +54,26 @@ export function ServicesFilters({
   viewMode,
   onViewModeChange,
 }: ServicesFiltersProps) {
+  const { t } = useLanguage();
   const hasFilters = search || categoryFilter !== 'all' || statusFilter !== 'all';
+
+  const localizedCategory = (cat: string) => {
+    const key = categoryKeyMap[cat];
+    return key ? t(`crmServiceDialogs.${key}`) : cat;
+  };
 
   return (
     <div className="space-y-4">
       {/* Stats Bar */}
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="outline" className="bg-card">
-          Всего: {totalCount}
+          {t('managerRole.filterTotal')}: {totalCount}
         </Badge>
         <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-          Активных: {activeCount}
+          {t('managerRole.filterActive')}: {activeCount}
         </Badge>
         <Badge variant="outline" className="bg-muted text-muted-foreground">
-          Неактивных: {totalCount - activeCount}
+          {t('managerRole.filterInactive')}: {totalCount - activeCount}
         </Badge>
       </div>
 
@@ -63,7 +83,7 @@ export function ServicesFilters({
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Поиск по названию..."
+            placeholder={t('managerRole.filterSearchPlaceholder')}
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
             className="pl-10 bg-card/50"
@@ -82,12 +102,12 @@ export function ServicesFilters({
         <Select value={categoryFilter} onValueChange={onCategoryChange}>
           <SelectTrigger className="w-full sm:w-48 bg-card/50">
             <Filter className="w-4 h-4 mr-2 text-muted-foreground" />
-            <SelectValue placeholder="Категория" />
+            <SelectValue placeholder={t('managerRole.filterCategoryPlaceholder')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Все категории</SelectItem>
+            <SelectItem value="all">{t('managerRole.filterAllCategories')}</SelectItem>
             {categories.map(cat => (
-              <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+              <SelectItem key={cat} value={cat}>{localizedCategory(cat)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -95,12 +115,12 @@ export function ServicesFilters({
         {/* Status Filter */}
         <Select value={statusFilter} onValueChange={onStatusChange}>
           <SelectTrigger className="w-full sm:w-40 bg-card/50">
-            <SelectValue placeholder="Статус" />
+            <SelectValue placeholder={t('managerRole.filterStatusPlaceholder')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Все статусы</SelectItem>
-            <SelectItem value="active">Активные</SelectItem>
-            <SelectItem value="inactive">Неактивные</SelectItem>
+            <SelectItem value="all">{t('managerRole.filterAllStatuses')}</SelectItem>
+            <SelectItem value="active">{t('managerRole.filterStatusActive')}</SelectItem>
+            <SelectItem value="inactive">{t('managerRole.filterStatusInactive')}</SelectItem>
           </SelectContent>
         </Select>
 
@@ -134,7 +154,7 @@ export function ServicesFilters({
         {hasFilters && (
           <Button variant="ghost" onClick={onReset} className="gap-2">
             <X className="w-4 h-4" />
-            Сбросить
+            {t('managerRole.filterReset')}
           </Button>
         )}
       </div>

@@ -1,0 +1,132 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+default:
+  interruptible: true
+
+variables:
+  CI_DEBUG_TRACE: "false"
+  npm_config_cache: .npm
+  SERVICE_NAME: prodent-front
+
+cache:
+  key: "${CI_PROJECT_NAME}-npm"
+  paths:
+    - .npm/
+  policy: pull-push
+
+stages:
+  - quality
+  - build
+  - deploy
+
+frontend_quality:
+  stage: quality
+  image: node:20.19-alpine
+  script:
+    - npm ci --prefer-offline --no-audit --legacy-peer-deps
+    - npm run lint
+    - npm run test:coverage
+    - npm run typecheck
+    - npm run typecheck:viewer
+    - npm run build
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - coverage/
+      - dist/
+
+frontend_e2e:
+  stage: quality
+  image: mcr.microsoft.com/playwright:v1.61.1-noble
+  script:
+    - npm ci --prefer-offline --no-audit --legacy-peer-deps
+    - npm run test:e2e:smoke
+    - npm run test:e2e:accessibility
+    - npm run test:e2e:visual
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - playwright-report/
+      - test-results/
+
+build_image:
+  stage: build
+  image: docker:27.5.1-cli
+  services:
+    - name: docker:27.5.1-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    TAG_IMAGE: "${CI_REGISTRY_IMAGE}:${CI_COMMIT_SHA}"
+  needs:
+    - job: frontend_quality
+      artifacts: false
+    - job: frontend_e2e
+      artifacts: false
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - printf '%s' "${CI_REGISTRY_PASSWORD}" | docker login "${CI_REGISTRY}" --username "${CI_REGISTRY_USER}" --password-stdin
+  script:
+    - docker build --label "org.opencontainers.image.revision=${CI_COMMIT_SHA}" --tag "${TAG_IMAGE}" .
+    - docker push "${TAG_IMAGE}" > push.log 2>&1
+    - cat push.log
+    - |
+      image_digest=$(sed -n 's/.*digest: \(sha256:[0-9a-f]\{64\}\).*/\1/p' push.log | tail -n 1)
+      printf '%s' "${image_digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+      RELEASE_IMAGE="${CI_REGISTRY_IMAGE}@${image_digest}"
+      docker buildx imagetools inspect "${RELEASE_IMAGE}" >/dev/null
+      printf 'RELEASE_IMAGE=%s\n' "${RELEASE_IMAGE}" > release.env
+      printf '{"repository":"%s","digest":"%s","image":"%s"}\n' \
+        "${CI_REGISTRY_IMAGE}" "${image_digest}" "${RELEASE_IMAGE}" > image-digests.json
+  artifacts:
+    expire_in: 30 days
+    paths:
+      - release.env
+      - image-digests.json
+    reports:
+      dotenv: release.env
+
+deploy:
+  stage: deploy
+  image: alpine:3.21
+  interruptible: false
+  needs:
+    - job: build_image
+      artifacts: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  before_script:
+    - apk add --no-cache openssh-client
+    - test -f "${SSH_PRIVATE_KEY}"
+    - test -n "${SSH_PORT}"
+    - test -n "${SSH_USER}"
+    - test -n "${SERVER_HOST}"
+    - chmod 600 "${SSH_PRIVATE_KEY}"
+  script:
+    - |
+      ssh_exec() {
+        ssh -i "${SSH_PRIVATE_KEY}" \
+          -o BatchMode=yes \
+          -o IdentitiesOnly=yes \
+          -o StrictHostKeyChecking=no \
+          -o UserKnownHostsFile=/dev/null \
+          -o ConnectTimeout=15 \
+          -p "${SSH_PORT}" \
+          "${SSH_USER}@${SERVER_HOST}" "$@"
+      }
+      printf '%s' "${CI_REGISTRY_PASSWORD}" | ssh_exec \
+        "docker login '${CI_REGISTRY}' --username '${CI_REGISTRY_USER}' --password-stdin"
+      ssh_exec "docker pull '${RELEASE_IMAGE}'"
+      ssh_exec "docker stop '${SERVICE_NAME}' || true"
+      ssh_exec "docker rm '${SERVICE_NAME}' || true"
+      ssh_exec "docker run -d --name '${SERVICE_NAME}' --network prodent-network --restart unless-stopped -p 10240:8080 '${RELEASE_IMAGE}'"
+  environment:
+    name: production
+  resource_group: prodent-front-production

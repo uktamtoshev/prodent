@@ -1,11 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { format, addDays } from "date-fns";
+import { format, addDays, startOfDay } from "date-fns";
 import { ru } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
 import { useClinic } from "@/contexts/ClinicContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { createAppointment, searchGuestPatients } from "@/lib/appointment-api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { getDoctorAvailability } from "@/lib/crm-operations-api";
+import { listPublicClinicServices } from "@/lib/clinic-service-management-api";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -59,48 +64,63 @@ import { cn } from "@/lib/utils";
 // Phone validation for Uzbekistan format
 const phoneRegex = /^\+998[0-9]{9}$/;
 
-const guestAppointmentSchema = z.object({
-  patientType: z.enum(["registered", "guest"]),
-  // Registered patient fields
-  patient_id: z.string().optional(),
-  // Guest patient fields
-  guest_name: z.string().optional(),
-  guest_phone: z.string().optional(),
-  guest_comment: z.string().optional(),
-  sms_consent: z.boolean().default(true),
-  // Common fields
-  doctor_id: z.string().min(1, "Выберите врача"),
-  service_id: z.string().optional(),
-  date: z.date({ required_error: "Выберите дату" }),
-  start_time: z.string().min(1, "Укажите время"),
-  notes: z.string().optional(),
-}).refine((data) => {
-  if (data.patientType === "registered") {
-    return !!data.patient_id;
-  }
-  return true;
-}, {
-  message: "Выберите пациента",
-  path: ["patient_id"],
-}).refine((data) => {
-  if (data.patientType === "guest") {
-    return !!data.guest_name && data.guest_name.trim().length >= 2;
-  }
-  return true;
-}, {
-  message: "Укажите имя пациента (минимум 2 символа)",
-  path: ["guest_name"],
-}).refine((data) => {
-  if (data.patientType === "guest") {
-    return !!data.guest_phone && phoneRegex.test(data.guest_phone);
-  }
-  return true;
-}, {
-  message: "Введите корректный номер телефона (+998XXXXXXXXX)",
-  path: ["guest_phone"],
-});
+const normalizeUzPhone = (phone: string) => {
+  const digits = phone.replace(/\D/g, "");
+  return "+998" + digits.replace(/^998/, "");
+};
 
-type GuestAppointmentForm = z.infer<typeof guestAppointmentSchema>;
+const buildGuestAppointmentSchema = (t: (k: string) => string) =>
+  z.object({
+    patientType: z.enum(["registered", "guest"]),
+    patient_id: z.string().optional(),
+    guest_name: z.string().optional(),
+    guest_phone: z.string().optional(),
+    guest_comment: z.string().optional(),
+    sms_consent: z.boolean().default(true),
+    doctor_id: z.string().min(1, t('crmGuestAppt.validateDoctor')),
+    service_id: z.string().optional(),
+    date: z.date({ required_error: t('crmGuestAppt.validateDate') }),
+    start_time: z.string().min(1, t('crmGuestAppt.validateTime')),
+    notes: z.string().optional(),
+  }).refine((data) => {
+    if (data.patientType === "registered") {
+      return !!data.patient_id;
+    }
+    return true;
+  }, {
+    message: t('crmGuestAppt.validatePatient'),
+    path: ["patient_id"],
+  }).refine((data) => {
+    if (data.patientType === "guest") {
+      return !!data.guest_name && data.guest_name.trim().length >= 2;
+    }
+    return true;
+  }, {
+    message: t('crmGuestAppt.validateName'),
+    path: ["guest_name"],
+  }).refine((data) => {
+    if (data.patientType === "guest") {
+      return !!data.guest_phone && phoneRegex.test(data.guest_phone);
+    }
+    return true;
+  }, {
+    message: t('crmGuestAppt.validatePhone'),
+    path: ["guest_phone"],
+  });
+
+type GuestAppointmentForm = {
+  patientType: "registered" | "guest";
+  patient_id?: string;
+  guest_name?: string;
+  guest_phone?: string;
+  guest_comment?: string;
+  sms_consent: boolean;
+  doctor_id: string;
+  service_id?: string;
+  date: Date;
+  start_time: string;
+  notes?: string;
+};
 
 interface GuestAppointmentModalProps {
   open: boolean;
@@ -139,7 +159,15 @@ interface FoundPatient {
   avatar_url?: string;
 }
 
-const TIME_SLOTS = [
+/**
+ * Grid fallback ONLY. The picker offers the doctor's actual free slots from
+ * /public/doctors/{id}/availability; this static list is what the administrator
+ * sees when that call FAILS. Degrading to "all slots" instead of blocking is
+ * deliberate: the server rejects a real double-booking anyway (hasConflict +
+ * advisory locks), so the worst case of the fallback is the old behaviour —
+ * while a hard block on an availability outage would stop all phone booking.
+ */
+const FALLBACK_TIME_SLOTS = [
   "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
   "12:00", "12:30", "14:00", "14:30", "15:00", "15:30",
   "16:00", "16:30", "17:00", "17:30", "18:00", "18:30"
@@ -152,24 +180,30 @@ export function GuestAppointmentModal({
   selectedDoctorId,
   onSuccess,
 }: GuestAppointmentModalProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
+  const guestAppointmentSchema = useMemo(() => buildGuestAppointmentSchema(t), [t]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
-  const [phoneSearchTerm, setPhoneSearchTerm] = useState("");
   const [searchingPhone, setSearchingPhone] = useState(false);
   const [foundPatient, setFoundPatient] = useState<FoundPatient | null>(null);
   const [showFoundPatient, setShowFoundPatient] = useState(false);
+  const [selectedGuestId, setSelectedGuestId] = useState<string | null>(null);
+  const [selectedGuestPhone, setSelectedGuestPhone] = useState<string | null>(null);
+  const searchRequestSequence = useRef(0);
+  const searchAbortController = useRef<AbortController | null>(null);
 
+  const queryClient = useQueryClient();
   const form = useForm<GuestAppointmentForm>({
     resolver: zodResolver(guestAppointmentSchema),
     defaultValues: {
       patientType: "guest",
       sms_consent: true,
       date: selectedDate || new Date(),
-      start_time: "09:00",
+      start_time: "",
       doctor_id: selectedDoctorId || "",
     },
   });
@@ -177,13 +211,125 @@ export function GuestAppointmentModal({
   const patientType = form.watch("patientType");
   const guestPhone = form.watch("guest_phone");
 
+  /**
+   * The doctor's real free slots for the chosen day.
+   *
+   * Before this the picker showed 18 hardcoded times with no relation to the
+   * schedule: the administrator promised a caller a slot, submitted, and the
+   * conflict surfaced only as a create error — or at the chair on the day.
+   * Now busy times simply are not offered. The server still enforces on write,
+   * so this is UX prevention on top of enforcement, not instead of it.
+   */
+  const watchedDoctorId = form.watch("doctor_id");
+  const watchedDate = form.watch("date");
+  const watchedServiceId = form.watch("service_id");
+  const availabilityDate = watchedDate ? format(watchedDate, "yyyy-MM-dd") : null;
+  const availability = useQuery({
+    queryKey: [
+      "doctor-availability",
+      watchedDoctorId,
+      currentClinic?.id,
+      availabilityDate,
+      watchedServiceId || null,
+    ],
+    queryFn: () =>
+      getDoctorAvailability(
+        currentClinic!.id,
+        watchedDoctorId,
+        availabilityDate!,
+        watchedServiceId || undefined,
+      ),
+    enabled: open && !!watchedDoctorId && !!currentClinic?.id && !!availabilityDate,
+    staleTime: 30 * 1000,
+    // No retries — found live: with the default 3 retries the query is not yet
+    // `isError` while backing off, so the picker sat DISABLED for ~7s whenever
+    // the endpoint was unavailable, instead of degrading to the static grid.
+    // Failing fast is safe here: the fallback grid is offered and the server
+    // still rejects genuine double-bookings on write.
+    retry: false,
+  });
+
+  const freeSlots = availability.data?.slots.map((slot) => slot.startTime);
+  // Fall back to the static grid only when the availability call failed;
+  // an EMPTY answer is real information (fully booked day), not a failure.
+  const offeredSlots = availability.isError ? FALLBACK_TIME_SLOTS : freeSlots ?? [];
+  const slotsPending = availability.isLoading && !!watchedDoctorId && !!availabilityDate;
+
+  // A slot picked before the doctor/date changed may no longer be free —
+  // clear it instead of letting a stale busy time ride along to submit.
+  const currentStartTime = form.watch("start_time");
   useEffect(() => {
-    if (open && currentClinic) {
-      loadPatients();
-      loadDoctors();
-      loadServices();
+    if (!currentStartTime || availability.isError || !availability.data) return;
+    if (!availability.data.slots.some((slot) => slot.startTime === currentStartTime)) {
+      form.setValue("start_time", "");
     }
-  }, [open, currentClinic]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availability.data]);
+
+  const clearGuestSelection = useCallback(() => {
+    setSelectedGuestId(null);
+    setSelectedGuestPhone(null);
+  }, []);
+
+  const searchByPhone = useCallback(async (
+    phone: string,
+    requestSequence: number,
+    signal: AbortSignal,
+  ) => {
+    if (!currentClinic?.id) return;
+
+    setSearchingPhone(true);
+    const normalizedPhone = normalizeUzPhone(phone);
+
+    try {
+      const guestMatches = await searchGuestPatients(
+        currentClinic.id,
+        normalizedPhone,
+        signal,
+      );
+      if (signal.aborted || requestSequence !== searchRequestSequence.current) return;
+
+      if (guestMatches.length > 0) {
+        const guest = guestMatches[0];
+        setFoundPatient({
+          id: guest.id,
+          name: guest.name,
+          phone: guest.phone,
+          patient_type: "guest",
+        });
+        setShowFoundPatient(true);
+        return;
+      }
+
+      // A registered patient may only be suggested when already linked to this clinic.
+      const clinicPatient = patients.find(
+        (patient) => normalizeUzPhone(patient.phone || "") === normalizedPhone,
+      );
+      if (clinicPatient) {
+        setFoundPatient({
+          id: clinicPatient.id,
+          name: clinicPatient.full_name || t('crmGuestAppt.defaultUserName'),
+          phone: clinicPatient.phone || normalizedPhone,
+          patient_type: "registered",
+          avatar_url: clinicPatient.avatar_url,
+        });
+        setShowFoundPatient(true);
+        return;
+      }
+
+      setFoundPatient(null);
+      setShowFoundPatient(false);
+    } catch (error) {
+      if (signal.aborted || requestSequence !== searchRequestSequence.current) return;
+      console.error("Error searching by phone:", error);
+      setFoundPatient(null);
+      setShowFoundPatient(false);
+    } finally {
+      if (requestSequence === searchRequestSequence.current) {
+        setSearchingPhone(false);
+      }
+    }
+  }, [currentClinic?.id, patients, t]);
 
   useEffect(() => {
     if (selectedDoctorId) {
@@ -194,81 +340,52 @@ export function GuestAppointmentModal({
     }
   }, [selectedDoctorId, selectedDate, form]);
 
-  // Phone search with debounce
   useEffect(() => {
-    if (patientType === "guest" && guestPhone && guestPhone.length >= 9) {
+    clearGuestSelection();
+  }, [clearGuestSelection, currentClinic?.id, guestPhone, patientType]);
+
+  useEffect(() => {
+    if (open) return;
+    searchRequestSequence.current += 1;
+    searchAbortController.current?.abort();
+    searchAbortController.current = null;
+    clearGuestSelection();
+    setFoundPatient(null);
+    setShowFoundPatient(false);
+    setSearchingPhone(false);
+  }, [clearGuestSelection, open]);
+
+  // Phone search with debounce. Old responses are cancelled and ignored.
+  useEffect(() => {
+    searchRequestSequence.current += 1;
+    const requestSequence = searchRequestSequence.current;
+    searchAbortController.current?.abort();
+    searchAbortController.current = null;
+
+    if (
+      open &&
+      patientType === "guest" &&
+      guestPhone &&
+      guestPhone.length >= 9 &&
+      selectedGuestPhone !== normalizeUzPhone(guestPhone)
+    ) {
+      const controller = new AbortController();
+      searchAbortController.current = controller;
       const timer = setTimeout(() => {
-        searchByPhone(guestPhone);
+        void searchByPhone(guestPhone, requestSequence, controller.signal);
       }, 500);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        controller.abort();
+      };
     } else {
       setFoundPatient(null);
       setShowFoundPatient(false);
-    }
-  }, [guestPhone, patientType]);
-
-  const searchByPhone = async (phone: string) => {
-    if (!currentClinic?.id) return;
-    
-    setSearchingPhone(true);
-    try {
-      // Normalize phone for search
-      let normalizedPhone = phone.replace(/\D/g, "");
-      if (normalizedPhone.startsWith("998")) {
-        normalizedPhone = "+" + normalizedPhone;
-      } else if (!normalizedPhone.startsWith("+")) {
-        normalizedPhone = "+998" + normalizedPhone;
-      }
-
-      // 1. Search within clinic via RPC
-      const { data, error } = await supabase.rpc("find_patient_by_phone", {
-        p_phone: normalizedPhone,
-        p_clinic_id: currentClinic.id,
-      });
-
-      if (error) throw error;
-
-      if (data && data.length > 0) {
-        setFoundPatient({
-          id: data[0].id,
-          name: data[0].name,
-          phone: data[0].phone,
-          patient_type: data[0].patient_type as "registered" | "guest",
-          avatar_url: data[0].avatar_url,
-        });
-        setShowFoundPatient(true);
-        return;
-      }
-
-      // 2. Search globally in profiles (user exists in system but not in this clinic)
-      const { data: globalProfile } = await supabase
-        .from("profiles")
-        .select("id, full_name, phone, avatar_url")
-        .eq("phone", normalizedPhone)
-        .maybeSingle();
-
-      if (globalProfile) {
-        setFoundPatient({
-          id: globalProfile.id,
-          name: globalProfile.full_name || "Пользователь",
-          phone: globalProfile.phone || normalizedPhone,
-          patient_type: "registered",
-          avatar_url: globalProfile.avatar_url,
-        });
-        setShowFoundPatient(true);
-        return;
-      }
-
-      setFoundPatient(null);
-      setShowFoundPatient(false);
-    } catch (error) {
-      console.error("Error searching by phone:", error);
-    } finally {
       setSearchingPhone(false);
     }
-  };
+  }, [guestPhone, open, patientType, searchByPhone, selectedGuestPhone]);
 
-  const loadPatients = async () => {
+  const loadPatients = useCallback(async () => {
     try {
       if (!currentClinic?.id) return;
       
@@ -296,9 +413,9 @@ export function GuestAppointmentModal({
     } catch (error) {
       console.error("Error loading patients:", error);
     }
-  };
+  }, [currentClinic?.id]);
 
-  const loadDoctors = async () => {
+  const loadDoctors = useCallback(async () => {
     try {
       if (!currentClinic?.id) return;
       
@@ -377,33 +494,43 @@ export function GuestAppointmentModal({
     } catch (error) {
       console.error("Error loading doctors:", error);
     }
-  };
+  }, [currentClinic?.id, form, selectedDoctorId]);
 
-  const loadServices = async () => {
+  const loadServices = useCallback(async () => {
     try {
       if (!currentClinic?.id) return;
-      
-      const { data, error } = await supabase
-        .from("services")
-        .select("id, name, price, duration_minutes")
-        .eq("clinic_id", currentClinic.id)
-        .eq("is_active", true)
-        .order("name");
 
-      if (error) throw error;
-      setServices(data || []);
+      const rows = await listPublicClinicServices(currentClinic.id);
+      setServices(rows
+        .map((service) => ({
+          id: service.id,
+          name: service.nameRu,
+          price: service.price,
+          duration_minutes: service.duration,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name, "ru")));
     } catch (error) {
       console.error("Error loading services:", error);
     }
-  };
+  }, [currentClinic?.id]);
+
+  useEffect(() => {
+    if (!open || !currentClinic) return;
+    void loadPatients();
+    void loadDoctors();
+    void loadServices();
+  }, [currentClinic, loadDoctors, loadPatients, loadServices, open]);
 
   const useFoundPatient = () => {
     if (foundPatient) {
       if (foundPatient.patient_type === "registered") {
         form.setValue("patientType", "registered");
         form.setValue("patient_id", foundPatient.id);
+      } else {
+        setSelectedGuestId(foundPatient.id);
+        setSelectedGuestPhone(normalizeUzPhone(foundPatient.phone));
+        form.setValue("guest_name", foundPatient.name, { shouldValidate: true });
       }
-      // For guest, we can reuse the existing guest record
       setShowFoundPatient(false);
     }
   };
@@ -412,82 +539,60 @@ export function GuestAppointmentModal({
     try {
       setLoading(true);
 
-      const appointmentDate = new Date(values.date);
-      const [hour, minute] = values.start_time.split(":").map(Number);
-      appointmentDate.setHours(hour, minute, 0, 0);
-
-      let patientId: string | null = null;
-      let guestPatientId: string | null = null;
-
-      if (values.patientType === "registered") {
-        patientId = values.patient_id!;
-      } else {
-        // Create or find guest patient
-        let normalizedPhone = values.guest_phone!.replace(/\D/g, "");
-        if (!normalizedPhone.startsWith("+")) {
-          normalizedPhone = "+998" + normalizedPhone.replace(/^998/, "");
-        }
-
-        // Check if guest already exists (by phone in this clinic)
-        if (foundPatient && foundPatient.patient_type === "guest") {
-          guestPatientId = foundPatient.id;
-          
-          // Update guest info if needed
-          await supabase
-            .from("guest_patients")
-            .update({
-              name: values.guest_name,
-              comment: values.guest_comment,
-              sms_consent: values.sms_consent,
-            })
-            .eq("id", guestPatientId);
-        } else {
-          // Create new guest patient
-          const { data: guestData, error: guestError } = await supabase
-            .from("guest_patients")
-            .insert({
-              clinic_id: currentClinic!.id,
-              name: values.guest_name,
-              phone: normalizedPhone,
-              comment: values.guest_comment,
-              sms_consent: values.sms_consent,
-              status: "guest",
-            })
-            .select()
-            .single();
-
-          if (guestError) throw guestError;
-          guestPatientId = guestData.id;
-        }
-      }
-
-      // Create appointment
       const serviceName = values.service_id
-        ? services.find((s) => s.id === values.service_id)?.name || "Консультация"
-        : "Консультация";
+        ? services.find((s) => s.id === values.service_id)?.name || t('crmGuestAppt.defaultService')
+        : t('crmGuestAppt.defaultService');
+      const isRegistered = values.patientType === "registered";
+      let normalizedPhone: string | undefined;
+      if (!isRegistered) {
+        normalizedPhone = normalizeUzPhone(values.guest_phone!);
+      }
+      const reusableGuestId = !isRegistered &&
+        selectedGuestId &&
+        selectedGuestPhone === normalizedPhone
+          ? selectedGuestId
+          : undefined;
 
-      const { error: appointmentError } = await supabase
-        .from("appointments")
-        .insert({
-          clinic_id: currentClinic!.id,
-          patient_id: patientId,
-          guest_patient_id: guestPatientId,
-          doctor_id: values.doctor_id,
-          appointment_date: appointmentDate.toISOString(),
-          service: serviceName,
-          notes: values.notes,
-          status: "pending",
-        });
+      await createAppointment({
+        patientId: isRegistered ? values.patient_id : undefined,
+        guestPatient: isRegistered
+          ? undefined
+          : {
+              id: reusableGuestId,
+              name: values.guest_name!,
+              phone: normalizedPhone!,
+              comment: values.guest_comment,
+              smsConsent: values.sms_consent,
+            },
+        doctorId: values.doctor_id,
+        clinicId: currentClinic!.id,
+        serviceId: values.service_id || undefined,
+        serviceName,
+        appointmentDate: format(values.date, "yyyy-MM-dd"),
+        startTime: values.start_time,
+        notes: values.notes?.trim() || undefined,
+      });
 
-      if (appointmentError) throw appointmentError;
-
-      toast.success("Запись успешно создана");
+      toast.success(t('crmGuestAppt.successCreated'));
       form.reset();
+      clearGuestSelection();
+      setFoundPatient(null);
+      setShowFoundPatient(false);
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
       console.error("Error creating appointment:", error);
-      toast.error("Ошибка создания записи");
+      // The race is real: two administrators can pick the same free slot. The
+      // server wins; tell the user WHICH problem happened and refresh the
+      // slots, instead of a generic failure toast.
+      const message = error instanceof Error ? error.message : "";
+      if (/already booked/i.test(message)) {
+        toast.error(t('crmGuestAppt.errorSlotTaken'));
+        form.setValue("start_time", "");
+        void queryClient.invalidateQueries({ queryKey: ["doctor-availability"] });
+      } else {
+        toast.error(t('crmGuestAppt.errorCreated'));
+      }
     } finally {
       setLoading(false);
     }
@@ -510,10 +615,10 @@ export function GuestAppointmentModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <CalendarIcon className="h-5 w-5 text-primary" />
-            Новая запись
+            {t('crmGuestAppt.modalTitle')}
           </DialogTitle>
           <DialogDescription>
-            Создайте запись для зарегистрированного пациента или гостя
+            {t('crmGuestAppt.modalDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -525,7 +630,7 @@ export function GuestAppointmentModal({
               name="patientType"
               render={({ field }) => (
                 <FormItem className="space-y-3">
-                  <FormLabel className="text-base font-semibold">Тип пациента</FormLabel>
+                  <FormLabel className="text-base font-semibold">{t('crmGuestAppt.patientType')}</FormLabel>
                   <FormControl>
                     <RadioGroup
                       onValueChange={field.onChange}
@@ -553,8 +658,8 @@ export function GuestAppointmentModal({
                             field.value === "registered" ? "text-primary" : "text-muted-foreground"
                           )} />
                           <div>
-                            <p className="font-medium">Зарегистрированный</p>
-                            <p className="text-xs text-muted-foreground">Пациент с аккаунтом</p>
+                            <p className="font-medium">{t('crmGuestAppt.registered')}</p>
+                            <p className="text-xs text-muted-foreground">{t('crmGuestAppt.registeredHint')}</p>
                           </div>
                         </Label>
                       </div>
@@ -579,8 +684,8 @@ export function GuestAppointmentModal({
                             field.value === "guest" ? "text-primary" : "text-muted-foreground"
                           )} />
                           <div>
-                            <p className="font-medium">Гость</p>
-                            <p className="text-xs text-muted-foreground">Без регистрации</p>
+                            <p className="font-medium">{t('crmGuestAppt.guest')}</p>
+                            <p className="text-xs text-muted-foreground">{t('crmGuestAppt.guestHint')}</p>
                           </div>
                         </Label>
                       </div>
@@ -597,13 +702,13 @@ export function GuestAppointmentModal({
                 name="patient_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Пациент</FormLabel>
+                    <FormLabel>{t('crmGuestAppt.patient')}</FormLabel>
                     <FormControl>
                       <div className="space-y-2">
                         <div className="relative">
                           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                           <Input
-                            placeholder="Поиск по имени или телефону..."
+                            placeholder={t('crmGuestAppt.searchPatient')}
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             className="pl-9"
@@ -611,12 +716,12 @@ export function GuestAppointmentModal({
                         </div>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <SelectTrigger>
-                            <SelectValue placeholder="Выберите пациента" />
+                            <SelectValue placeholder={t('crmGuestAppt.selectPatient')} />
                           </SelectTrigger>
                           <SelectContent>
                             {filteredPatients.length === 0 ? (
                               <div className="p-4 text-center text-muted-foreground text-sm">
-                                Пациенты не найдены
+                                {t('crmGuestAppt.patientsNotFound')}
                               </div>
                             ) : (
                               filteredPatients.map((patient) => (
@@ -646,10 +751,10 @@ export function GuestAppointmentModal({
                   name="guest_name"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Имя пациента *</FormLabel>
+                      <FormLabel>{t('crmGuestAppt.guestNameLabel')}</FormLabel>
                       <FormControl>
-                        <Input 
-                          placeholder="Введите имя пациента" 
+                        <Input
+                          placeholder={t('crmGuestAppt.guestNamePh')}
                           {...field}
                         />
                       </FormControl>
@@ -663,12 +768,12 @@ export function GuestAppointmentModal({
                   name="guest_phone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Телефон *</FormLabel>
+                      <FormLabel>{t('crmGuestAppt.guestPhoneLabel')}</FormLabel>
                       <FormControl>
                         <div className="relative">
                           <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input 
-                            placeholder="+998 XX XXX XX XX" 
+                          <Input
+                            placeholder={t('crmGuestAppt.guestPhonePh')}
                             className="pl-9"
                             {...field}
                           />
@@ -684,8 +789,8 @@ export function GuestAppointmentModal({
 
                 {/* Found Patient Alert */}
                 {showFoundPatient && foundPatient && (
-                  <Alert className="border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800">
-                    <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <Alert className="border-status-warning/30 bg-status-warning-bg">
+                    <AlertCircle className="h-4 w-4 text-status-warning" />
                     <AlertDescription className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Avatar className="h-8 w-8">
@@ -695,11 +800,11 @@ export function GuestAppointmentModal({
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <p className="font-medium text-amber-800 dark:text-amber-200">
-                            В системе уже есть пользователь: {foundPatient.name}
+                          <p className="font-medium text-status-warning">
+                            {t('crmGuestAppt.foundExisting')} {foundPatient.name}
                           </p>
-                          <p className="text-xs text-amber-600 dark:text-amber-400">
-                            {foundPatient.patient_type === "registered" ? "Зарегистрирован в системе" : "Гость клиники"} • {foundPatient.phone}
+                          <p className="text-xs text-status-warning">
+                            {foundPatient.patient_type === "registered" ? t('crmGuestAppt.existingRegistered') : t('crmGuestAppt.existingGuest')} • {foundPatient.phone}
                           </p>
                         </div>
                       </div>
@@ -707,11 +812,11 @@ export function GuestAppointmentModal({
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="border-amber-300 hover:bg-amber-100 shrink-0"
+                        className="border-status-warning/40 hover:bg-status-warning/10 shrink-0"
                         onClick={useFoundPatient}
                       >
                         <Check className="h-4 w-4 mr-1" />
-                        Выбрать
+                        {t('crmGuestAppt.selectBtn')}
                       </Button>
                     </AlertDescription>
                   </Alert>
@@ -722,10 +827,10 @@ export function GuestAppointmentModal({
                   name="guest_comment"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Комментарий</FormLabel>
+                      <FormLabel>{t('crmGuestAppt.commentLabel')}</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="Дополнительная информация о пациенте..." 
+                        <Textarea
+                          placeholder={t('crmGuestAppt.commentPh')}
                           rows={2}
                           {...field}
                         />
@@ -747,7 +852,7 @@ export function GuestAppointmentModal({
                         />
                       </FormControl>
                       <FormLabel className="text-sm font-normal cursor-pointer">
-                        Согласен получать SMS-напоминания
+                        {t('crmGuestAppt.smsConsent')}
                       </FormLabel>
                     </FormItem>
                   )}
@@ -762,11 +867,11 @@ export function GuestAppointmentModal({
                 name="doctor_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Врач *</FormLabel>
+                    <FormLabel>{t('crmGuestAppt.doctorLabel')}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Выберите врача" />
+                          <SelectValue placeholder={t('crmGuestAppt.doctorPh')} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -789,11 +894,11 @@ export function GuestAppointmentModal({
               name="service_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Услуга</FormLabel>
+                  <FormLabel>{t('crmGuestAppt.serviceLabel')}</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Выберите услугу (опционально)" />
+                        <SelectValue placeholder={t('crmGuestAppt.servicePh')} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -816,7 +921,7 @@ export function GuestAppointmentModal({
                 name="date"
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
-                    <FormLabel>Дата *</FormLabel>
+                    <FormLabel>{t('crmGuestAppt.dateLabel')}</FormLabel>
                     <Popover>
                       <PopoverTrigger asChild>
                         <FormControl>
@@ -830,7 +935,7 @@ export function GuestAppointmentModal({
                             {field.value ? (
                               format(field.value, "d MMMM", { locale: ru })
                             ) : (
-                              <span>Выберите дату</span>
+                              <span>{t('crmGuestAppt.datePh')}</span>
                             )}
                             <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                           </Button>
@@ -841,7 +946,12 @@ export function GuestAppointmentModal({
                           mode="single"
                           selected={field.value}
                           onSelect={field.onChange}
-                          disabled={(date) => date < new Date() || date > addDays(new Date(), 60)}
+                          disabled={(date) =>
+                            // startOfDay, not "now": comparing midnight against
+                            // the current moment disabled booking for TODAY —
+                            // the single most common phone-booking case.
+                            date < startOfDay(new Date()) || date > addDays(new Date(), 60)
+                          }
                           locale={ru}
                           initialFocus
                         />
@@ -857,21 +967,40 @@ export function GuestAppointmentModal({
                 name="start_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Время *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <FormLabel>{t('crmGuestAppt.timeLabel')}</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={slotsPending || (!availability.isError && offeredSlots.length === 0)}
+                    >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Время" />
+                          <SelectValue
+                            placeholder={
+                              slotsPending
+                                ? t('crmGuestAppt.slotsLoading')
+                                : !availability.isError && availability.data && offeredSlots.length === 0
+                                  ? t('crmGuestAppt.slotsNone')
+                                  : t('crmGuestAppt.timePh')
+                            }
+                          />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {TIME_SLOTS.map((time) => (
+                        {offeredSlots.map((time) => (
                           <SelectItem key={time} value={time}>
                             {time}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {/* A fully booked day is information the caller needs NOW,
+                        not after a failed submit. */}
+                    {!availability.isError && availability.data && offeredSlots.length === 0 ? (
+                      <p className="text-xs text-status-warning" role="status">
+                        {t('crmGuestAppt.slotsNoneHint')}
+                      </p>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -884,10 +1013,10 @@ export function GuestAppointmentModal({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Примечание к записи</FormLabel>
+                  <FormLabel>{t('crmGuestAppt.notesLabel')}</FormLabel>
                   <FormControl>
-                    <Textarea 
-                      placeholder="Дополнительная информация..." 
+                    <Textarea
+                      placeholder={t('crmGuestAppt.notesPh')}
                       rows={2}
                       {...field}
                     />
@@ -905,11 +1034,11 @@ export function GuestAppointmentModal({
                 onClick={() => onOpenChange(false)}
                 disabled={loading}
               >
-                Отмена
+                {t('crmGuestAppt.cancel')}
               </Button>
               <Button type="submit" disabled={loading}>
                 {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Создать запись
+                {t('crmGuestAppt.createBtn')}
               </Button>
             </div>
           </form>

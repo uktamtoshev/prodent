@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Download, FileText, Table } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatPrice } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface Service {
   id: string;
@@ -26,14 +27,15 @@ interface ExportPriceButtonProps {
 }
 
 export function ExportPriceButton({ services, clinicName }: ExportPriceButtonProps) {
+  const { t } = useLanguage();
   const [isExporting, setIsExporting] = useState(false);
 
   const exportToCSV = () => {
     setIsExporting(true);
-    
+
     try {
       const activeServices = services.filter(s => s.is_active !== false);
-      
+
       // Group by category
       const grouped = activeServices.reduce((acc, s) => {
         if (!acc[s.category]) acc[s.category] = [];
@@ -42,8 +44,8 @@ export function ExportPriceButton({ services, clinicName }: ExportPriceButtonPro
       }, {} as Record<string, Service[]>);
 
       // Build CSV content
-      let csv = 'Категория,Услуга,Цена,Длительность (мин)\n';
-      
+      let csv = `${t('managerRole.exportCsvHeader')}\n`;
+
       Object.entries(grouped).forEach(([category, categoryServices]) => {
         categoryServices.forEach(s => {
           csv += `"${category}","${s.name}","${formatPrice(s.price)}","${s.duration_minutes || 30}"\n`;
@@ -51,15 +53,15 @@ export function ExportPriceButton({ services, clinicName }: ExportPriceButtonPro
       });
 
       // Download
-      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `Прайс-лист_${clinicName}_${new Date().toLocaleDateString('ru-RU')}.csv`;
+      link.download = `${t('managerRole.exportFileName')}_${clinicName}_${new Date().toLocaleDateString()}.csv`;
       link.click();
-      
-      toast.success('Прайс-лист экспортирован');
+
+      toast.success(t('managerRole.exportDone'));
     } catch (error) {
-      toast.error('Ошибка при экспорте');
+      toast.error(t('managerRole.exportError'));
     } finally {
       setIsExporting(false);
     }
@@ -67,10 +69,10 @@ export function ExportPriceButton({ services, clinicName }: ExportPriceButtonPro
 
   const exportToText = () => {
     setIsExporting(true);
-    
+
     try {
       const activeServices = services.filter(s => s.is_active !== false);
-      
+
       // Group by category
       const grouped = activeServices.reduce((acc, s) => {
         if (!acc[s.category]) acc[s.category] = [];
@@ -79,21 +81,21 @@ export function ExportPriceButton({ services, clinicName }: ExportPriceButtonPro
       }, {} as Record<string, Service[]>);
 
       // Build text content
-      let text = `ПРАЙС-ЛИСТ\n${clinicName}\n`;
-      text += `Дата: ${new Date().toLocaleDateString('ru-RU')}\n`;
+      let text = `${t('managerRole.exportTitle')}\n${clinicName}\n`;
+      text += `${t('managerRole.exportDate')}: ${new Date().toLocaleDateString()}\n`;
       text += '═'.repeat(50) + '\n\n';
 
       Object.entries(grouped).forEach(([category, categoryServices]) => {
         text += `▸ ${category.toUpperCase()}\n`;
         text += '─'.repeat(40) + '\n';
-        
+
         categoryServices.forEach(s => {
           const price = formatPrice(s.price).padEnd(15);
-          const duration = `${s.duration_minutes || 30} мин`;
+          const duration = `${s.duration_minutes || 30} ${t('managerRole.durationMin')}`;
           text += `  ${s.name}\n`;
           text += `  ${price}  │  ${duration}\n\n`;
         });
-        
+
         text += '\n';
       });
 
@@ -101,12 +103,12 @@ export function ExportPriceButton({ services, clinicName }: ExportPriceButtonPro
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `Прайс-лист_${clinicName}_${new Date().toLocaleDateString('ru-RU')}.txt`;
+      link.download = `${t('managerRole.exportFileName')}_${clinicName}_${new Date().toLocaleDateString()}.txt`;
       link.click();
-      
-      toast.success('Прайс-лист экспортирован');
+
+      toast.success(t('managerRole.exportDone'));
     } catch (error) {
-      toast.error('Ошибка при экспорте');
+      toast.error(t('managerRole.exportError'));
     } finally {
       setIsExporting(false);
     }
@@ -117,17 +119,17 @@ export function ExportPriceButton({ services, clinicName }: ExportPriceButtonPro
       <DropdownMenuTrigger asChild>
         <Button variant="outline" className="gap-2" disabled={isExporting}>
           <Download className="w-4 h-4" />
-          Экспорт
+          {t('managerRole.exportBtn')}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={exportToCSV} className="gap-2">
           <Table className="w-4 h-4" />
-          Скачать как CSV (Excel)
+          {t('managerRole.exportCsv')}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={exportToText} className="gap-2">
           <FileText className="w-4 h-4" />
-          Скачать как текст
+          {t('managerRole.exportTxt')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

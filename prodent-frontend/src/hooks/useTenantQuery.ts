@@ -37,10 +37,10 @@ export function useCurrentClinicId() {
 /**
  * Helper to build clinic-filtered Supabase queries
  */
-export function withClinicFilter<T extends { clinic_id: string }>(
-  query: any,
+export function withClinicFilter<TQuery extends { eq(column: string, value: unknown): TQuery }>(
+  query: TQuery,
   clinicId: string | null
-) {
+): TQuery {
   if (!clinicId) {
     throw new Error('No clinic selected');
   }

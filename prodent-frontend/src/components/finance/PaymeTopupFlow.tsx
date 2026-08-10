@@ -18,6 +18,9 @@ interface PaymeTopupFlowProps {
 
 type Step = 'card' | 'otp' | 'confirm' | 'success' | 'error';
 
+const errorMessage = (error: unknown, fallback: string) =>
+  error instanceof Error ? error.message : fallback;
+
 export function PaymeTopupFlow({ open, onOpenChange, amount, accountId, onSuccess }: PaymeTopupFlowProps) {
   const [step, setStep] = useState<Step>('card');
   const [isLoading, setIsLoading] = useState(false);
@@ -113,9 +116,9 @@ export function PaymeTopupFlow({ open, onOpenChange, amount, accountId, onSucces
       setStep('otp');
       toast.info('SMS код отправлен на номер карты');
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Card create error:', err);
-      setError(err.message || 'Ошибка при обработке карты');
+      setError(errorMessage(err, 'Ошибка при обработке карты'));
     } finally {
       setIsLoading(false);
     }
@@ -156,9 +159,9 @@ export function PaymeTopupFlow({ open, onOpenChange, amount, accountId, onSucces
       setReceiptId(receiptData.receipt_id);
       setStep('confirm');
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('OTP verify error:', err);
-      setError(err.message || 'Ошибка верификации');
+      setError(errorMessage(err, 'Ошибка верификации'));
     } finally {
       setIsLoading(false);
     }
@@ -192,9 +195,9 @@ export function PaymeTopupFlow({ open, onOpenChange, amount, accountId, onSucces
         handleClose();
       }, 2000);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Payment error:', err);
-      setError(err.message || 'Ошибка оплаты');
+      setError(errorMessage(err, 'Ошибка оплаты'));
       setStep('error');
     } finally {
       setIsLoading(false);

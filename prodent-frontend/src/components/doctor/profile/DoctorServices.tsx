@@ -6,8 +6,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-  Clock, 
+import {
+  Clock,
   ArrowRight,
   Plus,
   Pencil,
@@ -20,6 +20,10 @@ import { AddServiceDialog } from './AddServiceDialog';
 import { formatPrice } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
+  archiveDoctorService,
+  invalidateDoctorServiceQueries,
+} from '@/lib/doctor-services-api';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -29,18 +33,23 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { Database } from '@/integrations/supabase/types';
+
+type DoctorServiceRow = Database['public']['Tables']['doctor_services']['Row'];
 
 interface DoctorServicesProps {
   doctorId: string;
 }
 
 export function DoctorServices({ doctorId }: DoctorServicesProps) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  
+
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [editService, setEditService] = useState<any>(null);
+  const [editService, setEditService] = useState<DoctorServiceRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState('all');
 
@@ -60,7 +69,7 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
   const isOwner = user?.id === doctor?.user_id;
 
   // Fetch doctor's own services
-  const { data: services, isLoading } = useQuery({
+  const { data: services, isLoading } = useQuery<DoctorServiceRow[]>({
     queryKey: ['doctor-services', doctorId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -72,25 +81,19 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
         .order('name');
 
       if (error) throw error;
-      return data;
+      return (data ?? []) as DoctorServiceRow[];
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('doctor_services')
-        .delete()
-        .eq('id', id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['doctor-services', doctorId] });
-      toast.success('Услуга удалена');
+    mutationFn: (id: string) => archiveDoctorService(doctorId, id),
+    onSuccess: async () => {
+      await invalidateDoctorServiceQueries(queryClient);
+      toast.success(t('doctorServicesPage.serviceDeleted'));
       setDeleteId(null);
     },
     onError: () => {
-      toast.error('Ошибка при удалении');
+      toast.error(t('doctorServicesPage.deleteError'));
     },
   });
 
@@ -119,17 +122,17 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
           <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
             <Briefcase className="w-10 h-10 text-muted-foreground" />
           </div>
-          <h3 className="text-lg font-semibold mb-2">Нет услуг</h3>
-          <p className="text-[15px] text-muted-foreground mb-4">
-            Прайс-лист пока не добавлен
+          <h3 className="text-base font-bold mb-2">{t('doctorServicesPage.noServices')}</h3>
+          <p className="text-base text-muted-foreground mb-4">
+            {t('doctorServicesPage.noPriceList')}
           </p>
           {isOwner && (
-            <Button 
-              onClick={() => setAddDialogOpen(true)} 
+            <Button
+              onClick={() => setAddDialogOpen(true)}
               className="gap-2"
             >
               <Plus className="w-4 h-4" />
-              Добавить услугу
+              {t('doctorServicesPage.addService')}
             </Button>
           )}
         </div>
@@ -144,15 +147,16 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
   }
 
   // Get unique categories
-  const categories = ['all', ...new Set(services?.map(s => s.category || 'Другие') || [])];
+  const otherLabel = t('doctorServicesPage.otherCategory');
+  const categories = ['all', ...new Set(services?.map(s => s.category || otherLabel) || [])];
 
-  const filteredServices = selectedCategory === 'all' 
-    ? services 
-    : services?.filter(s => (s.category || 'Другие') === selectedCategory);
+  const filteredServices = selectedCategory === 'all'
+    ? services
+    : services?.filter(s => (s.category || otherLabel) === selectedCategory);
 
   // Group services by category
-  const groupedServices = filteredServices?.reduce((acc: Record<string, any[]>, service) => {
-    const category = service.category || 'Другие';
+  const groupedServices = filteredServices?.reduce<Record<string, DoctorServiceRow[]>>((acc, service) => {
+    const category = service.category || otherLabel;
     if (!acc[category]) acc[category] = [];
     acc[category].push(service);
     return acc;
@@ -164,12 +168,12 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-2">
           <ListChecks className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-semibold">Услуги и цены</h2>
+          <h2 className="text-base font-bold">{t('doctorServicesPage.servicesAndPrices')}</h2>
         </div>
         {isOwner && (
           <Button onClick={() => setAddDialogOpen(true)} className="gap-2">
             <Plus className="w-4 h-4" />
-            Добавить услугу
+            {t('doctorServicesPage.addService')}
           </Button>
         )}
       </div>
@@ -181,31 +185,31 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
             key={cat}
             onClick={() => setSelectedCategory(cat)}
             className={`
-              flex items-center gap-2 px-4 py-2 rounded-full text-[15px] font-medium whitespace-nowrap
+              flex items-center gap-2 px-4 py-2 rounded-full text-base font-medium whitespace-nowrap
               transition-all duration-200
-              ${selectedCategory === cat 
-                ? 'bg-primary text-primary-foreground' 
+              ${selectedCategory === cat
+                ? 'bg-primary text-primary-foreground'
                 : 'bg-muted/50 text-muted-foreground hover:bg-muted'
               }
             `}
           >
-            {cat === 'all' ? 'Все услуги' : cat}
+            {cat === 'all' ? t('doctorServicesPage.allServices') : cat}
           </button>
         ))}
       </div>
 
       {/* Quick Book Banner - only for visitors */}
       {!isOwner && (
-        <Card className="bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
+        <Card className="bg-card border-primary/20">
           <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>
-              <h3 className="text-lg font-semibold">Запишитесь на приём</h3>
-              <p className="text-[15px] text-muted-foreground">
-                Выберите удобное время и услугу онлайн
+              <h3 className="text-base font-bold">{t('doctorServicesPage.bookAppointment')}</h3>
+              <p className="text-base text-muted-foreground">
+                {t('doctorServicesPage.pickConvenientTime')}
               </p>
             </div>
-            <Button onClick={() => navigate(`/booking/${doctorId}`)} className="gap-2">
-              Записаться
+            <Button onClick={() => navigate(`/book/${doctorId}`)} className="gap-2">
+              {t('doctorServicesPage.bookNow')}
               <ArrowRight className="w-4 h-4" />
             </Button>
           </CardContent>
@@ -217,32 +221,32 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
         <div key={category} className="space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-1 h-6 bg-primary rounded-full" />
-            <h3 className="text-lg font-semibold text-foreground">{category}</h3>
+            <h3 className="text-base font-bold text-foreground">{category}</h3>
             <Badge variant="outline" className="text-xs">
               {categoryServices.length}
             </Badge>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
-            {categoryServices?.map((service: any) => (
-              <Card 
-                key={service.id} 
+            {categoryServices.map((service) => (
+              <Card
+                key={service.id}
                 className="group border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300"
               >
-                <CardContent className="p-4">
+                <CardContent className="p-card-x">
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-foreground group-hover:text-primary transition-colors">
                         {service.name}
                       </h4>
                       {service.description && (
-                        <p className="text-[15px] text-muted-foreground mt-1 line-clamp-2">
+                        <p className="text-base text-muted-foreground mt-1 line-clamp-2">
                           {service.description}
                         </p>
                       )}
                       {service.duration_minutes && (
                         <div className="inline-flex items-center gap-1.5 mt-2 px-2 py-1 rounded-md bg-muted text-xs text-muted-foreground">
                           <Clock className="w-3.5 h-3.5" />
-                          <span>{service.duration_minutes} мин</span>
+                          <span>{service.duration_minutes} {t('doctorServicesPage.durationMin')}</span>
                         </div>
                       )}
                     </div>
@@ -251,7 +255,7 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
                         {formatPrice(service.price, service.currency === 'USD' ? '$' : 'сум')}
                       </div>
                       {isOwner && (
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -296,18 +300,18 @@ export function DoctorServices({ doctorId }: DoctorServicesProps) {
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить услугу?</AlertDialogTitle>
+            <AlertDialogTitle>{t('doctorServicesPage.deleteServiceQ')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить.
+              {t('doctorServicesPage.deleteCannotUndo')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t('doctorServicesPage.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteId && deleteMutation.mutate(deleteId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Удалить
+              {t('doctorServicesPage.deleteBtn')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

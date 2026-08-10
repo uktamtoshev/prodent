@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAdmin } from "@/contexts/AdminContext";
@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { formatAccountId } from "@/lib/accountId";
 
 const Profile = () => {
   const { user, loading: authLoading } = useAuth();
@@ -38,45 +39,69 @@ const Profile = () => {
   const { toast } = useToast();
   
   const [loading, setLoading] = useState(false);
+  const [profileLoadState, setProfileLoadState] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const [uploading, setUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [fullName, setFullName] = useState("");
+  // `profiles.account_number` is the eight-digit id (V131); the uuid stays as a
+  // fallback. Same helper as the sidebar so the two never print a different id
+  // for the same person.
+  const [accountNumber, setAccountNumber] = useState<string | null>(null);
+  const displayAccountId = accountNumber ?? formatAccountId(user?.id);
   const [phone, setPhone] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [gender, setGender] = useState("");
   const [address, setAddress] = useState("");
 
-  // Redirect doctors to their public profile
+  const loadProfile = useCallback(async () => {
+    if (!user?.id) return;
+    setProfileLoadState("loading");
+
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user?.id)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setFullName(data.full_name || "");
+        setAccountNumber(data.account_number ?? null);
+        setPhone(data.phone || "");
+        setAvatarUrl(data.avatar_url || "");
+        setBirthDate(data.birth_date || "");
+        setGender(data.gender || "");
+        setAddress(data.address || "");
+      }
+      setProfileLoadState("ready");
+    } catch (error: unknown) {
+      console.error("Error loading profile:", error);
+      setProfileLoadState("error");
+    }
+  }, [user?.id]);
+
+  // Redirect doctors to their CRM profile (the editable one) — /profile is for
+  // patients. The public doctor card is reachable separately via /doctor/:id.
   useEffect(() => {
-    const checkDoctorAndRedirect = async () => {
-      if (!authLoading && !user) {
-        navigate("/auth");
-        return;
-      }
-      
-      if (user && isDoctor) {
-        const { data: doctor } = await supabase
-          .from('doctors')
-          .select('id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-        
-        if (doctor) {
-          navigate(`/doctor/${doctor.id}`);
-          return;
-        }
-      }
-    };
-    
-    checkDoctorAndRedirect();
+    if (!authLoading && !user) {
+      navigate("/auth");
+      return;
+    }
+    if (user && isDoctor) {
+      navigate("/crm/profile", { replace: true });
+    }
   }, [user, authLoading, isDoctor, navigate]);
 
   useEffect(() => {
     if (user && !isDoctor) {
       loadProfile();
     }
-  }, [user, isDoctor]);
+  }, [user, isDoctor, loadProfile]);
 
   // Patient stats state
   const [completedVisits, setCompletedVisits] = useState(0);
@@ -93,7 +118,7 @@ const Profile = () => {
         .from('appointments')
         .select('*', { count: 'exact', head: true })
         .eq('patient_id', user.id)
-        .eq('status', 'completed');
+        .eq('status', 'COMPLETED');
       setCompletedVisits(completed || 0);
 
       // Upcoming visits - use or filter instead of in
@@ -101,7 +126,7 @@ const Profile = () => {
         .from('appointments')
         .select('*', { count: 'exact', head: true })
         .eq('patient_id', user.id)
-        .or('status.eq.pending,status.eq.confirmed')
+        .or('status.eq.PENDING,status.eq.CONFIRMED')
         .gte('appointment_date', new Date().toISOString());
       setUpcomingVisits(upcoming || 0);
 
@@ -112,28 +137,8 @@ const Profile = () => {
     fetchStats();
   }, [user?.id]);
 
-  const loadProfile = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user?.id)
-        .single();
-
-      if (error) throw error;
-
-      if (data) {
-        setFullName(data.full_name || "");
-        setPhone(data.phone || "");
-        setAvatarUrl(data.avatar_url || "");
-        setBirthDate(data.birth_date || "");
-        setGender(data.gender || "");
-        setAddress(data.address || "");
-      }
-    } catch (error: any) {
-      console.error("Error loading profile:", error);
-    }
-  };
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : "Операция не удалась";
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
@@ -175,10 +180,10 @@ const Profile = () => {
         title: "Аватар обновлен",
         description: "Ваш аватар успешно загружен",
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Ошибка загрузки",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -187,6 +192,7 @@ const Profile = () => {
   };
 
   const handleSave = async () => {
+    if (profileLoadState !== "ready") return;
     setLoading(true);
 
     try {
@@ -208,10 +214,10 @@ const Profile = () => {
         description: "Ваши данные успешно сохранены",
       });
       setIsEditing(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         title: "Ошибка сохранения",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive",
       });
     } finally {
@@ -245,29 +251,66 @@ const Profile = () => {
     return new Intl.NumberFormat('ru-RU').format(amount) + ' сум';
   };
 
+  if (!isDoctor && profileLoadState === "loading") {
+    return (
+      <PatientLayout>
+        <div
+          className="flex min-h-[50vh] items-center justify-center gap-3 p-4 text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+          <span>Загрузка профиля…</span>
+        </div>
+      </PatientLayout>
+    );
+  }
+
+  if (!isDoctor && profileLoadState === "error") {
+    return (
+      <PatientLayout>
+        <div className="flex min-h-[50vh] items-center justify-center p-4">
+          <Card className="w-full max-w-md">
+            <CardContent className="space-y-4 p-6 text-center">
+              <div role="alert">
+                <h1 className="text-xl font-bold text-foreground">Не удалось загрузить профиль</h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Ваши сохранённые данные не изменены. Проверьте соединение и повторите попытку.
+                </p>
+              </div>
+              <Button className="min-h-11 w-full" onClick={() => void loadProfile()}>
+                Повторить
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </PatientLayout>
+    );
+  }
+
   return (
     <PatientLayout>
-      <div className="p-6 lg:p-8 space-y-6">
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
         {/* Page Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Мой профиль</h1>
             <p className="text-muted-foreground mt-1">Управление личными данными</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isEditing ? (
               <>
-                <Button variant="outline" onClick={() => setIsEditing(false)}>
+                <Button className="min-h-11" variant="outline" onClick={() => setIsEditing(false)}>
                   <X className="w-4 h-4 mr-2" />
                   Отмена
                 </Button>
-                <Button onClick={handleSave} disabled={loading}>
+                <Button className="min-h-11" onClick={handleSave} disabled={loading}>
                   {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
                   Сохранить
                 </Button>
               </>
             ) : (
-              <Button onClick={() => setIsEditing(true)}>
+              <Button className="min-h-11" onClick={() => setIsEditing(true)}>
                 <Edit3 className="w-4 h-4 mr-2" />
                 Редактировать
               </Button>
@@ -277,11 +320,11 @@ const Profile = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="bg-gradient-to-br from-emerald-500/10 to-emerald-500/5 border-emerald-500/20">
+          <Card className="border-[hsl(var(--success-green)/0.2)] bg-[hsl(var(--success-green)/0.08)]">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-emerald-500/20">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                <div className="rounded-xl bg-[hsl(var(--success-green)/0.15)] p-2.5">
+                  <CheckCircle2 className="h-5 w-5 text-[hsl(var(--success-green))]" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{completedVisits || 0}</p>
@@ -291,11 +334,11 @@ const Profile = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-blue-500/10 to-blue-500/5 border-blue-500/20">
+          <Card className="border-primary/20 bg-primary/5">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-blue-500/20">
-                  <Clock className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                <div className="rounded-xl bg-primary/15 p-2.5">
+                  <Clock className="h-5 w-5 text-primary" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{upcomingVisits || 0}</p>
@@ -305,11 +348,11 @@ const Profile = () => {
             </CardContent>
           </Card>
 
-          <Card className="bg-gradient-to-br from-violet-500/10 to-violet-500/5 border-violet-500/20 sm:col-span-2 lg:col-span-2">
+          <Card className="border-accent bg-accent/40 sm:col-span-2 lg:col-span-2">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-violet-500/20">
-                  <CreditCard className="w-5 h-5 text-violet-600 dark:text-violet-400" />
+                <div className="rounded-xl bg-accent p-2.5">
+                  <CreditCard className="h-5 w-5 text-accent-foreground" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{formatCurrency(totalSpent || 0)}</p>
@@ -337,18 +380,19 @@ const Profile = () => {
                   
                   <Label 
                     htmlFor="avatar" 
-                    className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
                   >
                     {uploading ? (
-                      <Loader2 className="w-6 h-6 text-white animate-spin" />
+                      <Loader2 className="h-6 w-6 animate-spin text-background" />
                     ) : (
-                      <Camera className="w-6 h-6 text-white" />
+                      <Camera className="h-6 w-6 text-background" />
                     )}
+                    <span className="sr-only">Изменить фото профиля</span>
                     <Input
                       id="avatar"
                       type="file"
                       accept="image/*"
-                      className="hidden"
+                      className="sr-only"
                       onChange={handleAvatarUpload}
                       disabled={uploading}
                     />
@@ -358,22 +402,30 @@ const Profile = () => {
                 <h2 className="text-xl font-bold text-foreground mb-1">
                   {fullName || "Имя не указано"}
                 </h2>
+                {displayAccountId && (
+                  <p
+                    className="text-xs font-mono text-muted-foreground tracking-wider mb-1 select-all"
+                    title={user?.id ?? undefined}
+                  >
+                    ID&nbsp;{displayAccountId}
+                  </p>
+                )}
                 <p className="text-sm text-muted-foreground mb-3">{user?.email}</p>
 
                 <div className="flex flex-wrap gap-2 justify-center">
                   {isClinicAdmin ? (
-                    <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+                    <Badge className="border-primary/20 bg-primary/10 text-primary">
                       <Building2 className="w-3 h-3 mr-1" />
                       Администратор
                     </Badge>
                   ) : (
-                    <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">
+                    <Badge className="border-[hsl(var(--success-green)/0.2)] bg-[hsl(var(--success-green)/0.1)] text-[hsl(var(--success-green))]">
                       <User className="w-3 h-3 mr-1" />
                       Пациент
                     </Badge>
                   )}
                   {isSuperAdmin && (
-                    <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+                    <Badge className="border-warning-amber/20 bg-warning-amber/10 text-warning-amber">
                       <Shield className="w-3 h-3 mr-1" />
                       Супер-админ
                     </Badge>
@@ -422,25 +474,29 @@ const Profile = () => {
                 {isEditing ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Полное имя</Label>
+                      <Label htmlFor="profile-full-name">Полное имя</Label>
                       <Input
+                        id="profile-full-name"
+                        className="min-h-11"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
                         placeholder="Введите имя"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Дата рождения</Label>
+                      <Label htmlFor="profile-birth-date">Дата рождения</Label>
                       <Input
+                        id="profile-birth-date"
+                        className="min-h-11"
                         type="date"
                         value={birthDate}
                         onChange={(e) => setBirthDate(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Пол</Label>
+                      <Label htmlFor="profile-gender">Пол</Label>
                       <Select value={gender} onValueChange={setGender}>
-                        <SelectTrigger>
+                        <SelectTrigger id="profile-gender" className="min-h-11">
                           <SelectValue placeholder="Выберите пол" />
                         </SelectTrigger>
                         <SelectContent>
@@ -485,20 +541,24 @@ const Profile = () => {
                 {isEditing ? (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Email</Label>
-                      <Input value={user?.email || ""} disabled className="bg-muted/50" />
+                      <Label htmlFor="profile-email">Email</Label>
+                      <Input id="profile-email" value={user?.email || ""} disabled className="min-h-11 bg-muted/50" />
                     </div>
                     <div className="space-y-2">
-                      <Label>Телефон</Label>
+                      <Label htmlFor="profile-phone">Телефон</Label>
                       <Input
+                        id="profile-phone"
+                        className="min-h-11"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="+998 90 123 45 67"
                       />
                     </div>
                     <div className="space-y-2 sm:col-span-2">
-                      <Label>Адрес</Label>
+                      <Label htmlFor="profile-address">Адрес</Label>
                       <Input
+                        id="profile-address"
+                        className="min-h-11"
                         value={address}
                         onChange={(e) => setAddress(e.target.value)}
                         placeholder="Город, улица, дом"

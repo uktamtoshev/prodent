@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ReviewFormProps {
   doctorId: string;
@@ -15,6 +16,7 @@ interface ReviewFormProps {
 }
 
 const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -28,8 +30,8 @@ const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
 
     if (rating === 0) {
       toast({
-        title: "Выберите оценку",
-        description: "Пожалуйста, поставьте оценку от 1 до 5 звезд",
+        title: t('doctorReviewForm.pickRating'),
+        description: t('doctorReviewForm.pickRating'),
         variant: "destructive",
       });
       return;
@@ -51,18 +53,18 @@ const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
       if (error) throw error;
 
       toast({
-        title: "Отзыв отправлен",
-        description: "Ваш отзыв будет опубликован после проверки",
+        title: t('doctorReviewForm.reviewSent'),
+        description: t('doctorReviewForm.thankYou'),
       });
 
       // Refresh reviews
       queryClient.invalidateQueries({ queryKey: ["doctor-reviews", doctorId] });
 
       onSuccess();
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
-        title: "Ошибка",
-        description: error.message,
+        title: t('crmProfilePrivacy.error'),
+        description: error instanceof Error ? error.message : t('crmProfilePrivacy.error'),
         variant: "destructive",
       });
     } finally {
@@ -72,10 +74,10 @@ const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
 
   return (
     <Card className="border-2 border-primary/50">
-      <CardContent className="p-6">
+      <CardContent className="p-card-x">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="text-sm font-medium mb-2 block">Ваша оценка</label>
+            <label className="text-sm font-medium mb-2 block">{t('doctorReviewForm.yourRating')}</label>
             <div className="flex gap-2">
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
@@ -89,8 +91,8 @@ const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
                   <Star
                     className={`w-8 h-8 ${
                       star <= (hoveredRating || rating)
-                        ? "fill-yellow-400 text-yellow-400"
-                        : "text-gray-300"
+                        ? "fill-status-warning text-status-warning"
+                        : "text-muted-foreground/40"
                     }`}
                   />
                 </button>
@@ -100,17 +102,17 @@ const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
 
           <div>
             <label className="text-sm font-medium mb-2 block">
-              Комментарий (необязательно)
+              {t('doctorReviewForm.comment')}
             </label>
             <Textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Расскажите о вашем опыте..."
+              placeholder={t('doctorReviewForm.commentPlaceholder')}
               rows={4}
               maxLength={500}
             />
             <p className="text-xs text-muted-foreground mt-1">
-              {comment.length}/500 символов
+              {comment.length}/500
             </p>
           </div>
 
@@ -121,10 +123,10 @@ const ReviewForm = ({ doctorId, onSuccess, onCancel }: ReviewFormProps) => {
               disabled={isSubmitting || rating === 0}
               className="flex-1"
             >
-              {isSubmitting ? "Отправка..." : "Отправить отзыв"}
+              {isSubmitting ? t('doctorReviewForm.submitting') : t('doctorReviewForm.submit')}
             </Button>
             <Button type="button" variant="outline" onClick={onCancel}>
-              Отмена
+              {t('doctorReviewForm.cancel')}
             </Button>
           </div>
         </form>

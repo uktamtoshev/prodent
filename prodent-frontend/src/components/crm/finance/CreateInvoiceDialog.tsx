@@ -16,6 +16,22 @@ import { toast } from "sonner";
 import { Save, Plus, Trash2 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import type { Database } from "@/integrations/supabase/types";
+
+type InvoiceInsert = Database["public"]["Tables"]["invoices"]["Insert"];
+type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
+type ProfileSummary = { full_name: string | null };
+type ClinicDoctor = {
+  id: string;
+  user: ProfileSummary | ProfileSummary[] | null;
+};
+
+const getProfileName = (profile: ProfileSummary | ProfileSummary[] | null | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 interface CreateInvoiceDialogProps {
   open: boolean;
@@ -33,6 +49,7 @@ export function CreateInvoiceDialog({
   onOpenChange,
   clinicId,
 }: CreateInvoiceDialogProps) {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
@@ -133,13 +150,13 @@ export function CreateInvoiceDialog({
 
   const handleSave = async () => {
     if (!patientId) {
-      toast.error("Выберите пациента");
+      toast.error(t('crmFinanceComponents.selectPatient'));
       return;
     }
 
     const validItems = items.filter((item) => item.service.trim() && item.price);
     if (validItems.length === 0) {
-      toast.error("Добавьте хотя бы одну услугу");
+      toast.error(t('crmFinanceComponents.addAtLeastOneService'));
       return;
     }
 
@@ -147,7 +164,7 @@ export function CreateInvoiceDialog({
 
     setSaving(true);
     try {
-      const { error } = await supabase.from("invoices").insert({
+      const invoice: InvoiceInsert = {
         clinic_id: clinicId,
         patient_id: patientId,
         doctor_id: doctorId || currentDoctor?.id || null,
@@ -157,24 +174,28 @@ export function CreateInvoiceDialog({
         final_amount: totals.finalAmount,
         status: "new",
         notes: notes || null,
-      } as any);
+      };
+
+      const { error } = await supabase.from("invoices").insert(invoice);
 
       if (error) throw error;
 
-      await supabase.from("notifications").insert({
+      const notification: NotificationInsert = {
         user_id: patientId,
         type: "invoice",
-        title: "Новый счёт",
-        message: `Выставлен счёт на сумму ${totals.finalAmount.toLocaleString()} UZS`,
+        title: t('crmFinanceComponents.newInvoiceTitle'),
+        message: `${t('crmFinanceComponents.invoiceIssuedFor')} ${totals.finalAmount.toLocaleString()} UZS`,
         metadata: { amount: totals.finalAmount },
-      } as any);
+      };
 
-      toast.success("Счёт создан");
+      await supabase.from("notifications").insert(notification);
+
+      toast.success(t('crmFinanceComponents.invoiceCreated'));
       queryClient.invalidateQueries({ queryKey: ["invoices-list"] });
       onOpenChange(false);
       resetForm();
-    } catch (error: any) {
-      toast.error("Ошибка создания счёта: " + error.message);
+    } catch (error: unknown) {
+      toast.error(t('crmFinanceComponents.invoiceCreateError') + ": " + getErrorMessage(error));
     } finally {
       setSaving(false);
     }
@@ -195,23 +216,23 @@ export function CreateInvoiceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Создать счёт</DialogTitle>
+          <DialogTitle>{t('crmFinanceComponents.createInvoice')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>
-                Пациент <span className="text-destructive">*</span>
+                {t('crmFinanceComponents.colPatient')} <span className="text-destructive">*</span>
               </Label>
               <Select value={patientId} onValueChange={setPatientId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите пациента" />
+                  <SelectValue placeholder={t('crmFinanceComponents.selectPatient')} />
                 </SelectTrigger>
                 <SelectContent>
                   {patients?.map((patient) => (
                     <SelectItem key={patient.id} value={patient.id}>
-                      {patient.full_name || "Без имени"}
+                      {patient.full_name || t('crmFinanceComponents.noName')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -219,15 +240,15 @@ export function CreateInvoiceDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Врач</Label>
+              <Label>{t('crmFinanceComponents.doctor')}</Label>
               <Select value={doctorId} onValueChange={setDoctorId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите врача" />
+                  <SelectValue placeholder={t('crmFinanceComponents.selectDoctor')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {doctors?.map((doctor) => (
+                  {(doctors as ClinicDoctor[] | undefined)?.map((doctor) => (
                     <SelectItem key={doctor.id} value={doctor.id}>
-                      {(doctor.user as any)?.full_name || "Без имени"}
+                      {getProfileName(doctor.user) || t('crmFinanceComponents.noName')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -237,7 +258,7 @@ export function CreateInvoiceDialog({
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Label className="text-base">Услуги</Label>
+              <Label className="text-base">{t('crmFinanceComponents.services')}</Label>
               <Button
                 type="button"
                 variant="outline"
@@ -245,7 +266,7 @@ export function CreateInvoiceDialog({
                 onClick={addItem}
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Добавить
+                {t('crmFinanceComponents.add')}
               </Button>
             </div>
 
@@ -256,16 +277,16 @@ export function CreateInvoiceDialog({
                   className="flex items-end gap-2 p-3 bg-muted rounded-lg"
                 >
                   <div className="flex-1 space-y-2">
-                    <Label className="text-sm">Услуга</Label>
-                    <Input
+                    <Label className="text-sm" htmlFor="create-invoice-dialog-field-1">{t('crmFinanceComponents.colService')}</Label>
+                    <Input id="create-invoice-dialog-field-1"
                       value={item.service}
                       onChange={(e) => updateItem(index, "service", e.target.value)}
-                      placeholder="Название услуги"
+                      placeholder={t('crmFinanceComponents.serviceName')}
                     />
                   </div>
                   <div className="w-32 space-y-2">
-                    <Label className="text-sm">Цена</Label>
-                    <Input
+                    <Label className="text-sm" htmlFor="create-invoice-dialog-field-2">{t('crmFinanceComponents.price')}</Label>
+                    <Input id="create-invoice-dialog-field-2"
                       type="number"
                       value={item.price}
                       onChange={(e) => updateItem(index, "price", e.target.value)}
@@ -290,8 +311,8 @@ export function CreateInvoiceDialog({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Скидка %</Label>
-              <Input
+              <Label htmlFor="create-invoice-dialog-field-3">{t('crmFinanceComponents.discountPercent')}</Label>
+              <Input id="create-invoice-dialog-field-3"
                 type="number"
                 value={discountPercent}
                 onChange={(e) => {
@@ -303,8 +324,8 @@ export function CreateInvoiceDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>Скидка сумма (UZS)</Label>
-              <Input
+              <Label htmlFor="create-invoice-dialog-field-4">{t('crmFinanceComponents.discountAmountUZS')}</Label>
+              <Input id="create-invoice-dialog-field-4"
                 type="number"
                 value={discountAmount}
                 onChange={(e) => {
@@ -317,32 +338,32 @@ export function CreateInvoiceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Примечания</Label>
-            <Textarea
+            <Label htmlFor="create-invoice-dialog-field-5">{t('crmFinanceComponents.notes')}</Label>
+            <Textarea id="create-invoice-dialog-field-5"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Дополнительная информация..."
+              placeholder={t('crmFinanceComponents.additionalInfo')}
               rows={2}
             />
           </div>
 
           <div className="p-4 bg-muted rounded-lg border space-y-2">
             <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Сумма услуг:</span>
+              <span className="text-muted-foreground">{t('crmFinanceComponents.servicesAmount')}:</span>
               <span className="font-medium">
                 {totals.totalAmount.toLocaleString()} UZS
               </span>
             </div>
             {(discountPercent || discountAmount) && (
               <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Скидка:</span>
+                <span className="text-muted-foreground">{t('crmFinanceComponents.discount')}:</span>
                 <span className="text-destructive font-medium">
                   -{(totals.totalAmount - totals.finalAmount).toLocaleString()} UZS
                 </span>
               </div>
             )}
             <div className="flex justify-between text-lg font-semibold pt-2 border-t">
-              <span>Итого:</span>
+              <span>{t('crmFinanceComponents.colTotal')}:</span>
               <span className="text-primary">{totals.finalAmount.toLocaleString()} UZS</span>
             </div>
           </div>
@@ -352,11 +373,11 @@ export function CreateInvoiceDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
             >
-              Отмена
+              {t('crmFinanceComponents.cancel')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               <Save className="w-4 h-4 mr-2" />
-              {saving ? "Сохранение..." : "Создать счёт"}
+              {saving ? t('crmFinanceComponents.saving') : t('crmFinanceComponents.createInvoice')}
             </Button>
           </div>
         </div>

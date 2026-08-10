@@ -1,12 +1,10 @@
-import { AssistantLayout } from '@/components/assistant/AssistantLayout';
+import { AssistantLayout } from "@/components/assistant/AssistantLayout";
+import { ScheduleOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function AssistantRooms() {
   return (
     <AssistantLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Подготовка кабинетов</h1>
-        <p className="text-muted-foreground">Управление подготовкой кабинетов</p>
-      </div>
+      <ScheduleOperations title="Подготовка кабинетов" description="Кабинеты и кресла, используемые сегодня." roomsOnly />
     </AssistantLayout>
   );
 }

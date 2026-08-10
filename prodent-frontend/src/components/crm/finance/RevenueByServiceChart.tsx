@@ -23,7 +23,7 @@ export function RevenueByServiceChart({ period }: RevenueByServiceChartProps) {
     queryFn: async () => {
       const { data: appointments } = await supabase
         .from("appointments")
-        .select("service, price")
+        .select("service, total_price")
         .eq("clinic_id", currentClinic?.id)
         .eq("status", "completed")
         .gte("appointment_date", startDate.toISOString());
@@ -32,7 +32,7 @@ export function RevenueByServiceChart({ period }: RevenueByServiceChartProps) {
       
       appointments?.forEach((apt) => {
         const service = apt.service || "Прочее";
-        serviceMap[service] = (serviceMap[service] || 0) + (apt.price || 0);
+        serviceMap[service] = (serviceMap[service] || 0) + (apt.total_price || 0);
       });
 
       return Object.entries(serviceMap)

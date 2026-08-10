@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { User, Phone, Mail, Calendar, MapPin, Edit2, Save, X } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PatientProfileProps {
   patient: {
@@ -33,6 +34,7 @@ interface PatientProfileProps {
 }
 
 export function PatientProfile({ patient }: PatientProfileProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -56,7 +58,7 @@ export function PatientProfile({ patient }: PatientProfileProps) {
           full_name: formData.full_name,
           phone: formData.phone,
           email: formData.email,
-          birth_date: formData.birth_date || null,
+          date_of_birth: formData.birth_date || null,
           gender: formData.gender || null,
           address: formData.address || null,
           notes: formData.notes || null,
@@ -65,12 +67,12 @@ export function PatientProfile({ patient }: PatientProfileProps) {
 
       if (error) throw error;
 
-      toast.success("Данные обновлены");
+      toast.success(t('crmPatientProfile.dataUpdated'));
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ["patient-detail", patient.id] });
     } catch (error) {
       console.error("Error updating patient:", error);
-      toast.error("Ошибка обновления данных");
+      toast.error(t('crmPatientProfile.dataUpdateError'));
     } finally {
       setLoading(false);
     }
@@ -108,18 +110,18 @@ export function PatientProfile({ patient }: PatientProfileProps) {
       <Card className="border-border/50 bg-card/80">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-foreground">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
               <Edit2 className="w-5 h-5" />
-              Редактирование профиля
+              {t('crmPatientProfile.editProfileTitle')}
             </CardTitle>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={handleCancel} disabled={loading}>
                 <X className="w-4 h-4 mr-1" />
-                Отмена
+                {t('crmPatientProfile.cancel')}
               </Button>
               <Button size="sm" onClick={handleSave} disabled={loading}>
                 <Save className="w-4 h-4 mr-1" />
-                Сохранить
+                {t('crmPatientProfile.save')}
               </Button>
             </div>
           </div>
@@ -127,24 +129,24 @@ export function PatientProfile({ patient }: PatientProfileProps) {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>ФИО</Label>
-              <Input
+              <Label htmlFor="patient-profile-field-1">{t('crmPatientProfile.fioLabel')}</Label>
+              <Input id="patient-profile-field-1"
                 value={formData.full_name}
                 onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
                 className="bg-muted/50 border-border"
               />
             </div>
             <div className="space-y-2">
-              <Label>Телефон</Label>
-              <Input
+              <Label htmlFor="patient-profile-field-2">{t('crmPatientProfile.phoneLabel')}</Label>
+              <Input id="patient-profile-field-2"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                 className="bg-muted/50 border-border"
               />
             </div>
             <div className="space-y-2">
-              <Label>Email</Label>
-              <Input
+              <Label htmlFor="patient-profile-field-3">{t('crmPatientProfile.emailLabel')}</Label>
+              <Input id="patient-profile-field-3"
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -152,8 +154,8 @@ export function PatientProfile({ patient }: PatientProfileProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label>Дата рождения</Label>
-              <Input
+              <Label htmlFor="patient-profile-field-4">{t('crmPatientProfile.birthDateLabel')}</Label>
+              <Input id="patient-profile-field-4"
                 type="date"
                 value={formData.birth_date}
                 onChange={(e) => setFormData({ ...formData, birth_date: e.target.value })}
@@ -161,20 +163,20 @@ export function PatientProfile({ patient }: PatientProfileProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label>Пол</Label>
+              <Label>{t('crmPatientProfile.genderLabel')}</Label>
               <Select value={formData.gender} onValueChange={(v) => setFormData({ ...formData, gender: v })}>
                 <SelectTrigger className="bg-muted/50 border-border">
-                  <SelectValue placeholder="Выберите пол" />
+                  <SelectValue placeholder={t('crmPatientProfile.genderPh')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="male">Мужской</SelectItem>
-                  <SelectItem value="female">Женский</SelectItem>
+                  <SelectItem value="male">{t('crmPatientProfile.male')}</SelectItem>
+                  <SelectItem value="female">{t('crmPatientProfile.female')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Адрес</Label>
-              <Input
+              <Label htmlFor="patient-profile-field-5">{t('crmPatientProfile.addressLabel')}</Label>
+              <Input id="patient-profile-field-5"
                 value={formData.address}
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 className="bg-muted/50 border-border"
@@ -182,8 +184,8 @@ export function PatientProfile({ patient }: PatientProfileProps) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label>Заметки</Label>
-            <Textarea
+            <Label htmlFor="patient-profile-field-6">{t('crmPatientProfile.notesLabel')}</Label>
+            <Textarea id="patient-profile-field-6"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
               className="bg-muted/50 border-border"
@@ -199,13 +201,13 @@ export function PatientProfile({ patient }: PatientProfileProps) {
     <Card className="border-border/50 bg-card/80">
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-foreground">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <User className="w-5 h-5" />
-            Профиль пациента
+            {t('crmPatientProfile.profileTitle')}
           </CardTitle>
           <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
             <Edit2 className="w-4 h-4 mr-1" />
-            Редактировать
+            {t('crmPatientProfile.edit')}
           </Button>
         </div>
       </CardHeader>
@@ -217,7 +219,7 @@ export function PatientProfile({ patient }: PatientProfileProps) {
                 <User className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">ФИО</p>
+                <p className="text-sm text-muted-foreground">{t('crmPatientProfile.fioLabel')}</p>
                 <p className="font-medium text-foreground">{patient.full_name || "—"}</p>
               </div>
             </div>
@@ -227,7 +229,7 @@ export function PatientProfile({ patient }: PatientProfileProps) {
                 <Phone className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Телефон</p>
+                <p className="text-sm text-muted-foreground">{t('crmPatientProfile.phoneLabel')}</p>
                 <p className="font-medium text-foreground">{patient.phone || "—"}</p>
               </div>
             </div>
@@ -237,7 +239,7 @@ export function PatientProfile({ patient }: PatientProfileProps) {
                 <Mail className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Email</p>
+                <p className="text-sm text-muted-foreground">{t('crmPatientProfile.emailLabel')}</p>
                 <p className="font-medium text-foreground">{patient.email || "—"}</p>
               </div>
             </div>
@@ -249,10 +251,10 @@ export function PatientProfile({ patient }: PatientProfileProps) {
                 <Calendar className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Дата рождения</p>
+                <p className="text-sm text-muted-foreground">{t('crmPatientProfile.birthDateLabel')}</p>
                 <p className="font-medium text-foreground">
-                  {patient.birth_date 
-                    ? `${format(new Date(patient.birth_date), "d MMMM yyyy", { locale: ru })}${age !== null ? ` (${age} лет)` : ""}`
+                  {patient.birth_date
+                    ? `${format(new Date(patient.birth_date), "d MMMM yyyy", { locale: ru })}${age !== null ? ` (${age} ${t('crmPatientProfile.yearsSuffix')})` : ""}`
                     : "—"
                   }
                 </p>
@@ -264,9 +266,9 @@ export function PatientProfile({ patient }: PatientProfileProps) {
                 <User className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Пол</p>
+                <p className="text-sm text-muted-foreground">{t('crmPatientProfile.genderLabel')}</p>
                 <p className="font-medium text-foreground">
-                  {patient.gender === "male" ? "Мужской" : patient.gender === "female" ? "Женский" : "—"}
+                  {patient.gender === "male" ? t('crmPatientProfile.male') : patient.gender === "female" ? t('crmPatientProfile.female') : "—"}
                 </p>
               </div>
             </div>
@@ -276,7 +278,7 @@ export function PatientProfile({ patient }: PatientProfileProps) {
                 <MapPin className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Адрес</p>
+                <p className="text-sm text-muted-foreground">{t('crmPatientProfile.addressLabel')}</p>
                 <p className="font-medium text-foreground">{patient.address || "—"}</p>
               </div>
             </div>
@@ -285,13 +287,13 @@ export function PatientProfile({ patient }: PatientProfileProps) {
 
         {patient.notes && (
           <div className="mt-6 p-4 bg-muted/50 rounded-lg">
-            <p className="text-sm text-muted-foreground mb-1">Заметки</p>
+            <p className="text-sm text-muted-foreground mb-1">{t('crmPatientProfile.notesLabel')}</p>
             <p className="text-foreground">{patient.notes}</p>
           </div>
         )}
 
         <div className="mt-6 pt-4 border-t border-border/50 text-sm text-muted-foreground">
-          Пациент с {format(new Date(patient.created_at), "d MMMM yyyy", { locale: ru })}
+          {t('crmPatientProfile.patientSince')} {format(new Date(patient.created_at), "d MMMM yyyy", { locale: ru })}
         </div>
       </CardContent>
     </Card>

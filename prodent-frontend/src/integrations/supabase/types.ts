@@ -1257,45 +1257,53 @@ export type Database = {
       }
       clinic_settings: {
         Row: {
+          appointment_duration: number
+          auto_confirm_appointments: boolean | null
           clinic_id: string
-          description: string | null
+          created_at: string
+          email_notifications: boolean | null
           id: string
-          key: string
-          updated_at: string | null
-          updated_by: string | null
-          value: Json
+          max_advance_booking_days: number
+          online_booking_enabled: boolean | null
+          queue_enabled: boolean | null
+          settings_json: Json | null
+          sms_notifications: boolean | null
+          updated_at: string
         }
         Insert: {
+          appointment_duration?: number
+          auto_confirm_appointments?: boolean | null
           clinic_id: string
-          description?: string | null
+          created_at?: string
+          email_notifications?: boolean | null
           id?: string
-          key: string
-          updated_at?: string | null
-          updated_by?: string | null
-          value: Json
+          max_advance_booking_days?: number
+          online_booking_enabled?: boolean | null
+          queue_enabled?: boolean | null
+          settings_json?: Json | null
+          sms_notifications?: boolean | null
+          updated_at?: string
         }
         Update: {
+          appointment_duration?: number
+          auto_confirm_appointments?: boolean | null
           clinic_id?: string
-          description?: string | null
+          created_at?: string
+          email_notifications?: boolean | null
           id?: string
-          key?: string
-          updated_at?: string | null
-          updated_by?: string | null
-          value?: Json
+          max_advance_booking_days?: number
+          online_booking_enabled?: boolean | null
+          queue_enabled?: boolean | null
+          settings_json?: Json | null
+          sms_notifications?: boolean | null
+          updated_at?: string
         }
         Relationships: [
           {
             foreignKeyName: "clinic_settings_clinic_id_fkey"
             columns: ["clinic_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "clinics"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "clinic_settings_updated_by_fkey"
-            columns: ["updated_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -4166,7 +4174,7 @@ export type Database = {
           full_name: string | null
           gender: string | null
           id: string
-          is_archived: boolean | null
+          is_active: boolean | null
           last_name: string | null
           latitude: number | null
           longitude: number | null
@@ -4193,7 +4201,7 @@ export type Database = {
           full_name?: string | null
           gender?: string | null
           id: string
-          is_archived?: boolean | null
+          is_active?: boolean | null
           last_name?: string | null
           latitude?: number | null
           longitude?: number | null
@@ -4220,7 +4228,7 @@ export type Database = {
           full_name?: string | null
           gender?: string | null
           id?: string
-          is_archived?: boolean | null
+          is_active?: boolean | null
           last_name?: string | null
           latitude?: number | null
           longitude?: number | null
@@ -4990,64 +4998,72 @@ export type Database = {
       }
       treatment_plan_items: {
         Row: {
-          clinic_id: string
-          created_at: string | null
+          completed_at: string | null
+          description: string
+          description_kz: string | null
+          description_kg: string | null
+          description_ru: string | null
+          description_tj: string | null
+          description_uz: string | null
+          description_uz_cyrl: string | null
           id: string
-          line_total: number | null
           notes: string | null
-          plan_id: string
-          price: number | null
-          procedure: string
-          quantity: number | null
+          quantity: number
           service_id: string | null
+          sort_order: number | null
           stage_name: string | null
-          status: string | null
+          status: "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
           tooth_number: number | null
-          updated_at: string | null
+          total_price: number
+          treatment_plan_id: string
+          unit_price: number
         }
         Insert: {
-          clinic_id: string
-          created_at?: string | null
+          completed_at?: string | null
+          description: string
+          description_kz?: string | null
+          description_kg?: string | null
+          description_ru?: string | null
+          description_tj?: string | null
+          description_uz?: string | null
+          description_uz_cyrl?: string | null
           id?: string
-          line_total?: number | null
           notes?: string | null
-          plan_id: string
-          price?: number | null
-          procedure: string
-          quantity?: number | null
+          quantity?: number
           service_id?: string | null
+          sort_order?: number | null
           stage_name?: string | null
-          status?: string | null
+          status?: "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
           tooth_number?: number | null
-          updated_at?: string | null
+          total_price: number
+          treatment_plan_id: string
+          unit_price: number
         }
         Update: {
-          clinic_id?: string
-          created_at?: string | null
+          completed_at?: string | null
+          description?: string
+          description_kz?: string | null
+          description_kg?: string | null
+          description_ru?: string | null
+          description_tj?: string | null
+          description_uz?: string | null
+          description_uz_cyrl?: string | null
           id?: string
-          line_total?: number | null
           notes?: string | null
-          plan_id?: string
-          price?: number | null
-          procedure?: string
-          quantity?: number | null
+          quantity?: number
           service_id?: string | null
+          sort_order?: number | null
           stage_name?: string | null
-          status?: string | null
+          status?: "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
           tooth_number?: number | null
-          updated_at?: string | null
+          total_price?: number
+          treatment_plan_id?: string
+          unit_price?: number
         }
         Relationships: [
           {
-            foreignKeyName: "treatment_plan_items_clinic_id_fkey"
-            columns: ["clinic_id"]
-            isOneToOne: false
-            referencedRelation: "clinics"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "treatment_plan_items_plan_id_fkey"
-            columns: ["plan_id"]
+            foreignKeyName: "treatment_plan_items_treatment_plan_id_fkey"
+            columns: ["treatment_plan_id"]
             isOneToOne: false
             referencedRelation: "treatment_plans"
             referencedColumns: ["id"]
@@ -5065,89 +5081,101 @@ export type Database = {
         Row: {
           approved_at: string | null
           approved_by: string | null
-          clinic_id: string | null
-          completed_date: string | null
-          consent_at: string | null
-          created_at: string | null
-          discount_comment: string | null
-          discount_type: string | null
-          discount_value: number | null
+          clinic_id: string
+          created_at: string
+          currency: string | null
+          description: string | null
+          description_kz: string | null
+          description_kg: string | null
+          description_ru: string | null
+          description_tj: string | null
+          description_uz: string | null
+          description_uz_cyrl: string | null
           doctor_id: string
-          final_price: number | null
+          discount_amount: number
+          discount_comment: string | null
+          discount_type: "PERCENT" | "FIXED"
+          discount_value: number
           id: string
-          notes: string | null
-          patient_consent: boolean | null
           patient_id: string
-          plan_number: string | null
-          planned_date: string | null
-          price: number | null
-          public_access_token: string | null
-          qr_code_url: string | null
-          service_name: string | null
-          status: string | null
-          tooth_number: number | null
-          total_price: number | null
-          updated_at: string | null
-          valid_days: number | null
-          valid_until: string | null
+          patient_consent_confirmed_at: string | null
+          patient_consent_confirmed_by: string | null
+          status: "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+          title: string
+          title_kz: string | null
+          title_kg: string | null
+          title_ru: string | null
+          title_tj: string | null
+          title_uz: string | null
+          title_uz_cyrl: string | null
+          total_cost: number | null
+          updated_at: string
         }
         Insert: {
           approved_at?: string | null
           approved_by?: string | null
-          clinic_id?: string | null
-          completed_date?: string | null
-          consent_at?: string | null
-          created_at?: string | null
-          discount_comment?: string | null
-          discount_type?: string | null
-          discount_value?: number | null
+          clinic_id: string
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          description_kz?: string | null
+          description_kg?: string | null
+          description_ru?: string | null
+          description_tj?: string | null
+          description_uz?: string | null
+          description_uz_cyrl?: string | null
           doctor_id: string
-          final_price?: number | null
+          discount_amount?: number
+          discount_comment?: string | null
+          discount_type?: "PERCENT" | "FIXED"
+          discount_value?: number
           id?: string
-          notes?: string | null
-          patient_consent?: boolean | null
           patient_id: string
-          plan_number?: string | null
-          planned_date?: string | null
-          price?: number | null
-          public_access_token?: string | null
-          qr_code_url?: string | null
-          service_name?: string | null
-          status?: string | null
-          tooth_number?: number | null
-          total_price?: number | null
-          updated_at?: string | null
-          valid_days?: number | null
-          valid_until?: string | null
+          patient_consent_confirmed_at?: string | null
+          patient_consent_confirmed_by?: string | null
+          status?: "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+          title: string
+          title_kz?: string | null
+          title_kg?: string | null
+          title_ru?: string | null
+          title_tj?: string | null
+          title_uz?: string | null
+          title_uz_cyrl?: string | null
+          total_cost?: number | null
+          updated_at?: string
         }
         Update: {
           approved_at?: string | null
           approved_by?: string | null
-          clinic_id?: string | null
-          completed_date?: string | null
-          consent_at?: string | null
-          created_at?: string | null
-          discount_comment?: string | null
-          discount_type?: string | null
-          discount_value?: number | null
+          clinic_id?: string
+          created_at?: string
+          currency?: string | null
+          description?: string | null
+          description_kz?: string | null
+          description_kg?: string | null
+          description_ru?: string | null
+          description_tj?: string | null
+          description_uz?: string | null
+          description_uz_cyrl?: string | null
           doctor_id?: string
-          final_price?: number | null
+          discount_amount?: number
+          discount_comment?: string | null
+          discount_type?: "PERCENT" | "FIXED"
+          discount_value?: number
           id?: string
-          notes?: string | null
-          patient_consent?: boolean | null
           patient_id?: string
-          plan_number?: string | null
-          planned_date?: string | null
-          price?: number | null
-          public_access_token?: string | null
-          qr_code_url?: string | null
-          service_name?: string | null
-          status?: string | null
-          tooth_number?: number | null
-          total_price?: number | null
-          updated_at?: string | null
-          valid_days?: number | null
-          valid_until?: string | null
+          patient_consent_confirmed_at?: string | null
+          patient_consent_confirmed_by?: string | null
+          status?: "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+          title?: string
+          title_kz?: string | null
+          title_kg?: string | null
+          title_ru?: string | null
+          title_tj?: string | null
+          title_uz?: string | null
+          title_uz_cyrl?: string | null
+          total_cost?: number | null
+          updated_at?: string
         }
         Relationships: [
           {

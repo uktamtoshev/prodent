@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ProfileReviewsProps {
   doctorId: string;
@@ -38,6 +39,7 @@ interface ReviewStats {
 }
 
 export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
+  const { t } = useLanguage();
   const { data: reviews, isLoading } = useQuery({
     queryKey: ['doctor-reviews', doctorId],
     queryFn: async () => {
@@ -90,7 +92,7 @@ export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
         key={i}
         className={`w-4 h-4 ${
           i < rating 
-            ? 'text-amber-500 fill-amber-500' 
+            ? 'text-primary fill-primary'
             : 'text-muted-foreground/30'
         }`}
       />
@@ -100,9 +102,9 @@ export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
   return (
     <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
       <CardHeader>
-        <CardTitle className="text-foreground flex items-center gap-2">
+        <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
           <MessageSquare className="w-5 h-5 text-primary" />
-          Отзывы пациентов
+          {t('crmProfileReviews.patientReviews')}
           {stats && stats.total > 0 && (
             <Badge variant="secondary" className="ml-2">
               {stats.total}
@@ -123,7 +125,7 @@ export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
                 {renderStars(Math.round(stats.average))}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                {stats.total} {stats.total === 1 ? 'отзыв' : 'отзывов'}
+                {stats.total} {stats.total === 1 ? t('crmProfileReviews.reviewOne') : t('crmProfileReviews.reviewsMany')}
               </p>
             </div>
 
@@ -132,7 +134,7 @@ export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
               {stats.distribution.map(({ rating, count, percentage }) => (
                 <div key={rating} className="flex items-center gap-3">
                   <span className="text-sm text-muted-foreground w-16 flex items-center gap-1">
-                    {rating} <Star className="w-3 h-3 fill-primary text-primary" />
+                    {rating} <Star className="w-3 h-3 fill-rating text-rating" />
                   </span>
                   <Progress value={percentage} className="h-2 flex-1" />
                   <span className="text-sm text-muted-foreground w-8 text-right">
@@ -147,14 +149,14 @@ export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
         {/* Reviews List */}
         {isLoading ? (
           <div className="text-center py-8 text-muted-foreground">
-            Загрузка отзывов...
+            {t('crmProfileReviews.loading')}
           </div>
         ) : !reviews || reviews.length === 0 ? (
           <div className="text-center py-12">
             <MessageSquare className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-muted-foreground">Пока нет отзывов</p>
+            <p className="text-muted-foreground">{t('crmProfileReviews.noReviewsYet')}</p>
             <p className="text-sm text-muted-foreground/60 mt-1">
-              Отзывы появятся после приёма пациентов
+              {t('crmProfileReviews.reviewsAppearAfter')}
             </p>
           </div>
         ) : (
@@ -170,12 +172,12 @@ export function ProfileReviews({ doctorId }: ProfileReviewsProps) {
                     <Avatar className="w-10 h-10">
                       <AvatarImage src={review.patient?.avatar_url || undefined} />
                       <AvatarFallback className="bg-primary/10 text-primary">
-                        {review.patient?.full_name?.charAt(0) || 'П'}
+                        {review.patient?.full_name?.charAt(0) || t('crmProfileReviews.initialP')}
                       </AvatarFallback>
                     </Avatar>
                     <div>
                       <p className="font-medium text-foreground">
-                        {review.patient?.full_name || 'Пациент'}
+                        {review.patient?.full_name || t('crmProfileReviews.patientFallback')}
                       </p>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Calendar className="w-3 h-3" />

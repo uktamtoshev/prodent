@@ -12,7 +12,11 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-12 items-center justify-center rounded-prodent bg-muted/50 p-1 text-muted-foreground",
+      // Макет: вкладки стоят прямо на холсте, без серой полосы-подложки, и
+      // активная «врастает» в содержимое под собой. Полоса скрадывала эту связь
+      // и добавляла лишний слой. max-w-full / overflow-x-auto / justify-start
+      // трогать нельзя — их держит responsive-primitives.test.tsx.
+      "inline-flex max-w-full items-center justify-start gap-0.5 overflow-x-auto text-muted-foreground",
       className,
     )}
     {...props}
@@ -27,9 +31,15 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap rounded-prodent-btn px-4 py-2 text-sm font-medium ring-offset-background transition-all duration-150",
+      // Геометрия макета: 8px/13px, 13.5px/500, скруглены только сверху —
+      // язычок садится на содержимое. cabinet-control возвращает 44px на
+      // касании: сама по себе вкладка выходит около 34px.
+      "cabinet-control inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-t-field px-3 py-2 text-cell font-medium ring-offset-background transition-all duration-150",
       "relative overflow-hidden",
-      "data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-soft",
+      // Активная — карточкой. На светлом холсте разница карточки и фона всего
+      // 1.17:1, поэтому одной заливки мало: границу сверху и по бокам держит
+      // рамка, иначе активную вкладку не отличить от соседних.
+      "data-[state=active]:border data-[state=active]:border-b-0 data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:font-semibold data-[state=active]:text-primary data-[state=active]:shadow-soft",
       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       "disabled:pointer-events-none disabled:opacity-50",
       "hover:text-foreground",

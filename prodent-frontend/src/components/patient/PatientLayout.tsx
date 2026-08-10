@@ -1,10 +1,11 @@
-import { ReactNode, useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { ReactNode, useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { PatientSidebar } from "./PatientSidebar";
-import { Loader2, Menu, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { PatientOfflineBanner } from "./PatientOfflineBanner";
 
 interface PatientLayoutProps {
   children: ReactNode;
@@ -12,18 +13,13 @@ interface PatientLayoutProps {
 
 export function PatientLayout({ children }: PatientLayoutProps) {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { user, loading } = useAuth();
+  const { t } = useLanguage();
 
-  useEffect(() => {
-    if (!loading) {
-      checkAccess();
-    }
-  }, [user, loading]);
-
-  const checkAccess = async () => {
-    if (!user) {
+  const checkAccess = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) {
       navigate("/auth");
       return;
     }
@@ -32,7 +28,7 @@ export function PatientLayout({ children }: PatientLayoutProps) {
     const { data: doctor } = await supabase
       .from("doctors")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
 
     if (doctor) {
@@ -44,33 +40,35 @@ export function PatientLayout({ children }: PatientLayoutProps) {
     const { data: userRoles } = await supabase
       .from("user_roles")
       .select("role")
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
 
-    const hasNonPatientRole = userRoles?.some(r => 
-      r.role === 'doctor' || r.role === 'clinic_admin' || r.role === 'super_admin' || r.role === 'admin'
-    );
+    const norm = (record: { role?: string | null }) => (record.role || '').toLowerCase();
+    const hasNonPatientRole = userRoles?.some(r => {
+      const rn = norm(r);
+      return rn === 'doctor' || rn === 'clinic_admin' || rn === 'super_admin' || rn === 'admin';
+    });
 
     if (hasNonPatientRole) {
       // Redirect clinic admins to CRM
-      if (userRoles?.some(r => r.role === 'clinic_admin')) {
+      if (userRoles?.some(r => norm(r) === 'clinic_admin')) {
         navigate("/crm");
         return;
       }
       // Redirect admins to admin panel
-      if (userRoles?.some(r => r.role === 'super_admin' || r.role === 'admin')) {
+      if (userRoles?.some(r => norm(r) === 'super_admin' || norm(r) === 'admin')) {
         navigate("/admin");
         return;
       }
     }
 
-    // Check clinic_members for non-patient roles  
+    // Check clinic_members for non-patient roles
     const { data: membership } = await supabase
       .from("clinic_members")
       .select("role, clinic_id")
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
 
-    const hasStaffRole = membership?.some(m => 
-      m.role !== 'patient'
+    const hasStaffRole = membership?.some(m =>
+      norm(m) !== 'patient'
     );
 
     if (hasStaffRole) {
@@ -80,12 +78,23 @@ export function PatientLayout({ children }: PatientLayoutProps) {
 
     // User is a patient - allow access
     setIsAuthorized(true);
-  };
+  }, [navigate, user?.id]);
+
+  useEffect(() => {
+    if (!loading) {
+      void checkAccess();
+    }
+  }, [checkAccess, loading]);
 
   if (loading || isAuthorized === null) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      <div
+        className="flex min-h-screen items-center justify-center bg-background"
+        role="status"
+        aria-live="polite"
+      >
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+        <span className="sr-only">{t("common.loading")}</span>
       </div>
     );
   }
@@ -94,52 +103,23 @@ export function PatientLayout({ children }: PatientLayoutProps) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-2">Доступ запрещён</h1>
-          <p className="text-muted-foreground">У вас нет прав для просмотра этой страницы</p>
+          <h1 className="text-2xl font-bold text-foreground mb-2">{t("patient.accessDenied")}</h1>
+          <p className="text-muted-foreground">{t("patient.accessDeniedDesc")}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background text-[15px]">
-      {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 bg-card/80 backdrop-blur-xl border-b border-border/50 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <Link to="/" className="font-bold text-foreground hover:opacity-80 transition-opacity">PRODENT</Link>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </Button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Sidebar handles its own mobile drawer + desktop fixed positioning */}
+      <PatientSidebar />
 
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/50"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200 lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <PatientSidebar />
-      </div>
-
-      {/* Main Content */}
-      <div className="lg:pl-64">
-        <main className="pt-16 lg:pt-0 min-h-screen">
-          {children}
-        </main>
-      </div>
+      {/* Reserve the mobile toolbar and the 256px desktop sidebar. */}
+      <main className="min-h-screen pt-16 lg:pl-64 lg:pt-0">
+        <PatientOfflineBanner />
+        {children}
+      </main>
     </div>
   );
 }

@@ -14,6 +14,31 @@ export interface ActiveBadge {
   bg_color: string;
 }
 
+type BadgeField = "name" | "name_uz" | "name_en" | "icon" | "color" | "bg_color";
+
+interface BadgeWire {
+  name?: string | null;
+  name_uz?: string | null;
+  name_en?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  bg_color?: string | null;
+}
+
+interface BadgeAssignmentWire {
+  id: string;
+  badge_id: string;
+  doctor_id: string | null;
+  clinic_id: string | null;
+  badges?: BadgeWire | null;
+  badges_name?: string | null;
+  badges_name_uz?: string | null;
+  badges_name_en?: string | null;
+  badges_icon?: string | null;
+  badges_color?: string | null;
+  badges_bg_color?: string | null;
+}
+
 export const useActiveBadges = () => {
   return useQuery({
     queryKey: ["active-badges"],
@@ -43,19 +68,25 @@ export const useActiveBadges = () => {
 
       if (error) throw error;
 
-      // Transform to flat structure
-      return (data || []).map((item) => ({
-        id: item.id,
-        badge_id: item.badge_id,
-        doctor_id: item.doctor_id,
-        clinic_id: item.clinic_id,
-        name: (item.badges as any)?.name || "",
-        name_uz: (item.badges as any)?.name_uz || null,
-        name_en: (item.badges as any)?.name_en || null,
-        icon: (item.badges as any)?.icon || "Award",
-        color: (item.badges as any)?.color || "#3B82F6",
-        bg_color: (item.badges as any)?.bg_color || "#EFF6FF",
-      })) as ActiveBadge[];
+      // DataController shim returns embedded columns either as a nested
+      // object (`item.badges.name`) or flattened with the `<table>_` prefix
+      // (`item.badges_name`). Handle both so we work against either backend.
+      return ((data || []) as BadgeAssignmentWire[]).map((item) => {
+        const nested = item.badges || {};
+        const get = (key: BadgeField) => nested[key] ?? item[`badges_${key}`];
+        return {
+          id: item.id,
+          badge_id: item.badge_id,
+          doctor_id: item.doctor_id,
+          clinic_id: item.clinic_id,
+          name: get("name") || "",
+          name_uz: get("name_uz") || null,
+          name_en: get("name_en") || null,
+          icon: get("icon") || "Award",
+          color: get("color") || "#3B82F6",
+          bg_color: get("bg_color") || "#EFF6FF",
+        };
+      }) as ActiveBadge[];
     },
     // Badges are frequently updated by admins; keep UI fresh
     staleTime: 0,

@@ -1,13 +1,21 @@
 import { CRMLayout } from "@/components/crm/CRMLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Megaphone, TrendingUp, Calendar, Eye, MousePointer, Phone, Crown, Star } from "lucide-react";
-import { useAdPackages, useAdCampaigns, useCampaignAnalytics } from "@/hooks/useAdCampaigns";
+import { Megaphone, TrendingUp, Calendar, Crown, Star, Info } from "lucide-react";
+import {
+  useAdPackages,
+  useMyAdCampaigns,
+  useCreateCampaign,
+  AdPackage,
+} from "@/hooks/useAdCampaigns";
+import { AdPackagesList } from "@/components/billing/AdPackagesList";
 import { useClinic } from "@/contexts/ClinicContext";
-import { format, differenceInDays, isPast } from 'date-fns';
-import { ru } from 'date-fns/locale';
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useMemo } from "react";
+import { format, differenceInDays } from "date-fns";
+import { ru } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const packageTypeIcons: Record<string, React.ReactNode> = {
   top_day: <Star className="w-5 h-5" />,
@@ -16,60 +24,113 @@ const packageTypeIcons: Record<string, React.ReactNode> = {
   banner: <Megaphone className="w-5 h-5" />,
 };
 
-const packageTypeLabels: Record<string, string> = {
-  top_day: 'Топ дня',
-  top_week: 'Топ недели',
-  top_month: 'Топ месяца',
-  banner: 'Баннер',
-};
-
 export default function Ads() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
-  const { data: packages } = useAdPackages('clinic');
-  const { data: campaigns } = useAdCampaigns();
+  const { data: packagesRaw } = useAdPackages('clinic');
+  const { data: myCampaigns } = useMyAdCampaigns();
+  const createCampaign = useCreateCampaign();
 
-  const myCampaigns = campaigns?.filter(c => c.clinic_id === currentClinic?.id) || [];
-  const activeCampaigns = myCampaigns.filter(c => c.status === 'active');
+  const packageById = useMemo(() => {
+    const map: Record<string, AdPackage> = {};
+    (packagesRaw ?? []).forEach((p) => {
+      map[p.id] = p;
+    });
+    return map;
+  }, [packagesRaw]);
+
+  const packageTypeLabels = useMemo<Record<string, string>>(
+    () => ({
+      top_day: t('crmAds.packageTopDay'),
+      top_week: t('crmAds.packageTopWeek'),
+      top_month: t('crmAds.packageTopMonth'),
+      banner: t('crmAds.packageBanner'),
+    }),
+    [t],
+  );
+
+  // /campaigns/mine already filters by ownerId on the server; we additionally
+  // narrow to the currently selected clinic when a clinic context is set.
+  const clinicCampaigns = (myCampaigns ?? []).filter(
+    (c) => !currentClinic?.id || c.clinic_id === currentClinic.id,
+  );
+  const activeCampaigns = clinicCampaigns.filter((c) => c.status === 'active');
+
+  // Honest purchase handler: there is no real payment flow for ad packages yet
+  // (no charge against a virtual account / gateway). Previously this created a
+  // campaign as a "manual transfer pending" record while faking an unlimited
+  // balance to bypass the affordability gate, and showed a "submitted" success
+  // toast even though nothing was actually paid. Until the real billing flow is
+  // wired up, do NOT create a fake campaign — tell the user honestly it's coming
+  // soon. (Param kept for the AdPackagesList signature.)
+  const handlePurchase = (_packageId: string) => {
+    toast.info(t('crmAds.selfServeNote'));
+  };
 
   return (
     <CRMLayout>
-      <div className="p-6 lg:p-8 space-y-6">
-        <div>
-          <h1 className="font-heading text-foreground">Реклама на портале</h1>
-          <p className="text-muted-foreground mt-1">Продвижение вашей клиники</p>
+      <div className="space-y-6 p-4 pb-24 lg:p-6">
+        <div className="flex items-start gap-4">
+          <div>
+            <h1 className="cabinet-page-title font-heading text-xl font-bold tracking-tight text-foreground">{t('crmAds.title')}</h1>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{t('crmAds.description')}</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary" className="w-fit rounded-full px-3 py-1">
+            {activeCampaigns.length} {t('crmAds.activeCampaigns')}
+          </Badge>
+          <Badge variant="outline" className="w-fit rounded-full px-3 py-1">
+            {(packagesRaw ?? []).length} {t('crmAds.availablePackages')}
+          </Badge>
         </div>
 
         {/* Active Campaigns */}
         {activeCampaigns.length > 0 && (
-          <Card className="border-green-500/30 bg-green-500/5">
-            <CardHeader>
-              <CardTitle className="text-foreground flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-green-500" />
-                Активные кампании
+          <Card className="overflow-hidden border-status-success/30 bg-status-success/5 shadow-soft">
+            <CardHeader className="border-b border-status-success/20 bg-status-success/5">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
+                <TrendingUp className="h-5 w-5 text-status-success" />
+                {t('crmAds.activeCampaigns')}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6">
               <div className="space-y-4">
                 {activeCampaigns.map((campaign) => {
-                  const daysLeft = differenceInDays(new Date(campaign.end_date), new Date());
+                  const pkg = packageById[campaign.package_id];
+                  const daysLeft = differenceInDays(
+                    new Date(campaign.end_date),
+                    new Date(),
+                  );
                   return (
-                    <div key={campaign.id} className="flex items-center justify-between p-4 bg-background rounded-lg">
+                    <div
+                      key={campaign.id}
+                      className="flex flex-col gap-3 rounded-panel border border-border/50 bg-background p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
                       <div className="flex items-center gap-4">
-                        <div className="p-2 rounded-full bg-primary/10">
-                          {packageTypeIcons[campaign.package?.package_type || 'banner']}
+                        <div className="rounded-full bg-primary/10 p-2 text-primary">
+                          {packageTypeIcons[pkg?.package_type || 'banner']}
                         </div>
-                        <div>
-                          <p className="font-medium">{campaign.package?.name}</p>
+                        <div className="min-w-0">
+                          <p className="font-medium">{pkg?.name || campaign.title || '—'}</p>
                           <p className="text-sm text-muted-foreground">
-                            до {format(new Date(campaign.end_date), 'd MMMM yyyy', { locale: ru })}
+                            {t('common.to')}{' '}
+                            {format(new Date(campaign.end_date), 'd MMMM yyyy', {
+                              locale: ru,
+                            })}
                           </p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <Badge variant="outline" className={cn(
-                          daysLeft <= 3 ? "border-yellow-500 text-yellow-500" : "border-green-500 text-green-500"
-                        )}>
-                          {daysLeft} дн. осталось
+                      <div className="text-left sm:text-right">
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            daysLeft <= 3
+                              ? 'border-status-warning text-status-warning'
+                              : 'border-status-success text-status-success',
+                          )}
+                        >
+                          {daysLeft} {t('crmAds.daysLeft')}
                         </Badge>
                       </div>
                     </div>
@@ -80,87 +141,88 @@ export default function Ads() {
           </Card>
         )}
 
-        {/* Available Packages */}
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-          <CardHeader>
-            <CardTitle className="text-foreground flex items-center gap-2">
-              <Megaphone className="w-5 h-5" />
-              Доступные пакеты
+        {/* Available Packages — self-serve purchase via shared AdPackagesList */}
+        <Card className="overflow-hidden border-border/50 bg-card/80 shadow-soft backdrop-blur-sm">
+          <CardHeader className="border-b border-border/50 bg-surface-2 px-card-x py-card-y">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
+              <Megaphone className="h-5 w-5" />
+              {t('crmAds.availablePackages')}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {packages?.map((pkg) => (
-                <div 
-                  key={pkg.id} 
-                  className="p-6 rounded-xl border border-border/50 bg-gradient-to-br from-background to-muted/30 hover:border-primary/50 transition-all"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 rounded-full bg-primary/10 text-primary">
-                      {packageTypeIcons[pkg.package_type]}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">{pkg.name}</h3>
-                      <p className="text-xs text-muted-foreground">{pkg.duration_days} дней</p>
-                    </div>
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-4">{pkg.description}</p>
-                  <div className="flex items-end justify-between">
-                    <div>
-                      <p className="text-2xl font-bold">{(pkg.price / 1000).toLocaleString()}K</p>
-                      <p className="text-xs text-muted-foreground">{pkg.currency}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
+          <CardContent className="space-y-4 p-4 sm:p-6">
+            <div className="flex items-start gap-3 rounded-2xl border border-status-info/20 bg-status-info/5 p-4">
+              <Info className="mt-0.5 h-5 w-5 shrink-0 text-status-info" />
+              <p className="text-sm text-foreground">
+                {t('crmAds.selfServeNote')}
+              </p>
             </div>
 
-            <div className="mt-8 p-6 bg-muted/50 rounded-xl text-center">
-              <Phone className="w-10 h-10 mx-auto mb-3 text-primary" />
-              <h3 className="font-semibold mb-2">Хотите разместить рекламу?</h3>
-              <p className="text-muted-foreground mb-4">
-                Свяжитесь с нашим менеджером для оформления рекламной кампании
-              </p>
-              <Button size="lg">
-                <Phone className="w-4 h-4 mr-2" />
-                Связаться с менеджером
-              </Button>
-            </div>
+            {/* Read-only catalogue. balance=0 keeps the purchase buttons
+                disabled so we never fake a payment / unlimited funds. */}
+            <AdPackagesList
+              targetType="clinic"
+              entityId={currentClinic?.id || ''}
+              balance={0}
+              isLoading={createCampaign.isPending}
+              onPurchase={(packageId) => {
+                handlePurchase(packageId);
+              }}
+            />
           </CardContent>
         </Card>
 
         {/* Campaign History */}
-        {myCampaigns.length > 0 && (
-          <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="text-foreground flex items-center gap-2">
-                <Calendar className="w-5 h-5" />
-                История кампаний
+        {clinicCampaigns.length > 0 && (
+          <Card className="overflow-hidden border-border/50 bg-card/80 shadow-soft backdrop-blur-sm">
+            <CardHeader className="border-b border-border/50 bg-surface-2 px-card-x py-card-y">
+              <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
+                <Calendar className="h-5 w-5" />
+                {t('crmAds.campaignHistory')}
               </CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6">
               <div className="space-y-3">
-                {myCampaigns.map((campaign) => (
-                  <div key={campaign.id} className="flex items-center justify-between p-4 bg-muted/30 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="outline">
-                        {packageTypeLabels[campaign.package?.package_type || 'banner']}
+                {clinicCampaigns.map((campaign) => {
+                  const pkg = packageById[campaign.package_id];
+                  return (
+                    <div
+                      key={campaign.id}
+                      className="flex flex-col gap-3 rounded-panel border border-border/50 bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Badge variant="outline" className="rounded-full">
+                          {packageTypeLabels[pkg?.package_type || 'banner']}
+                        </Badge>
+                        <span className="text-sm text-muted-foreground">
+                          {format(new Date(campaign.start_date), 'd MMM', {
+                            locale: ru,
+                          })}{' '}
+                          —{' '}
+                          {format(new Date(campaign.end_date), 'd MMM yyyy', {
+                            locale: ru,
+                          })}
+                        </span>
+                      </div>
+                      <Badge
+                        className={cn(
+                          campaign.status === 'active'
+                            ? 'bg-status-success/10 text-status-success'
+                            : campaign.status === 'completed'
+                              ? 'bg-muted text-muted-foreground'
+                              : 'bg-status-warning/10 text-status-warning',
+                        )}
+                      >
+                        {campaign.status === 'active'
+                          ? t('crmAds.statusActive')
+                          : campaign.status === 'completed'
+                            ? t('crmAds.statusCompleted')
+                            : campaign.status === 'cancelled'
+                              ? t('crmAds.statusCancelled')
+                              : t('crmAds.statusPending')}
                       </Badge>
-                      <span className="text-sm text-muted-foreground">
-                        {format(new Date(campaign.start_date), 'd MMM', { locale: ru })} — {format(new Date(campaign.end_date), 'd MMM yyyy', { locale: ru })}
-                      </span>
                     </div>
-                    <Badge className={cn(
-                      campaign.status === 'active' ? 'bg-green-500/10 text-green-500' :
-                      campaign.status === 'completed' ? 'bg-muted text-muted-foreground' :
-                      'bg-yellow-500/10 text-yellow-500'
-                    )}>
-                      {campaign.status === 'active' ? 'Активна' : 
-                       campaign.status === 'completed' ? 'Завершена' : 
-                       campaign.status === 'cancelled' ? 'Отменена' : 'Ожидает'}
-                    </Badge>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

@@ -1,0 +1,186 @@
+name: Frontend CI and deployment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+  TAG_IMAGE: ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+jobs:
+  frontend_quality:
+    name: Full frontend verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --prefer-offline --no-audit --legacy-peer-deps
+      - name: Run full lint
+        run: npm run lint
+      - name: Run all unit tests with coverage
+        run: npm run test:coverage
+      - name: Run TypeScript checks
+        run: |
+          npm run typecheck
+          npm run typecheck:viewer
+      - name: Build production bundle
+        run: npm run build
+      - name: Upload coverage and production bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-verification-${{ github.sha }}
+          path: |
+            coverage/
+            dist/
+          retention-days: 14
+
+  frontend_e2e:
+    name: Full Chromium E2E
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.19"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --prefer-offline --no-audit --legacy-peer-deps
+      - name: Install Chromium runtime
+        run: npx playwright install --with-deps chromium
+      - name: Authentication and protected routes smoke
+        run: npm run test:e2e:smoke
+      - name: Public WCAG accessibility gate
+        run: npm run test:e2e:accessibility
+      - name: Reference visual regression gate
+        run: npm run test:e2e:visual
+      - name: Run complete browser suite
+        run: npm run test:e2e
+      - name: Upload Playwright evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-${{ github.sha }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+
+  build_image:
+    name: Build immutable frontend image
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [frontend_quality, frontend_e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.release.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: push
+        name: Build and push SHA-tagged image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.TAG_IMAGE }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - id: release
+        name: Record promoted artifact
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          printf '%s' "${IMAGE_DIGEST}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+          RELEASE_IMAGE="${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+          printf 'image=%s\n' "${RELEASE_IMAGE}" >> "${GITHUB_OUTPUT}"
+          printf 'RELEASE_IMAGE=%s\n' "${RELEASE_IMAGE}" > release.env
+      - name: Upload release metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-release-${{ github.sha }}
+          path: release.env
+          retention-days: 30
+
+  deploy_staging:
+    name: Deploy frontend to staging
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build_image
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: ${{ vars.APP_URL }}
+    concurrency:
+      group: prodent-frontend-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare verified SSH identity
+        env:
+          SSH_PRIVATE_KEY_VALUE: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS_VALUE: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "${RUNNER_TEMP}/prodent-ssh"
+          printf '%s\n' "${SSH_PRIVATE_KEY_VALUE}" > "${RUNNER_TEMP}/prodent-ssh/id"
+          printf '%s\n' "${SSH_KNOWN_HOSTS_VALUE}" > "${RUNNER_TEMP}/prodent-ssh/known_hosts"
+          chmod 600 "${RUNNER_TEMP}/prodent-ssh/id" "${RUNNER_TEMP}/prodent-ssh/known_hosts"
+      - name: Candidate check and safe staging switch
+        env:
+          SSH_PRIVATE_KEY_PATH: ${{ runner.temp }}/prodent-ssh/id
+          SSH_KNOWN_HOSTS_PATH: ${{ runner.temp }}/prodent-ssh/known_hosts
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SERVER_HOST: ${{ secrets.SERVER_HOST }}
+          REGISTRY: ghcr.io
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ needs.build_image.outputs.image }}
+          EXPECTED_REVISION: ${{ github.sha }}
+          SERVICE_KIND: frontend
+          SERVICE_NAME: prodent-frontend
+          HOST_BIND: ${{ vars.FRONTEND_HOST_BIND || '127.0.0.1' }}
+          HOST_PORT: ${{ vars.FRONTEND_HOST_PORT || '10240' }}
+          ENV_FILE: '-'
+          NETWORK: ${{ vars.PRODENT_NETWORK || 'prodent-network' }}
+          UPLOADS_VOLUME: '-'
+          DEPLOY_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+          SMOKE_URL: ${{ vars.APP_URL }}
+        run: ops/deploy/remote-deploy.sh > deploy-staging.log 2>&1
+      - name: Show deployment log
+        if: always()
+        run: test ! -f deploy-staging.log || cat deploy-staging.log
+      - name: Upload deployment log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-staging-deploy-${{ github.sha }}
+          path: deploy-staging.log
+          retention-days: 30

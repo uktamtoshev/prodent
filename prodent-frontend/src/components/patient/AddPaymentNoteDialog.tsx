@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Dialog,
@@ -23,6 +24,7 @@ interface AddPaymentNoteDialogProps {
 
 export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPaymentNoteDialogProps) {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [type, setType] = useState<"payment" | "debt">("debt");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -32,13 +34,13 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
 
   const handleSave = async () => {
     if (!user?.id || !amount) {
-      toast.error("Введите сумму");
+      toast.error(t("patientCabinet.enterAmount"));
       return;
     }
 
     const amountNum = parseInt(amount.replace(/\D/g, ""));
     if (isNaN(amountNum) || amountNum <= 0) {
-      toast.error("Введите корректную сумму");
+      toast.error(t("patientCabinet.enterValidAmount"));
       return;
     }
 
@@ -57,13 +59,13 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
 
       if (error) throw error;
 
-      toast.success(type === "debt" ? "Долг добавлен" : "Оплата добавлена");
+      toast.success(type === "debt" ? t("patientCabinet.debtAdded") : t("patientCabinet.paymentAdded"));
       resetForm();
       onSuccess();
       onOpenChange(false);
     } catch (error) {
       console.error("Error saving note:", error);
-      toast.error("Ошибка сохранения");
+      toast.error(t("patientCabinet.saveError"));
     } finally {
       setSaving(false);
     }
@@ -88,14 +90,14 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Wallet className="w-5 h-5 text-primary" />
-            Добавить запись
+            {t("patientCabinet.addRecordTitle")}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 py-4">
           {/* Type Selection */}
           <div className="space-y-3">
-            <Label>Тип записи</Label>
+            <Label>{t("patientCabinet.recordTypeLabel")}</Label>
             <RadioGroup
               value={type}
               onValueChange={(v) => setType(v as "payment" | "debt")}
@@ -108,8 +110,8 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
                   className="flex flex-col items-center justify-between rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-amber-500 peer-data-[state=checked]:bg-amber-500/10 cursor-pointer transition-all"
                 >
                   <Receipt className="w-6 h-6 mb-2 text-amber-500" />
-                  <span className="font-medium">Долг</span>
-                  <span className="text-xs text-muted-foreground">Запомнить</span>
+                  <span className="font-medium">{t("patientCabinet.typeDebt")}</span>
+                  <span className="text-xs text-muted-foreground">{t("patientCabinet.typeDebtHint")}</span>
                 </Label>
               </div>
               <div>
@@ -119,8 +121,8 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
                   className="flex flex-col items-center justify-between rounded-xl border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/10 cursor-pointer transition-all"
                 >
                   <Wallet className="w-6 h-6 mb-2 text-primary" />
-                  <span className="font-medium">Оплата</span>
-                  <span className="text-xs text-muted-foreground">Оплатил</span>
+                  <span className="font-medium">{t("patientCabinet.typePayment")}</span>
+                  <span className="text-xs text-muted-foreground">{t("patientCabinet.typePaymentHint")}</span>
                 </Label>
               </div>
             </RadioGroup>
@@ -128,27 +130,27 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
 
           {/* Amount */}
           <div className="space-y-2">
-            <Label htmlFor="amount">Сумма *</Label>
+            <Label htmlFor="amount">{t("patientCabinet.amountLabel")} *</Label>
             <div className="relative">
               <Input
                 id="amount"
-                placeholder="100 000"
+                placeholder={t("patientCabinet.amountPlaceholder")}
                 value={formatAmount(amount)}
                 onChange={(e) => setAmount(e.target.value)}
                 className="pr-16 text-lg font-semibold"
               />
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                сум
+                {t("patientCabinet.sumCurrency")}
               </span>
             </div>
           </div>
 
           {/* Clinic Name */}
           <div className="space-y-2">
-            <Label htmlFor="clinic">Клиника / Врач</Label>
+            <Label htmlFor="clinic">{t("patientCabinet.clinicOrDoctorLabel")}</Label>
             <Input
               id="clinic"
-              placeholder="Название клиники или имя врача"
+              placeholder={t("patientCabinet.clinicOrDoctorPlaceholder")}
               value={clinicName}
               onChange={(e) => setClinicName(e.target.value)}
             />
@@ -156,7 +158,7 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
 
           {/* Date */}
           <div className="space-y-2">
-            <Label htmlFor="date">Дата</Label>
+            <Label htmlFor="date">{t("patientCabinet.dateLabel")}</Label>
             <Input
               id="date"
               type="date"
@@ -167,10 +169,10 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
 
           {/* Description */}
           <div className="space-y-2">
-            <Label htmlFor="description">Примечание</Label>
+            <Label htmlFor="description">{t("patientCabinet.noteLabel")}</Label>
             <Textarea
               id="description"
-              placeholder="За что платёж или долг..."
+              placeholder={t("patientCabinet.notePlaceholder")}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
@@ -179,20 +181,20 @@ export function AddPaymentNoteDialog({ open, onOpenChange, onSuccess }: AddPayme
         </div>
 
         <div className="flex gap-3">
-          <Button 
-            variant="outline" 
-            onClick={() => onOpenChange(false)} 
+          <Button
+            variant="outline"
+            onClick={() => onOpenChange(false)}
             className="flex-1"
           >
-            Отмена
+            {t("common.cancel")}
           </Button>
-          <Button 
-            onClick={handleSave} 
+          <Button
+            onClick={handleSave}
             disabled={saving || !amount}
             className={`flex-1 ${type === "debt" ? "bg-amber-500 hover:bg-amber-600" : "bg-gradient-jade"} text-white`}
           >
             {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Сохранить
+            {t("common.save")}
           </Button>
         </div>
       </DialogContent>

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { useClinic } from '@/contexts/ClinicContext';
 import { ManagerLayout } from '@/components/manager/ManagerLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,20 +26,25 @@ import { AssignServiceDialog } from '@/components/manager/services/AssignService
 import { ExportPriceButton } from '@/components/manager/services/ExportPriceButton';
 import { AddClinicServiceDialog } from '@/components/crm/services/AddClinicServiceDialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useModulePermissions } from '@/hooks/useModulePermissions';
+import {
+  archiveClinicService,
+  archiveClinicServices,
+  CLINIC_SERVICE_MANAGEMENT_QUERY_KEY,
+  invalidateClinicServiceQueries,
+  listManagedClinicServices,
+  toLegacyClinicService,
+  type LegacyClinicServiceView,
+} from '@/lib/clinic-service-management-api';
+import { listClinicDoctorOptions } from '@/lib/clinic-doctor-options';
 
-interface Service {
-  id: string;
-  name: string;
-  description: string | null;
-  category: string;
-  price: number;
-  duration_minutes: number | null;
-  is_active: boolean | null;
-  currency?: string;
-}
+type Service = LegacyClinicServiceView;
 
 export default function ManagerServices() {
   const { currentClinic } = useClinic();
+  const { canEdit, canManage } = useModulePermissions();
+  const canEditServices = canEdit('services');
+  const canManageServices = canManage('services');
   const queryClient = useQueryClient();
   
   // Filter state
@@ -62,19 +66,11 @@ export default function ManagerServices() {
 
   // Fetch clinic services
   const { data: services, isLoading } = useQuery({
-    queryKey: ['clinic-services', currentClinic?.id],
+    queryKey: [CLINIC_SERVICE_MANAGEMENT_QUERY_KEY, currentClinic?.id],
     queryFn: async () => {
       if (!currentClinic?.id) return [];
       
-      const { data, error } = await supabase
-        .from('services')
-        .select('*')
-        .eq('clinic_id', currentClinic.id)
-        .order('category', { ascending: true })
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      return data as Service[];
+      return (await listManagedClinicServices(currentClinic.id)).map(toLegacyClinicService);
     },
     enabled: !!currentClinic?.id,
   });
@@ -85,24 +81,7 @@ export default function ManagerServices() {
     queryFn: async () => {
       if (!currentClinic?.id) return [];
       
-      const { data, error } = await supabase
-        .from('doctor_clinic_affiliations')
-        .select(`
-          doctor_id,
-          doctors:doctor_id (
-            id,
-            specialty,
-            profiles:user_id (
-              full_name,
-              avatar_url
-            )
-          )
-        `)
-        .eq('clinic_id', currentClinic.id)
-        .eq('is_active', true);
-
-      if (error) throw error;
-      return data || [];
+      return listClinicDoctorOptions(currentClinic.id);
     },
     enabled: !!currentClinic?.id,
   });
@@ -110,14 +89,16 @@ export default function ManagerServices() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
-      const { error } = await supabase
-        .from('services')
-        .delete()
-        .in('id', ids);
-      if (error) throw error;
+      if (!canManageServices) throw new Error('Недостаточно прав для удаления услуг');
+      if (!currentClinic?.id) throw new Error('Клиника не выбрана');
+      if (ids.length === 1) {
+        await archiveClinicService(currentClinic.id, ids[0]);
+      } else {
+        await archiveClinicServices(currentClinic.id, ids);
+      }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['clinic-services'] });
+      void invalidateClinicServiceQueries(queryClient);
       toast.success(deleteIds.length > 1 ? 'Услуги удалены' : 'Услуга удалена');
       setDeleteConfirmOpen(false);
       setDeleteIds([]);
@@ -130,8 +111,8 @@ export default function ManagerServices() {
 
   // Filter services
   const filteredServices = services?.filter(s => {
-    const matchesSearch = s.name.toLowerCase().includes(search.toLowerCase()) ||
-      s.category?.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = (s.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (s.category ?? "").toLowerCase().includes(search.toLowerCase());
     const matchesCategory = categoryFilter === 'all' || s.category === categoryFilter;
     const matchesStatus = statusFilter === 'all' || 
       (statusFilter === 'active' && s.is_active !== false) ||
@@ -234,15 +215,15 @@ export default function ManagerServices() {
                 </Button>
               </>
             )}
-            <Button 
+            {canEditServices && <Button
               variant="outline"
               onClick={() => setStandardDialogOpen(true)}
               className="gap-2"
             >
               <ListPlus className="w-4 h-4" />
               Стандартные услуги
-            </Button>
-            <Button 
+            </Button>}
+            {canEditServices && <Button
               onClick={() => { 
                 setEditingService(null); 
                 setAddDialogOpen(true); 
@@ -251,7 +232,7 @@ export default function ManagerServices() {
             >
               <Plus className="w-4 h-4" />
               Своя услуга
-            </Button>
+            </Button>}
           </div>
         </div>
 
@@ -262,6 +243,7 @@ export default function ManagerServices() {
               <ServicesEmptyState
                 onAddStandard={() => setStandardDialogOpen(true)}
                 onAddCustom={() => setAddDialogOpen(true)}
+                canEdit={canEditServices}
               />
             </CardContent>
           </Card>
@@ -284,12 +266,13 @@ export default function ManagerServices() {
             />
 
             {/* Mass Actions */}
-            <ServicesMassActions
+            {canEditServices && <ServicesMassActions
               selectedCount={selectedServices.size}
               selectedIds={Array.from(selectedServices)}
               onClearSelection={() => setSelectedServices(new Set())}
               onDeleteConfirm={handleMassDelete}
-            />
+              canManage={canManageServices}
+            />}
 
             {/* Table */}
             {filteredServices.length === 0 ? (
@@ -314,6 +297,8 @@ export default function ManagerServices() {
                 onAssign={(service) => setAssignService(service)}
                 onDelete={handleDelete}
                 groupedByCategory={viewMode === 'grouped'}
+                canEdit={canEditServices}
+                canManage={canManageServices}
               />
             )}
           </>

@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { MapPin } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface MapPickerProps {
   latitude: number | null;
@@ -25,28 +26,37 @@ export function MapPicker({
   error,
   className = "",
 }: MapPickerProps) {
+  const { t } = useLanguage();
+  const lat = latitude ?? DEFAULT_LAT;
+  const lng = longitude ?? DEFAULT_LNG;
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const onLocationChangeRef = useRef(onLocationChange);
+  const disabledRef = useRef(disabled);
+  const initialPositionRef = useRef({ lat, lng, hasLatitude: latitude !== null });
   const [isLocating, setIsLocating] = useState(false);
 
-  const lat = latitude ?? DEFAULT_LAT;
-  const lng = longitude ?? DEFAULT_LNG;
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+    disabledRef.current = disabled;
+  }, [disabled, onLocationChange]);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
     // Fix default marker icons for leaflet
-    delete (L.Icon.Default.prototype as any)._getIconUrl;
+    delete (L.Icon.Default.prototype as { _getIconUrl?: unknown })._getIconUrl;
     L.Icon.Default.mergeOptions({
       iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
       iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
       shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
     });
 
+    const initialPosition = initialPositionRef.current;
     const map = L.map(mapContainerRef.current, {
-      center: [lat, lng],
-      zoom: latitude ? 15 : 12,
+      center: [initialPosition.lat, initialPosition.lng],
+      zoom: initialPosition.hasLatitude ? 15 : 12,
       scrollWheelZoom: true,
     });
 
@@ -54,18 +64,18 @@ export function MapPicker({
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);
 
-    const marker = L.marker([lat, lng], { draggable: !disabled }).addTo(map);
+    const marker = L.marker([initialPosition.lat, initialPosition.lng], { draggable: !disabledRef.current }).addTo(map);
     markerRef.current = marker;
 
     marker.on("dragend", () => {
       const pos = marker.getLatLng();
-      onLocationChange(pos.lat, pos.lng);
+      onLocationChangeRef.current(pos.lat, pos.lng);
     });
 
-    if (!disabled) {
+    if (!disabledRef.current) {
       map.on("click", (e: L.LeafletMouseEvent) => {
         marker.setLatLng(e.latlng);
-        onLocationChange(e.latlng.lat, e.latlng.lng);
+        onLocationChangeRef.current(e.latlng.lat, e.latlng.lng);
       });
     }
 
@@ -113,7 +123,7 @@ export function MapPicker({
     <div className={`space-y-2 ${className}`}>
       <Label className="flex items-center gap-2">
         <MapPin className="w-4 h-4 text-muted-foreground" />
-        Укажите место на карте *
+        {t("auth.placeOnMap")}
       </Label>
       <div className="relative rounded-xl overflow-hidden border border-border">
         <div
@@ -132,11 +142,11 @@ export function MapPicker({
           ) : (
             <MapPin className="w-3.5 h-3.5" />
           )}
-          Моё местоположение
+          {t("auth.myLocation")}
         </button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Нажмите на карту или перетащите маркер, чтобы указать точное местоположение
+        {t("auth.mapHint")}
       </p>
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>

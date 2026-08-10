@@ -1,17 +1,21 @@
 import { Button } from '@/components/ui/button';
 import { Stethoscope, ListPlus, Plus, Sparkles } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface ServicesEmptyStateProps {
   onAddStandard: () => void;
   onAddCustom: () => void;
   isLoading?: boolean;
+  canEdit?: boolean;
 }
 
-export function ServicesEmptyState({ 
-  onAddStandard, 
-  onAddCustom, 
-  isLoading 
+export function ServicesEmptyState({
+  onAddStandard,
+  onAddCustom,
+  isLoading,
+  canEdit = true,
 }: ServicesEmptyStateProps) {
+  const { t } = useLanguage();
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4">
       {/* Illustration */}
@@ -26,56 +30,56 @@ export function ServicesEmptyState({
 
       {/* Text */}
       <h3 className="text-xl font-heading font-semibold text-foreground mb-2">
-        Начните с создания прайс-листа
+        {t('managerRole.emptyTitle')}
       </h3>
       <p className="text-muted-foreground text-center max-w-md mb-8">
-        Добавьте услуги клиники, чтобы назначать их врачам и отслеживать в записях пациентов
+        {t('managerRole.emptyDesc')}
       </p>
 
       {/* Quick Tips */}
       <div className="bg-muted/30 rounded-xl p-4 mb-8 max-w-md w-full">
-        <h4 className="text-sm font-medium text-foreground mb-3">💡 Советы для быстрого старта</h4>
+        <h4 className="text-sm font-medium text-foreground mb-3">{t('managerRole.emptyTipsTitle')}</h4>
         <ul className="space-y-2 text-sm text-muted-foreground">
           <li className="flex items-start gap-2">
             <span className="text-primary mt-0.5">•</span>
-            <span>Используйте «Стандартные услуги» для загрузки популярных процедур</span>
+            <span>{t('managerRole.emptyTip1')}</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-primary mt-0.5">•</span>
-            <span>Группируйте услуги по категориям для удобной навигации</span>
+            <span>{t('managerRole.emptyTip2')}</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-primary mt-0.5">•</span>
-            <span>Назначайте услуги врачам с индивидуальными ценами</span>
+            <span>{t('managerRole.emptyTip3')}</span>
           </li>
         </ul>
       </div>
 
       {/* Action Buttons */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <Button 
-          variant="outline" 
+      {canEdit && <div className="flex flex-col sm:flex-row gap-3">
+        <Button
+          variant="outline"
           onClick={onAddStandard}
           disabled={isLoading}
           className="gap-2 min-w-[200px]"
         >
           <ListPlus className="w-4 h-4" />
-          Добавить стандартные услуги
+          {t('managerRole.emptyAddStandard')}
         </Button>
-        <Button 
+        <Button
           onClick={onAddCustom}
           className="gap-2 min-w-[200px]"
         >
           <Plus className="w-4 h-4" />
-          Создать свою услугу
+          {t('managerRole.emptyCreateOwn')}
         </Button>
-      </div>
+      </div>}
 
       {/* Help Link */}
       <p className="text-xs text-muted-foreground mt-6">
-        Нужна помощь?{' '}
+        {t('managerRole.emptyHelpQuestion')}{' '}
         <button className="text-primary hover:underline">
-          Смотреть инструкцию
+          {t('managerRole.emptyShowGuide')}
         </button>
       </p>
     </div>

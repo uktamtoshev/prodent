@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Accessible fallback for native and custom interactive controls that do not
+   already provide a component-level focus-visible ring. */
+:where(
+  a[href],
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [tabindex]:not([tabindex="-1"])
+):not([class*="focus-visible:ring"]):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @layer base {
   :root {
     /* PRODENT XMed Style - Light Theme */
@@ -11,53 +41,158 @@
     --card: 0 0% 100%;
     --card-foreground: 200 25% 15%;
 
+    /* Вторая поверхность: шапка таблицы и подобные полосы ВНУТРИ карточки.
+       Лежит между карточкой и холстом, поэтому шапка читается как отдельный
+       слой без лишней рамки. Приглушённый текст на ней 5.66:1. */
+    --surface-2: 206 20% 97.5%;
+
     --popover: 0 0% 100%;
     --popover-foreground: 200 25% 15%;
 
     /* Primary: XMed Teal #0D9488 */
-    --primary: 175 82% 32%;
+    --primary: 175 82% 26%;
     --primary-foreground: 0 0% 100%;
 
     /* Secondary: Light Teal */
     --secondary: 175 30% 94%;
-    --secondary-foreground: 175 82% 28%;
+    --secondary-foreground: 175 82% 22%;
 
     --muted: 180 15% 93%;
-    --muted-foreground: 200 15% 45%;
+    --muted-foreground: 200 18% 38%;
 
-    /* Accent: Dark Teal (for search box, highlights) */
-    --accent: 180 55% 25%;
-    --accent-foreground: 0 0% 100%;
+    /* Accent — QUIET hover/selected surface, per shadcn semantics. Every
+       Radix primitive (Select, DropdownMenu, ContextMenu, Menubar, Calendar,
+       Toggle) paints its hovered row with `bg-accent text-accent-foreground`.
+       This used to hold a dark teal (180 55% 25%) meant for the landing search
+       box, which made every filter row in the CRM white-on-light-teal at
+       2.3:1 — the hovered option was the hardest one to read. The dark teal
+       still exists as `--teal-dark` / `bg-teal-dark` for surfaces that really
+       want it; do NOT put a solid colour back here. */
+    --accent: 180 20% 94%;
+    --accent-foreground: 200 25% 15%;
 
-    --destructive: 0 72% 55%;
+    --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 180 15% 88%;
     --input: 180 15% 96%;
-    --ring: 175 82% 32%;
+    --ring: 175 82% 26%;
 
     --radius: 0.75rem;
 
+    /* Height of the cabinet's single sticky top bar. Full-height screens (chat,
+       visit, plan editor) subtract exactly this via `h-cabinet`, so the bar and
+       the viewport maths can never drift apart again — they used to disagree by
+       a whole bar (`100vh-5rem` in CRM chat vs `100dvh-7rem` elsewhere). */
+    --cabinet-topbar-h: 3.5rem;
+
+    /* Brand scale (design prototype) */
+    --brand: 175 82% 26%;
+    --brand-50: 175 70% 96%;
+    --brand-100: 175 60% 92%;
+    --brand-700: 175 82% 28%;
+
     /* PRODENT Brand Colors - XMed Style */
-    --teal-primary: 175 82% 32%;
+    --teal-primary: 175 82% 26%;
     --teal-light: 175 60% 45%;
     --teal-dark: 180 55% 25%;
     --teal-bg: 180 20% 98%;
     --cream-white: 60 20% 99%;
     --mist-gray: 180 15% 93%;
     --ink-gray: 200 25% 15%;
-    --success-green: 160 84% 39%;
-    --warning-amber: 38 92% 50%;
+    --success-green: 160 84% 25%;
+    --warning-amber: 32 95% 27%;
 
-    /* Mint Sidebar Palette */
-    --sidebar-bg: 150 25% 97%;
-    --sidebar-border: 150 20% 90%;
-    --sidebar-item-hover: 155 30% 94%;
-    --sidebar-item-active: 155 35% 90%;
-    --sidebar-accent: 155 45% 42%;
-    --sidebar-accent-light: 155 40% 85%;
-    --sidebar-text: 150 15% 35%;
-    --sidebar-text-muted: 150 10% 55%;
+    /* ---- Status semantics -------------------------------------------------
+       Colour must encode MEANING (state, urgency), never a per-file taste
+       decision. Before this block the cabinets carried 1551 hardcoded palette
+       classes, so "paid" in finance and "accepted" in the schedule were
+       different greens and no user could learn to read the UI by colour.
+
+       Each status is a PAIR: `-fg` is text/icon, `-bg` is its tinted surface.
+       Every pair is checked at >= 4.5:1 in both themes, so
+       `bg-status-success-bg text-status-success` is always AA-safe.
+       Status must always be paired with text or an icon — never colour alone
+       (WCAG 1.4.1). */
+    --status-success: 160 84% 25%;   /* 5.2:1 on its -bg */
+    --status-success-bg: 160 60% 94%;
+    --status-warning: 32 95% 27%;
+    --status-warning-bg: 38 92% 92%;
+    --status-danger: 0 72% 40%;
+    --status-danger-bg: 0 80% 96%;
+    --status-info: 199 89% 30%;
+    --status-info-bg: 199 90% 94%;
+    --status-neutral: 200 18% 38%;
+    --status-neutral-bg: 180 15% 93%;
+
+    /* ---- Rating gold ------------------------------------------------------
+       Star ratings are NOT a status. Painting them with --status-warning says
+       "something needs attention" about a five-star review, and the light-theme
+       warning is a dark brown that does not read as gold at all. Raw amber-400
+       was the other wrong answer: fixed in both themes and only 1.66:1 on a
+       white card, i.e. an invisible star.
+       Filled star 3.45:1 on card / 2.99:1 on muted (WCAG 1.4.11 wants 3:1 for a
+       meaningful graphic); empty star 2.06:1 — deliberately faint but still
+       perceivable, which is the whole job of an empty star. */
+    --rating: 38 92% 39%;
+    --rating-muted: 40 22% 68%;
+
+    /* ---- Media scrim ------------------------------------------------------
+       The ONE colour that must not flip with the theme. It sits under
+       radiographs, intraoral photos and portfolio media, where the surround is
+       part of how a doctor reads the image: a light-theme lightbox washes out
+       exactly the dark end of a radiograph. Same value in both blocks on
+       purpose — white text on it is 18.25:1. */
+    --scrim: 200 25% 8%;
+
+    /* ---- Tooth status (FDI chart) -----------------------------------------
+       The dental chart is the clinical core of the product, and the tooth
+       NUMBER is the key to the diagnosis — "13 instead of 23" means treating
+       the wrong tooth. It used to be painted with Tailwind's *-400 shades
+       (built for dark backgrounds) and raw hex on a white card, landing at
+       1.44-2.37:1. Nine states, each a readable pair, hues kept far apart so
+       they stay distinguishable; colour is always accompanied by a letter code
+       and the legend (WCAG 1.4.1). `removed` is struck through, never faded.
+
+       The nine states split into two families so the hue itself carries
+       meaning instead of being an arbitrary pick per state:
+         CONDITION (warm -> cool severity):  healthy, watch, caries, perio, endo
+         RESTORATION (cool / metallic):      filling, crown, implant, removed
+       Restoration greys are told apart by desaturation, not hue. */
+    /* condition */
+    --tooth-healthy: 160 84% 26%;        --tooth-healthy-bg: 160 55% 93%;
+    --tooth-watch: 42 92% 26%;           --tooth-watch-bg: 42 92% 92%;
+    --tooth-caries: 0 75% 34%;           --tooth-caries-bg: 0 75% 95%;
+    --tooth-perio: 335 70% 33%;          --tooth-perio-bg: 335 75% 95%;
+    --tooth-endo: 275 55% 40%;           --tooth-endo-bg: 275 70% 95%;
+    /* restoration */
+    --tooth-filling: 212 80% 32%;        --tooth-filling-bg: 212 85% 94%;
+    --tooth-crown: 190 70% 27%;          --tooth-crown-bg: 190 65% 92%;
+    --tooth-implant: 200 22% 32%;        --tooth-implant-bg: 200 20% 92%;
+    --tooth-removed: 200 10% 36%;        --tooth-removed-bg: 200 8% 92%;
+
+    /* Sidebar — unified dark palette for all role cabinets (admin, doctor/CRM,
+       clinic-admin, manager, patient, seller, accountant, assistant,
+       technician). Same form everywhere.
+
+       Was slate-900 navy + sky-500 active. That put TWO unrelated brands on
+       one screen (teal 175° content vs blue 199° chrome) and white-on-sky-500
+       measured 2.85:1 — the single most important navigation state was the
+       least readable element in the product. Now: deep teal-ink surface in the
+       brand's own hue family, active item in brand teal (white on it = 5.8:1),
+       reinforced by a left indicator bar so "where am I" is not colour-only. */
+    /* Графит из макета: панель на тон светлее прежней, активный пункт —
+       наоборот, утопленный, плюс бирюзовая полоса слева и жирное начертание.
+       Замеры: текст пункта 9.63:1, приглушённый 6.44:1, текст активного
+       12.06:1 (было 5.76:1), полоса на активном 8.04:1. */
+    --sidebar-bg: 196 26% 20%;
+    --sidebar-border: 196 22% 27%;
+    --sidebar-item-hover: 196 24% 27%;
+    --sidebar-item-active: 196 30% 14%; /* утопленный, не заливка брендом */
+    --sidebar-accent: 175 60% 55%;      /* полоса слева и кольцо фокуса */
+    --sidebar-accent-light: 175 60% 45%;
+    --sidebar-text: 200 16% 90%;
+    --sidebar-text-muted: 200 12% 74%;
 
     /* Gradients */
     --gradient-primary: linear-gradient(135deg, hsl(175 82% 32%) 0%, hsl(175 60% 45%) 100%);
@@ -93,6 +228,11 @@
     --card: 180 20% 10%;
     --card-foreground: 180 10% 95%;
 
+    /* Вторая поверхность в тёмной теме — СВЕТЛЕЕ карточки, а не темнее.
+       Взято 14%: на 15% приглушённый текст даёт 4.61:1, на 16% уже 4.43:1,
+       то есть ниже нормы. На 14% — 4.80:1. */
+    --surface-2: 180 20% 14%;
+
     --popover: 180 20% 11%;
     --popover-foreground: 180 10% 95%;
 
@@ -118,19 +258,57 @@
     --input: 180 20% 14%;
     --ring: 175 70% 48%;
 
-    /* Dark theme brand colors adjusted for contrast */
-    --success-green: 160 75% 45%;
-    --warning-amber: 38 85% 55%;
+    /* Brand scale (dark) */
+    --brand: 175 70% 48%;
+    --brand-50: 175 25% 14%;
+    --brand-100: 175 25% 18%;
+    --brand-700: 175 60% 55%;
 
-    /* Mint Sidebar Palette - Dark */
-    --sidebar-bg: 155 20% 12%;
-    --sidebar-border: 155 15% 18%;
-    --sidebar-item-hover: 155 18% 16%;
-    --sidebar-item-active: 155 25% 20%;
-    --sidebar-accent: 155 50% 55%;
-    --sidebar-accent-light: 155 25% 25%;
-    --sidebar-text: 155 15% 85%;
-    --sidebar-text-muted: 155 10% 55%;
+    /* Dark theme brand colors adjusted for contrast */
+    --success-green: 160 70% 58%;
+    --warning-amber: 38 90% 65%;
+
+    /* Status semantics (dark) — foreground lightens, surface darkens, so the
+       same `bg-status-*-bg text-status-*` pairing stays AA in both themes. */
+    --status-success: 160 70% 58%;
+    --status-success-bg: 160 40% 15%;
+    --status-warning: 38 90% 65%;
+    --status-warning-bg: 35 45% 15%;
+    --status-danger: 0 75% 68%;
+    --status-danger-bg: 0 40% 17%;
+    --status-info: 199 85% 65%;
+    --status-info-bg: 200 40% 16%;
+    --status-neutral: 195 12% 68%;
+    --status-neutral-bg: 195 15% 18%;
+
+    /* Rating gold — 10.71:1 filled / 3.13:1 empty on the dark card. */
+    --rating: 43 96% 62%;
+    --rating-muted: 40 10% 40%;
+
+    /* Media scrim — identical to the light theme ON PURPOSE; see the note there. */
+    --scrim: 200 25% 8%;
+
+    /* Tooth status (dark) — same nine hues, foreground lightened. */
+    --tooth-healthy: 160 65% 62%;        --tooth-healthy-bg: 160 40% 15%;
+    --tooth-watch: 42 92% 62%;           --tooth-watch-bg: 42 45% 15%;
+    --tooth-caries: 0 80% 70%;           --tooth-caries-bg: 0 40% 17%;
+    --tooth-perio: 335 80% 72%;          --tooth-perio-bg: 335 35% 18%;
+    --tooth-endo: 275 75% 76%;           --tooth-endo-bg: 275 35% 20%;
+    --tooth-filling: 212 85% 70%;        --tooth-filling-bg: 212 45% 18%;
+    --tooth-crown: 190 70% 62%;          --tooth-crown-bg: 190 40% 15%;
+    --tooth-implant: 200 20% 70%;        --tooth-implant-bg: 200 20% 18%;
+    --tooth-removed: 200 8% 66%;         --tooth-removed-bg: 200 8% 18%;
+
+    /* Sidebar — same teal-ink in dark mode; it already reads well there. */
+    /* Панель одинакова в обеих темах — как в макете. */
+    --sidebar-bg: 196 26% 20%;
+    --sidebar-border: 196 22% 27%;
+    --sidebar-item-hover: 196 24% 27%;
+    --sidebar-item-active: 196 30% 14%;
+    --sidebar-accent: 175 60% 55%;
+    --sidebar-accent-light: 175 60% 45%;
+    --sidebar-text: 200 16% 90%;
+    --sidebar-text-muted: 200 12% 74%;
 
     /* Dark theme gradients */
     --gradient-hero: linear-gradient(180deg, hsl(180 25% 7%) 0%, hsl(180 22% 9%) 50%, hsl(180 25% 7%) 100%);
@@ -153,17 +331,28 @@
     scroll-behavior: smooth;
   }
 
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-size: 15px;
-    line-height: 1.6;
+  /* Prefer the variable Inter build when the browser supports
+     font-variation-settings (every evergreen browser since 2019). */
+  @supports (font-variation-settings: normal) {
+    html {
+      font-family: 'InterVariable', 'Inter', system-ui, sans-serif;
+    }
   }
 
-  /* Headings use Manrope */
+  /* Body — 14px / 1.5 per ops/typography-guidelines.md. CRM density: more
+     rows on screen, less wasted space. */
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Headings — keep Manrope for brand identity, but follow the guide's
+     letter-spacing (-0.01em) so kerning doesn't look pinched on Cyrillic. */
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+    font-family: 'Manrope', 'InterVariable', 'Inter', system-ui, sans-serif;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
 
   h1 {
@@ -184,8 +373,28 @@
 
   /* Arabic mode font */
   [dir="rtl"], .font-arabic {
-    font-family: 'Tajawal', 'Inter', system-ui, sans-serif;
+    font-family: 'Tajawal', 'InterVariable', 'Inter', system-ui, sans-serif;
   }
+
+  /* Tabular numerals — required for any UI where columns of numbers must
+     align (sums, dates, phones, tooth FDI codes, IDs). Without this, digit
+     widths shift between values and tables visibly jitter on update.
+     Auto-applied to tables and numeric inputs; opt-in via [data-numeric] or
+     .tabular-data for spans/divs (e.g. KPI cards). See typography guide §3. */
+  table,
+  .tabular-data,
+  .kpi-number,
+  [data-numeric],
+  input[type="number"],
+  input[inputmode="numeric"],
+  input[inputmode="decimal"] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* CRM page-headers already declare Manrope below — keep their existing
+     -0.02em letter-spacing (legacy brand) by overriding via .tracking-tightest
+     where needed. New code should use .tracking-tight (-0.01em). */
 }
 
 @layer utilities {
@@ -582,9 +791,9 @@
 
 /* ==================== CRM & DASHBOARD TYPOGRAPHY ==================== */
 
-/* CRM container typography to match frontend */
+/* CRM container typography — aligned with body (14px) per typography guide. */
 .crm-container {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 /* Card titles in CRM should match frontend heading styles */
@@ -645,4 +854,312 @@
 /* Navigation items hover effect */
 .nav-item-active {
   @apply font-semibold;
+}
+
+/* ============================================================
+   Design system primitives (handoff prototype)
+   ============================================================ */
+
+.font-display {
+  font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.01em;
+}
+
+.font-mono-jb {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes pulseDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%      { transform: scale(1.4); opacity: 0.5; }
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(150 15% 85%);
+  border-radius: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark .scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(180 15% 25%);
+}
+
+/* Card shadow matching the design prototype */
+.shadow-design-card {
+  box-shadow: 0px 1px 2px rgba(15, 23, 42, 0.04), 0px 4px 16px -6px rgba(15, 23, 42, 0.06);
+}
+
+/* Primary button shadow matching the design prototype */
+.shadow-design-btn {
+  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.25), 0 4px 12px -2px rgba(13, 148, 136, 0.35);
+}
+
+/* ============================================================================
+   ОБОИ РАБОЧЕГО ПРОСТРАНСТВА КАБИНЕТА
+   ----------------------------------------------------------------------------
+   Личная настройка пользователя (Настройки → Внешний вид). По умолчанию
+   выключены: без атрибута data-workspace-bg или со значением "none" ни одно
+   правило ниже не применяется и кабинет выглядит ровно как раньше.
+
+   Оба фона одинаковы в светлой и тёмной теме — это обои, а не тема.
+   Верхние 300px у обоих намеренно тёмные: там лежит заголовок раздела, и его
+   контраст не должен зависеть от высоты страницы. Значения выверены расчётом
+   по крайним точкам композита, белый текст держит там не меньше 10:1.
+   Анимации нет: врач смотрит в этот экран сменами, движение утомляет.
+   ========================================================================== */
+
+.workspace-wallpaper {
+  background-repeat: no-repeat;
+  /* Намеренно НЕ background-attachment: fixed — он заставляет браузер
+     перерисовывать все десять слоёв на каждый кадр прокрутки. Смысла в нём
+     тоже нет: верхняя панель при включённых обоях непрозрачна, фон под ней
+     всё равно не виден. */
+}
+
+/* --- Северное сияние: конический веер лучей из-за нижнего левого угла --- */
+[data-workspace-bg="aurora"] .workspace-wallpaper {
+  background-color: hsl(215 70% 7%);
+  background-image:
+    radial-gradient(135% 58% at 4% -6%,
+      hsl(212 85% 30% / 0.62) 0%, hsl(213 80% 22% / 0.34) 42%, hsl(214 78% 12% / 0) 100%),
+    linear-gradient(to bottom,
+      hsl(214 74% 7%) 0px, hsl(214 74% 7%) 300px,
+      hsl(214 74% 8% / 0.86) 372px, hsl(213 76% 10% / 0.42) 480px, hsl(213 78% 12% / 0) 660px),
+    radial-gradient(circle 1.3px at 13% 62%, hsl(0 0% 100% / 0.6) 0%, hsl(0 0% 100% / 0.42) 55%, hsl(0 0% 100% / 0) 100%),
+    radial-gradient(circle 1.1px at 41% 58%, hsl(0 0% 100% / 0.62) 0%, hsl(0 0% 100% / 0) 100%),
+    radial-gradient(circle 1.4px at 61% 57%, hsl(0 0% 100% / 0.58) 0%, hsl(0 0% 100% / 0.4) 50%, hsl(0 0% 100% / 0) 100%),
+    radial-gradient(circle 1.2px at 79% 86%, hsl(0 0% 100% / 0.55) 0%, hsl(0 0% 100% / 0) 100%),
+    radial-gradient(circle 1.1px at 92% 68%, hsl(0 0% 100% / 0.6) 0%, hsl(0 0% 100% / 0) 100%),
+    radial-gradient(80% 50% at 34% 84%,
+      hsl(164 74% 56% / 0.3) 0%, hsl(158 70% 58% / 0.14) 40%, hsl(155 70% 62% / 0) 74%),
+    conic-gradient(at 2% 126%,
+      hsl(170 72% 50% / 0.2) 0deg, hsl(168 75% 55% / 0.28) 7deg, hsl(166 72% 54% / 0.11) 17deg,
+      hsl(162 72% 56% / 0.34) 26deg, hsl(158 70% 58% / 0.14) 36deg, hsl(157 70% 60% / 0.03) 44deg,
+      hsl(155 70% 62% / 0.22) 53deg, hsl(155 70% 62% / 0.08) 64deg, hsl(155 70% 62% / 0) 78deg,
+      hsl(155 70% 62% / 0) 300deg, hsl(172 70% 50% / 0) 342deg, hsl(171 72% 51% / 0.15) 352deg,
+      hsl(170 72% 50% / 0.2) 360deg),
+    linear-gradient(205deg,
+      hsl(215 70% 7%) 0%, hsl(214 72% 9%) 30%, hsl(213 78% 16%) 62%, hsl(212 85% 30%) 100%);
+}
+
+/* --- Синее небо: глубокая синева вверху, светлеет к горизонту, низкие облака --- */
+[data-workspace-bg="sky"] .workspace-wallpaper {
+  background-color: hsl(208 42% 84%);
+  background-image:
+    radial-gradient(26% 6% at 32% 88%, hsl(200 60% 97% / 0.8), transparent 70%),
+    radial-gradient(19% 4.6% at 47% 85%, hsl(200 60% 97% / 0.72), transparent 70%),
+    radial-gradient(23% 5.4% at 63% 89%, hsl(200 60% 97% / 0.66), transparent 70%),
+    radial-gradient(15% 3.8% at 79% 86%, hsl(200 60% 97% / 0.55), transparent 70%),
+    linear-gradient(180deg,
+      hsl(226 100% 20%) 0, hsl(225 99% 23%) 300px, hsl(222 97% 28%) 34%,
+      hsl(216 93% 38%) 58%, hsl(207 88% 55%) 80%, hsl(201 86% 67%) 100%);
+}
+
+/* ---------------------------------------------------------------------------
+   Заголовок раздела лежит прямо на обоях, поэтому светлеет. Верхняя панель
+   при этом становится непрозрачной: она была bg-background/80 с размытием, и
+   сквозь неё градиент проступал под самим заголовком.
+   -------------------------------------------------------------------------- */
+[data-workspace-bg="aurora"] header.sticky,
+[data-workspace-bg="sky"] header.sticky {
+  background-color: hsl(var(--background));
+}
+
+/* ---------------------------------------------------------------------------
+   Страховка: любые полупрозрачные ПОВЕРХНОСТИ СТРАНИЦЫ делаем непрозрачными.
+   Без неё обои проступают под текстом там, где фон задан как bg-background/50
+   или bg-card/80 — например в таблицах расписания и финансов. Мелкие плашки
+   на bg-muted/* не трогаем: они лежат внутри карточек и до обоев не достают.
+   -------------------------------------------------------------------------- */
+[data-workspace-bg="aurora"] main [class*="bg-background\/"],
+[data-workspace-bg="sky"] main [class*="bg-background\/"] {
+  background-color: hsl(var(--background));
+}
+
+[data-workspace-bg="aurora"] main [class*="bg-card\/"],
+[data-workspace-bg="sky"] main [class*="bg-card\/"] {
+  background-color: hsl(var(--card));
+}
+
+/* Пункт меню боковой панели: 38px на мыши — плотность из макета, больше
+   разделов видно без прокрутки. Пальцем такая цель не берётся, поэтому на
+   касании возвращаем 44px. */
+@media (pointer: coarse) {
+  .sidebar-nav-item {
+    min-height: 2.75rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   ГЛУБИНА РАБОЧЕЙ ОБЛАСТИ (правая сторона макета)
+
+   В макете карточки лежат НА холсте, а не сливаются с ним. В коде было
+   наоборот: холст 98% светлоты, карточка белая и вдобавок полупрозрачная —
+   после смешивания разница между ними выходила около 2 единиц из 255,
+   то есть глазом карточка не читалась как отдельная поверхность.
+
+   Чинится в двух местах, и оба здесь — экраны (их 43) не трогаем.
+
+   1. Холст темнее. Двигаем ТОЛЬКО холст: карточку, рамку, подложку и поля
+      не трогаем, поэтому сломать зависимые пары невозможно — текст на
+      холсте от этого становится только контрастнее.
+   2. Карточки непрозрачные. bg-card/80 с размытием — это 97 мест из 168;
+      оно и съедало отделение. Значения 20–60% НЕ трогаем: это намеренные
+      лёгкие подложки внутри карточек, они не должны стать белыми.
+
+   Область действия — только кабинеты (обёртка с data-workspace-bg). Лендинг,
+   кабинет пациента и остальное вне кабинетов остаются как были.
+
+   ВАЖНО: каждая тема объявляется отдельно. Объявление на потомке сильнее
+   унаследованного, поэтому безусловный [data-workspace-bg] перебил бы .dark
+   и в тёмной теме холст остался бы светлым (проверено: светлый текст на
+   светлом фоне, 1.05:1).
+   -------------------------------------------------------------------------- */
+html:not(.dark) [data-workspace-bg] {
+  /* В макете холст 86%, но там были свои цвета текста. С нашей палитрой на
+     86% приглушённый текст даёт 4.32:1, а бренд-цвет 3.82:1 — ниже нормы AA
+     (4.5:1). 93% — самая большая глубина, которую наши цвета выдерживают:
+     приглушённый 5.11:1, бренд 4.52:1. Отделение карточки 1.05 → 1.17. */
+  --background: 206 20% 93%;
+}
+
+.dark [data-workspace-bg] {
+  /* Тёмная тема: карточка была всего на 3% светлее холста. Поднимать её
+     нельзя — на 18% она сравнялась бы по светлоте с рамкой и подложкой, и
+     те бы исчезли, а приглушённый текст на подложке упал бы до 3.48:1.
+     Поэтому опускаем холст с 7% до 4%: отделение 1.11 → 1.17, столько же,
+     сколько в светлой теме. */
+  --background: 213 16% 4%;
+}
+
+/* Привязка к html[data-cabinet], а НЕ к оболочке: Radix рендерит модалки
+   порталом в document.body, мимо оболочки. С привязкой к оболочке карточка на
+   странице становилась непрозрачной, а такая же карточка в модальном окне
+   оставалась полупрозрачной — и разница была видна глазом. */
+html[data-cabinet] :is(
+  [class*="bg-card\/70"],
+  [class*="bg-card\/80"],
+  [class*="bg-card\/90"],
+  [class*="bg-card\/95"],
+  [class*="bg-card\/98"]
+) {
+  background-color: hsl(var(--card));
+  backdrop-filter: none;
+}
+
+/* ---------------------------------------------------------------------------
+   КОМПАКТНЫЕ ЭЛЕМЕНТЫ УПРАВЛЕНИЯ КАБИНЕТА
+
+   В макете кнопка и поле — 36px. Это НИЖЕ нормы тач-цели 44px, поэтому
+   компактность даётся только мыши: на касании высота возвращается к 44px.
+   Тот же приём, что у пункта бокового меню (.sidebar-nav-item выше).
+
+   Правило: если элемент управления ужат до h-ctl (36px) или h-ctl-sm (29px),
+   он ОБЯЗАН нести класс cabinet-control. Иначе пальцем в него не попасть.
+   -------------------------------------------------------------------------- */
+@media (pointer: coarse) {
+  .cabinet-control {
+    min-height: 2.75rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   ГЕОМЕТРИЯ ПАНЕЛИ В КАБИНЕТЕ
+
+   В макете панель — радиус 10px и мягкая двухслойная тень со светлой кромкой
+   сверху. В коде общий токен rounded-prodent = 14px, и его же носят лендинг и
+   кабинет пациента, поэтому сам токен не трогаем: правило привязано к
+   html[data-cabinet] и действует только внутри кабинетов (включая модалки,
+   которые Radix выносит в document.body).
+
+   Вес селектора (0,2,0) выше утилиты (0,1,0), поэтому правило побеждает, но
+   экран по-прежнему может задать свой радиус явным классом с большим весом.
+   -------------------------------------------------------------------------- */
+html[data-cabinet] .rounded-prodent {
+  border-radius: 10px;
+}
+
+html[data-cabinet] .shadow-prodent,
+html[data-cabinet] .shadow-soft {
+  box-shadow:
+    0 1px 2px hsl(214 30% 18% / 0.05),
+    0 6px 16px hsl(214 30% 18% / 0.08);
+}
+
+/* Светлая кромка сверху даёт панели объём. В тёмной теме она почти невидима
+   (6% против 90%), иначе получается светящийся контур. */
+html.dark[data-cabinet] .shadow-prodent,
+html.dark[data-cabinet] .shadow-soft {
+  box-shadow:
+    0 2px 4px hsl(0 0% 0% / 0.45),
+    0 8px 20px hsl(0 0% 0% / 0.5);
+}
+
+/* ---------------------------------------------------------------------------
+   ОБОИ: ТЕКСТ И ПОВЕРХНОСТИ НА ТЁМНОМ ХОЛСТЕ
+
+   Заголовок экрана лежит прямо на холсте (карточку-героя убрали по макету).
+   Без обоев холст светлый и тёмный текст читается. С обоями холст становится
+   тёмной фотографией, и тот же текст даёт 1.01:1 — то есть исчезает.
+   В макете эта же логика решена тем, что холст ВСЕГДА тёмный, а текст на нём
+   белый. Здесь холст зависит от настройки, поэтому цвет переключаем вместе с ней.
+
+   Замеры на верхней зоне обоев (там и лежит заголовок): белый на «синем небе»
+   15.90:1, на «Авроре» 19.08:1; подпись на 85% белого — 11.24:1 и 13.49:1.
+   -------------------------------------------------------------------------- */
+[data-workspace-bg="aurora"] .cabinet-page-title,
+[data-workspace-bg="sky"] .cabinet-page-title {
+  color: hsl(0 0% 100%);
+}
+
+/* Подпись под заголовком — соседний абзац в том же блоке. */
+[data-workspace-bg="aurora"] .cabinet-page-title ~ p,
+[data-workspace-bg="sky"] .cabinet-page-title ~ p {
+  color: hsl(0 0% 100% / 0.85);
+}
+
+/* Карточки поверх обоев обязаны быть непрозрачными — ВСЕ, а не только те,
+   у кого прозрачность выше 70 процентов. Плитки со слабой подложкой
+   (статусные тона в 5 процентов, bg-card на 50) фактически прозрачны, и на
+   тёмных обоях их тёмный текст пропадал так же, как заголовок. Цветной смысл
+   остаётся на рамке и значке.
+
+   ВНИМАНИЕ: не писать в комментариях звёздочку со слэшем подряд — она
+   закрывает комментарий досрочно, и весь остаток файла перестаёт разбираться.
+   Именно так это правило и не работало в первый раз. */
+[data-workspace-bg="aurora"] main .rounded-prodent,
+[data-workspace-bg="sky"] main .rounded-prodent {
+  background-color: hsl(var(--card));
+}
+
+/* ---------------------------------------------------------------------------
+   ВКЛАДКИ НА ОБОЯХ
+
+   Вкладки стоят на холсте рядом с заголовком. С обоями холст тёмный, и
+   неактивная вкладка приглушённым цветом пропадает ровно так же, как пропадал
+   заголовок. Активная не трогается: она лежит на своей белой карточке.
+   Замер: 85 процентов белого на верхней зоне обоев дают 11.24:1.
+   -------------------------------------------------------------------------- */
+[data-workspace-bg="aurora"] [role="tablist"] [data-state="inactive"],
+[data-workspace-bg="sky"] [role="tablist"] [data-state="inactive"] {
+  color: hsl(0 0% 100% / 0.85);
+}
+
+[data-workspace-bg="aurora"] [role="tablist"] [data-state="inactive"]:hover,
+[data-workspace-bg="sky"] [role="tablist"] [data-state="inactive"]:hover {
+  background-color: hsl(0 0% 100% / 0.12);
+  color: hsl(0 0% 100%);
 }

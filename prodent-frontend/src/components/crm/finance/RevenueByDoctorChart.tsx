@@ -10,6 +10,16 @@ interface RevenueByDoctorChartProps {
   period: string;
 }
 
+type DoctorProfile = { full_name: string | null } | { full_name: string | null }[] | null;
+type AppointmentDoctor = {
+  id: string;
+  profiles: DoctorProfile;
+} | AppointmentDoctor[] | null;
+
+const getDoctor = (doctor: AppointmentDoctor) => (Array.isArray(doctor) ? doctor[0] ?? null : doctor);
+const getProfileName = (profile: DoctorProfile | undefined) =>
+  Array.isArray(profile) ? profile[0]?.full_name : profile?.full_name;
+
 const COLORS = ["hsl(var(--primary))", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
 export function RevenueByDoctorChart({ period }: RevenueByDoctorChartProps) {
@@ -35,7 +45,7 @@ export function RevenueByDoctorChart({ period }: RevenueByDoctorChartProps) {
       const { data: appointments } = await supabase
         .from("appointments")
         .select(`
-          price,
+          total_price,
           doctor:doctors(id, cooperation_type, profiles:user_id(full_name))
         `)
         .eq("clinic_id", currentClinic?.id)
@@ -46,13 +56,15 @@ export function RevenueByDoctorChart({ period }: RevenueByDoctorChartProps) {
       const revenueMap: Record<string, { name: string; revenue: number }> = {};
       
       appointments?.forEach((apt) => {
-        const doctorId = (apt.doctor as any)?.id;
-        const doctorName = (apt.doctor as any)?.profiles?.full_name || "Неизвестно";
+        const doctor = getDoctor(apt.doctor);
+        const doctorId = doctor?.id;
+        const doctorName = getProfileName(doctor?.profiles) || "Неизвестно";
+        if (!doctorId) return;
         
         if (!revenueMap[doctorId]) {
           revenueMap[doctorId] = { name: doctorName, revenue: 0 };
         }
-        revenueMap[doctorId].revenue += apt.price || 0;
+        revenueMap[doctorId].revenue += apt.total_price || 0;
       });
 
       return Object.values(revenueMap).sort((a, b) => b.revenue - a.revenue);

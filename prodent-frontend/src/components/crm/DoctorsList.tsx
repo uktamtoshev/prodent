@@ -14,8 +14,9 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useState } from 'react';
-import { 
-  Users, 
+import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  Users,
   Building2, 
   Armchair, 
   Stethoscope, 
@@ -50,6 +51,7 @@ interface DoctorWithProfile {
 type DoctorTab = 'all' | 'staff' | 'rental';
 
 export function DoctorsList() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const [activeTab, setActiveTab] = useState<DoctorTab>('all');
   const [search, setSearch] = useState('');
@@ -112,9 +114,9 @@ export function DoctorsList() {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20 cursor-help gap-1">
+              <Badge className="bg-brand-50 text-brand-700 border-brand-700/30 hover:bg-brand-100 cursor-help gap-1">
                 <Building2 className="w-3 h-3" />
-                Штатный
+                {t('crmDoctorsList.staffShort')}
                 {salaryPercent && (
                   <span className="ml-1 opacity-75">({salaryPercent}%)</span>
                 )}
@@ -122,10 +124,9 @@ export function DoctorsList() {
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <div className="space-y-1">
-                <p className="font-semibold">Штатный врач</p>
+                <p className="font-semibold">{t('crmDoctorsList.staffDoctor')}</p>
                 <p className="text-xs text-muted-foreground">
-                  Работает на клинику. Получает {salaryPercent || 30}% от стоимости услуг. 
-                  Пациенты и доходы учитываются в кассе клиники.
+                  {t('crmDoctorsList.staffDescPrefix')} {salaryPercent || 30}{t('crmDoctorsList.staffDescSuffix')}
                 </p>
               </div>
             </TooltipContent>
@@ -139,17 +140,16 @@ export function DoctorsList() {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/30 hover:bg-amber-500/20 cursor-help gap-1">
+              <Badge className="bg-status-info/10 text-status-info border-status-info/30 hover:bg-status-info/20 cursor-help gap-1">
                 <Armchair className="w-3 h-3" />
-                Арендатор
+                {t('crmDoctorsList.tenantShort')}
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs">
               <div className="space-y-1">
-                <p className="font-semibold">Арендатор кресла</p>
+                <p className="font-semibold">{t('crmDoctorsList.chairTenant')}</p>
                 <p className="text-xs text-muted-foreground">
-                  Арендует рабочее место в клинике. Платит фиксированную аренду. 
-                  Ведёт своих пациентов. Доходы от услуг — вне кассы клиники.
+                  {t('crmDoctorsList.tenantDescription')}
                 </p>
               </div>
             </TooltipContent>
@@ -161,20 +161,20 @@ export function DoctorsList() {
     return (
       <Badge variant="outline" className="text-muted-foreground gap-1">
         <Briefcase className="w-3 h-3" />
-        Не указан
+        {t('crmDoctorsList.notSpecified')}
       </Badge>
     );
   };
 
   if (isLoading) {
     return (
-      <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-        <CardHeader>
+      <Card className="overflow-hidden border-border/50 bg-card/80 shadow-soft backdrop-blur-sm">
+        <CardHeader className="border-b border-border/50 bg-surface-2 px-card-x py-card-y">
           <Skeleton className="h-8 w-48" />
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 p-4 sm:p-6">
           {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-24 w-full" />
+            <Skeleton key={i} className="h-24 w-full rounded-2xl" />
           ))}
         </CardContent>
       </Card>
@@ -182,76 +182,72 @@ export function DoctorsList() {
   }
 
   return (
-    <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Users className="w-5 h-5" />
-          Врачи клиники
-          <Badge variant="secondary" className="ml-2">{doctors?.length || 0}</Badge>
+    <Card className="overflow-hidden border-border/50 bg-card/80 shadow-soft backdrop-blur-sm">
+      <CardHeader className="border-b border-border/50 bg-surface-2 px-card-x py-card-y">
+        <CardTitle className="flex items-center gap-2 text-base font-bold">
+          <Users className="h-5 w-5" />
+          {t('crmDoctorsList.clinicDoctors')}
+          <Badge variant="secondary" className="ml-2 rounded-full">{doctors?.length || 0}</Badge>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-6 p-4 sm:p-6">
         {/* Search */}
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Поиск по имени или специализации..."
+            placeholder={t('crmDoctorsList.searchPlaceholder')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10"
+            className="h-11 border-border bg-background pl-10"
           />
         </div>
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DoctorTab)}>
-          <TabsList className="grid w-full grid-cols-3 bg-muted/50">
-            <TabsTrigger value="all" className="gap-2">
-              <Users className="w-4 h-4" />
-              Все
-              <Badge variant="secondary" className="ml-1">{doctors?.length || 0}</Badge>
+          <TabsList className="grid h-auto w-full grid-cols-3 border border-border/50 bg-muted/50 p-1">
+            <TabsTrigger value="all" className="gap-2 rounded-lg py-2">
+              <Users className="h-4 w-4" />
+              {t('crmDoctorsList.tabAll')}
+              <Badge variant="secondary" className="ml-1 rounded-full">{doctors?.length || 0}</Badge>
             </TabsTrigger>
-            <TabsTrigger 
-              value="staff" 
-              className="gap-2 data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-500"
+            <TabsTrigger
+              value="staff"
+              className="gap-2 rounded-lg py-2 data-[state=active]:bg-brand-50 data-[state=active]:text-brand-700"
             >
-              <Building2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Штатные</span>
-              <Badge className="bg-emerald-500/20 text-emerald-500 ml-1">{staffCount}</Badge>
+              <Building2 className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('crmDoctorsList.tabStaff')}</span>
+              <Badge className="ml-1 rounded-full bg-brand-100 text-brand-700">{staffCount}</Badge>
             </TabsTrigger>
-            <TabsTrigger 
-              value="rental" 
-              className="gap-2 data-[state=active]:bg-amber-500/10 data-[state=active]:text-amber-500"
+            <TabsTrigger
+              value="rental"
+              className="gap-2 rounded-lg py-2 data-[state=active]:bg-status-info/10 data-[state=active]:text-status-info"
             >
-              <Armchair className="w-4 h-4" />
-              <span className="hidden sm:inline">Арендаторы</span>
-              <Badge className="bg-amber-500/20 text-amber-500 ml-1">{rentalCount}</Badge>
+              <Armchair className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('crmDoctorsList.tabTenants')}</span>
+              <Badge className="ml-1 rounded-full bg-status-info/20 text-status-info">{rentalCount}</Badge>
             </TabsTrigger>
           </TabsList>
 
           {/* Tab content descriptions */}
           <div className="mt-4">
             {activeTab === 'staff' && (
-              <div className="flex items-start gap-3 p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
-                <Info className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 rounded-2xl border border-brand-700/20 bg-brand-50/50 p-4">
+                <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-700" />
                 <div>
-                  <p className="font-medium text-emerald-500">Штатные врачи</p>
+                  <p className="font-medium text-brand-700">{t('crmDoctorsList.staffDoctors')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Работают на клинику и получают процент от оказанных услуг. 
-                    Пациенты штатных врачей — пациенты клиники. 
-                    Все доходы учитываются в кассе и аналитике.
+                    {t('crmDoctorsList.staffInfoDescription')}
                   </p>
                 </div>
               </div>
             )}
             {activeTab === 'rental' && (
-              <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg">
-                <Info className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="flex items-start gap-3 rounded-2xl border border-status-info/20 bg-status-info/5 p-4">
+                <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-status-info" />
                 <div>
-                  <p className="font-medium text-amber-500">Арендаторы кресел</p>
+                  <p className="font-medium text-status-info">{t('crmDoctorsList.chairTenants')}</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Арендуют рабочее место за фиксированную плату. 
-                    Ведут своих личных пациентов. 
-                    Доходы от услуг не учитываются в кассе клиники.
+                    {t('crmDoctorsList.tenantInfoDescription')}
                   </p>
                 </div>
               </div>
@@ -261,14 +257,14 @@ export function DoctorsList() {
           {/* Doctors List */}
           <TabsContent value={activeTab} className="mt-4">
             {filteredDoctors?.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p>Врачи не найдены</p>
+              <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center text-muted-foreground">
+                <Users className="mx-auto mb-4 h-12 w-12 opacity-50" />
+                <p>{t('crmDoctorsList.noDoctorsFound')}</p>
                 {activeTab === 'staff' && (
-                  <p className="text-sm mt-1">Нет штатных врачей</p>
+                  <p className="text-sm mt-1">{t('crmDoctorsList.noStaffDoctors')}</p>
                 )}
                 {activeTab === 'rental' && (
-                  <p className="text-sm mt-1">Нет арендаторов</p>
+                  <p className="text-sm mt-1">{t('crmDoctorsList.noTenants')}</p>
                 )}
               </div>
             ) : (
@@ -276,15 +272,15 @@ export function DoctorsList() {
                 {filteredDoctors?.map((doctor) => (
                   <div 
                     key={doctor.id} 
-                    className={`p-4 rounded-lg border transition-colors ${
+                    className={`rounded-2xl border p-4 transition-colors ${
                       doctor.cooperation_type === 'staff_doctor'
-                        ? 'bg-emerald-500/5 border-emerald-500/20 hover:bg-emerald-500/10'
+                        ? 'bg-brand-50/50 border-brand-700/20 hover:bg-brand-50'
                         : doctor.cooperation_type === 'chair_rental'
-                        ? 'bg-amber-500/5 border-amber-500/20 hover:bg-amber-500/10'
+                        ? 'bg-status-info/5 border-status-info/20 hover:bg-status-info/10'
                         : 'bg-muted/30 hover:bg-muted/50'
                     }`}
                   >
-                    <div className="flex items-start gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                       {/* Avatar */}
                       <Avatar className="h-14 w-14">
                         <AvatarImage src={doctor.profile?.avatar_url || ''} />
@@ -297,7 +293,7 @@ export function DoctorsList() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                           <h4 className="font-semibold text-foreground">
-                            {doctor.profile?.full_name || 'Врач'}
+                            {doctor.profile?.full_name || t('crmDoctorsList.doctor')}
                           </h4>
                           {doctor.verified && (
                             <TooltipProvider>
@@ -305,7 +301,7 @@ export function DoctorsList() {
                                 <TooltipTrigger>
                                   <BadgeCheck className="w-4 h-4 text-primary" />
                                 </TooltipTrigger>
-                                <TooltipContent>Верифицирован</TooltipContent>
+                                <TooltipContent>{t('crmDoctorsList.verified')}</TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
                           )}
@@ -319,12 +315,12 @@ export function DoctorsList() {
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="w-3.5 h-3.5" />
-                            Опыт: {doctor.experience_years} лет
+                            {t('crmDoctorsList.experience')}: {doctor.experience_years} {t('crmDoctorsList.years')}
                           </span>
                           {doctor.cooperation_type === 'staff_doctor' && doctor.salary_percent && (
-                            <span className="flex items-center gap-1 text-emerald-500">
+                            <span className="flex items-center gap-1 text-brand-700">
                               <Percent className="w-3.5 h-3.5" />
-                              Ставка: {doctor.salary_percent}%
+                              {t('crmDoctorsList.rate')}: {doctor.salary_percent}%
                             </span>
                           )}
                         </div>
@@ -346,11 +342,11 @@ export function DoctorsList() {
                       </div>
 
                       {/* Cooperation Icon */}
-                      <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+                      <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full ${
                         doctor.cooperation_type === 'staff_doctor'
-                          ? 'bg-emerald-500/20 text-emerald-500'
+                          ? 'bg-brand-100 text-brand-700'
                           : doctor.cooperation_type === 'chair_rental'
-                          ? 'bg-amber-500/20 text-amber-500'
+                          ? 'bg-status-info/20 text-status-info'
                           : 'bg-muted text-muted-foreground'
                       }`}>
                         {getCooperationTypeIcon(doctor.cooperation_type)}
@@ -359,22 +355,22 @@ export function DoctorsList() {
 
                     {/* Model explanation for rental */}
                     {doctor.cooperation_type === 'chair_rental' && (
-                      <div className="mt-3 pt-3 border-t border-amber-500/20">
-                        <div className="flex items-center gap-2 text-xs text-amber-500">
+                      <div className="mt-3 pt-3 border-t border-status-info/20">
+                        <div className="flex items-center gap-2 text-xs text-status-info">
                           <DollarSign className="w-3.5 h-3.5" />
-                          <span>Доходы от приёмов — вне кассы клиники</span>
+                          <span>{t('crmDoctorsList.incomeOffClinic')}</span>
                         </div>
                       </div>
                     )}
 
                     {/* Model explanation for staff */}
                     {doctor.cooperation_type === 'staff_doctor' && (
-                      <div className="mt-3 pt-3 border-t border-emerald-500/20">
-                        <div className="flex items-center gap-2 text-xs text-emerald-500">
+                      <div className="mt-3 pt-3 border-t border-brand-700/20">
+                        <div className="flex items-center gap-2 text-xs text-brand-700">
                           <DollarSign className="w-3.5 h-3.5" />
                           <span>
-                            Доход клиники: {100 - (doctor.salary_percent || 30)}% от услуг • 
-                            Доход врача: {doctor.salary_percent || 30}% от услуг
+                            {t('crmDoctorsList.clinicIncome')}: {100 - (doctor.salary_percent || 30)}% {t('crmDoctorsList.fromServices')} •
+                            {t('crmDoctorsList.doctorIncome')}: {doctor.salary_percent || 30}% {t('crmDoctorsList.fromServices')}
                           </span>
                         </div>
                       </div>
@@ -387,26 +383,26 @@ export function DoctorsList() {
         </Tabs>
 
         {/* Summary */}
-        <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border/50">
-          <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg">
+        <div className="grid grid-cols-1 gap-4 border-t border-border/50 pt-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-brand-700/20 bg-brand-50/50 p-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-emerald-500" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100">
+                <Building2 className="h-5 w-5 text-brand-700" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{staffCount}</p>
-                <p className="text-sm text-muted-foreground">Штатных врачей</p>
+                <p className="text-sm text-muted-foreground">{t('crmDoctorsList.staffDoctorsLabel')}</p>
               </div>
             </div>
           </div>
-          <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+          <div className="rounded-2xl border border-status-info/20 bg-status-info/5 p-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-500/20 flex items-center justify-center">
-                <Armchair className="w-5 h-5 text-amber-500" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-status-info/20">
+                <Armchair className="h-5 w-5 text-status-info" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-foreground">{rentalCount}</p>
-                <p className="text-sm text-muted-foreground">Арендаторов</p>
+                <p className="text-sm text-muted-foreground">{t('crmDoctorsList.tenantsLabel')}</p>
               </div>
             </div>
           </div>

@@ -30,17 +30,36 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { getDoctorDepartureInfo } from '@/lib/doctor-departure';
+import { getDoctorDepartureInfo, handleDoctorDeparture } from '@/lib/doctor-departure';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface RemoveDoctorDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+interface DoctorForRemoval {
+  id: string;
+  user_id: string;
+  doctor?: {
+    id: string;
+    specialty: string | null;
+  };
+  profile?: {
+    full_name: string | null;
+    avatar_url: string | null;
+  };
+  cooperationType: string;
+}
+
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
-  const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
+  const [selectedDoctor, setSelectedDoctor] = useState<DoctorForRemoval | null>(null);
 
   // Get doctors in this clinic with affiliation info
   const { data: clinicDoctors, isLoading: loadingDoctors } = useQuery({
@@ -113,47 +132,20 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
   const removeMutation = useMutation({
     mutationFn: async () => {
       if (!selectedDoctor?.doctor?.id || !currentClinic?.id) {
-        throw new Error('Выберите врача');
+        throw new Error(t('crmDoctorMgmt.doctorPlaceholder'));
       }
 
       const user = (await supabase.auth.getUser()).data.user;
-      if (!user) throw new Error('Не авторизован');
+      if (!user) throw new Error(t('crmDoctorMgmt.removeError'));
 
-      // Import and use doctor departure logic
-      const { handleDoctorDeparture, deactivateDoctorAffiliation } = await import('@/lib/doctor-departure');
-      
-      // Handle patient ownership based on cooperation type
       const departureResult = await handleDoctorDeparture(selectedDoctor.doctor.id, currentClinic.id);
-      console.log('Departure result:', departureResult);
-
-      // Deactivate affiliation
-      await deactivateDoctorAffiliation(selectedDoctor.doctor.id, currentClinic.id);
-
-      // Remove from clinic_members
-      await supabase
-        .from('clinic_members')
-        .delete()
-        .eq('user_id', selectedDoctor.user_id)
-        .eq('clinic_id', currentClinic.id)
-        .eq('role', 'doctor');
-
-      // Clear doctor's clinic_id if matches
-      const { data: doctor } = await supabase
-        .from('doctors')
-        .select('clinic_id')
-        .eq('id', selectedDoctor.doctor.id)
-        .single();
-
-      if (doctor?.clinic_id === currentClinic.id) {
-        await supabase.from('doctors').update({ clinic_id: null }).eq('id', selectedDoctor.doctor.id);
-      }
 
       return departureResult;
     },
     onSuccess: (result) => {
-      const message = result?.message 
-        ? `Врач удален из клиники. ${result.message}`
-        : 'Врач удален из клиники';
+      const message = result?.message
+        ? `${t('crmDoctorMgmt.removed')}. ${result.message}`
+        : t('crmDoctorMgmt.removed');
       toast.success(message);
       queryClient.invalidateQueries({ queryKey: ['clinic-doctors'] });
       queryClient.invalidateQueries({ queryKey: ['clinic-doctors-for-removal'] });
@@ -162,8 +154,8 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
       setSelectedDoctor(null);
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast.error('Ошибка', { description: error.message });
+    onError: (error: unknown) => {
+      toast.error(t('crmDoctorMgmt.removeError'), { description: errorMessage(error) });
     },
   });
 
@@ -173,13 +165,13 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger>
-              <Badge variant="outline" className="text-amber-600 border-amber-500 bg-amber-50 dark:bg-amber-950/30">
+              <Badge variant="outline" className="text-status-warning border-status-warning bg-status-warning-bg">
                 <Armchair className="h-3 w-3 mr-1" />
-                Арендатор
+                {t('crmDoctorMgmt.roleSenior')}
               </Badge>
             </TooltipTrigger>
             <TooltipContent>
-              <p className="max-w-xs">При уходе пациенты уйдут с врачом</p>
+              <p className="max-w-xs">{t('crmDoctorMgmt.removeDesc')}</p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -189,13 +181,13 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger>
-            <Badge variant="outline" className="text-blue-600 border-blue-500 bg-blue-50 dark:bg-blue-950/30">
+            <Badge variant="outline" className="text-status-info border-status-info bg-status-info-bg">
               <Building2 className="h-3 w-3 mr-1" />
-              Штатный
+              {t('crmDoctorMgmt.roleDoctor')}
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
-            <p className="max-w-xs">При уходе пациенты остаются в клинике</p>
+            <p className="max-w-xs">{t('crmDoctorMgmt.removeDesc')}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -208,10 +200,10 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserMinus className="h-5 w-5" />
-            Удалить врача из клиники
+            {t('crmDoctorMgmt.removeTitle')}
           </DialogTitle>
           <DialogDescription>
-            Выберите врача для немедленного удаления из клиники.
+            {t('crmDoctorMgmt.removeDesc')}
           </DialogDescription>
         </DialogHeader>
 
@@ -222,7 +214,7 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
             </div>
           ) : clinicDoctors?.length === 0 ? (
             <p className="text-center text-muted-foreground py-4">
-              В клинике нет врачей
+              {t('crmPatientComponents.noResults')}
             </p>
           ) : (
             <div className="space-y-2 max-h-[300px] overflow-y-auto">
@@ -245,7 +237,7 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
                     </Avatar>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">
-                        {item.profile?.full_name || 'Врач'}
+                        {item.profile?.full_name || t('crmDoctorMgmt.roleDoctor')}
                       </p>
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Stethoscope className="h-3 w-3" />
@@ -269,36 +261,36 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
               ) : departureInfo && (
                 <div className={`p-3 rounded-lg border ${
                   departureInfo.willPatientsStay 
-                    ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800'
-                    : 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800'
+                    ? 'bg-status-info-bg border-status-info/30'
+                    : 'bg-status-warning-bg border-status-warning/30'
                 }`}>
                   <div className="flex items-start gap-2">
                     {departureInfo.willPatientsStay ? (
-                      <Info className="h-4 w-4 mt-0.5 text-blue-600" />
+                      <Info className="h-4 w-4 mt-0.5 text-status-info" />
                     ) : (
-                      <AlertTriangle className="h-4 w-4 mt-0.5 text-amber-600" />
+                      <AlertTriangle className="h-4 w-4 mt-0.5 text-status-warning" />
                     )}
                     <div className="text-sm">
                       <p className="font-medium">
-                        {departureInfo.willPatientsStay 
-                          ? 'Штатный врач' 
-                          : 'Арендатор кресла'}
+                        {departureInfo.willPatientsStay
+                          ? t('crmDoctorMgmt.roleDoctor')
+                          : t('crmDoctorMgmt.roleSenior')}
                       </p>
                       <p className="text-muted-foreground">
                         {departureInfo.patientsCount > 0 ? (
                           departureInfo.willPatientsStay ? (
                             <>
                               <Users className="h-3 w-3 inline mr-1" />
-                              {departureInfo.patientsCount} пациентов останутся в клинике
+                              {departureInfo.patientsCount} {t('crmPatientComponents.profileTitle')}
                             </>
                           ) : (
                             <>
                               <Users className="h-3 w-3 inline mr-1" />
-                              {departureInfo.patientsCount} пациентов уйдут с врачом
+                              {departureInfo.patientsCount} {t('crmPatientComponents.profileTitle')}
                             </>
                           )
                         ) : (
-                          'Нет привязанных пациентов'
+                          t('crmPatientComponents.noResults')
                         )}
                       </p>
                     </div>
@@ -309,7 +301,7 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
               <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-sm">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 mt-0.5 text-destructive" />
-                  <p>Врач будет удален из клиники немедленно и потеряет доступ к CRM.</p>
+                  <p>{t('crmDoctorMgmt.removeDesc')}</p>
                 </div>
               </div>
             </>
@@ -326,7 +318,7 @@ export function RemoveDoctorDialog({ open, onOpenChange }: RemoveDoctorDialogPro
             ) : (
               <UserMinus className="h-4 w-4 mr-2" />
             )}
-            Удалить врача
+            {t('crmDoctorMgmt.removeBtn')}
           </Button>
         </div>
       </DialogContent>

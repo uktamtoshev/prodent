@@ -1,77 +1,47 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MapPin, Phone, Mail, Globe, Building2, Navigation, Image as ImageIcon } from 'lucide-react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { ClinicProfileData } from './types';
+
+const ClinicAboutMap = lazy(() =>
+  import('./ClinicAboutMap').then((module) => ({ default: module.ClinicAboutMap })),
+);
 
 interface ClinicAboutProps {
-  clinic: any;
+  clinic: ClinicProfileData;
 }
 
 export function ClinicAbout({ clinic }: ClinicAboutProps) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<L.Map | null>(null);
-
-  useEffect(() => {
-    if (!mapContainer.current || !clinic?.latitude || !clinic?.longitude) return;
-    if (map.current) return;
-
-    map.current = L.map(mapContainer.current).setView(
-      [clinic.latitude, clinic.longitude],
-      15
-    );
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map.current);
-
-    const customIcon = L.divIcon({
-      className: 'custom-marker',
-      html: '<div style="background: linear-gradient(135deg, #2AB6A6 0%, #1a8a7d 100%); width: 36px; height: 36px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid white; box-shadow: 0 4px 12px rgba(42, 182, 166, 0.4);"></div>',
-      iconSize: [36, 36],
-      iconAnchor: [18, 36],
-    });
-
-    L.marker([clinic.latitude, clinic.longitude], { icon: customIcon })
-      .addTo(map.current)
-      .bindPopup(`<div class="p-3"><strong class="text-base">${clinic.name}</strong><br/><span class="text-muted-foreground">${clinic.address}</span></div>`);
-
-    return () => {
-      map.current?.remove();
-      map.current = null;
-    };
-  }, [clinic]);
+  const { t } = useLanguage();
 
   return (
     <div className="space-y-6">
-      {/* Description */}
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-3 text-xl">
             <div className="p-2 rounded-lg bg-primary/10">
               <Building2 className="w-5 h-5 text-primary" />
             </div>
-            О клинике
+            {t('clinicProfile.about')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {clinic.description ? (
             <p className="text-muted-foreground whitespace-pre-wrap leading-relaxed">{clinic.description}</p>
           ) : (
-            <p className="text-muted-foreground italic">Описание клиники пока не добавлено</p>
+            <p className="text-muted-foreground italic">{t('clinicProfile.descriptionEmpty')}</p>
           )}
         </CardContent>
       </Card>
 
-      {/* Contact Info */}
       <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-center gap-3 text-xl">
             <div className="p-2 rounded-lg bg-primary/10">
               <Phone className="w-5 h-5 text-primary" />
             </div>
-            Контактная информация
+            {t('clinicProfile.contactsTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -80,7 +50,7 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
               <MapPin className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <p className="font-medium text-foreground">Адрес</p>
+              <p className="font-medium text-foreground">{t('clinicProfile.address')}</p>
               <p className="text-muted-foreground">
                 {clinic.city}{clinic.district && `, ${clinic.district}`}, {clinic.address}
               </p>
@@ -88,7 +58,7 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
           </div>
 
           {clinic.phone && (
-            <a 
+            <a
               href={`tel:${clinic.phone}`}
               className="flex items-start gap-4 p-3 rounded-lg bg-muted/50 hover:bg-primary/10 transition-colors group"
             >
@@ -96,14 +66,14 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
                 <Phone className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="font-medium text-foreground">Телефон</p>
+                <p className="font-medium text-foreground">{t('clinicProfile.phone')}</p>
                 <p className="text-primary group-hover:underline">{clinic.phone}</p>
               </div>
             </a>
           )}
 
           {clinic.email && (
-            <a 
+            <a
               href={`mailto:${clinic.email}`}
               className="flex items-start gap-4 p-3 rounded-lg bg-muted/50 hover:bg-primary/10 transition-colors group"
             >
@@ -118,7 +88,7 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
           )}
 
           {clinic.website && (
-            <a 
+            <a
               href={clinic.website}
               target="_blank"
               rel="noopener noreferrer"
@@ -128,7 +98,7 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
                 <Globe className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <p className="font-medium text-foreground">Сайт</p>
+                <p className="font-medium text-foreground">{t('clinicProfile.website')}</p>
                 <p className="text-primary group-hover:underline">{clinic.website}</p>
               </div>
             </a>
@@ -136,7 +106,6 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
         </CardContent>
       </Card>
 
-      {/* Map */}
       {clinic.latitude && clinic.longitude && (
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
           <CardHeader className="pb-4">
@@ -144,16 +113,22 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
               <div className="p-2 rounded-lg bg-primary/10">
                 <Navigation className="w-5 h-5 text-primary" />
               </div>
-              Местоположение
+              {t('clinicProfile.location')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div ref={mapContainer} className="h-80 w-full" />
+            <Suspense fallback={<div className="h-80 w-full bg-muted animate-pulse" aria-label="Загрузка карты" />}>
+              <ClinicAboutMap
+                name={clinic.name}
+                address={clinic.address}
+                latitude={clinic.latitude}
+                longitude={clinic.longitude}
+              />
+            </Suspense>
           </CardContent>
         </Card>
       )}
 
-      {/* Gallery */}
       {clinic.images && clinic.images.length > 0 && (
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardHeader className="pb-4">
@@ -161,18 +136,18 @@ export function ClinicAbout({ clinic }: ClinicAboutProps) {
               <div className="p-2 rounded-lg bg-primary/10">
                 <ImageIcon className="w-5 h-5 text-primary" />
               </div>
-              Галерея
+              {t('clinicProfile.gallery')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {clinic.images.map((image: string, index: number) => (
-                <div 
-                  key={index} 
+                <div
+                  key={index}
                   className="aspect-square rounded-xl overflow-hidden group cursor-pointer border border-border/50"
                 >
-                  <img 
-                    src={image} 
+                  <img
+                    src={image}
                     alt={`${clinic.name} - ${index + 1}`}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                   />

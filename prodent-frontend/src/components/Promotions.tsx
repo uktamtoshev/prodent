@@ -8,6 +8,36 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getPublicPromotionTarget, isPublicPromotionCurrent } from "@/lib/publicPromotion";
+
+type PromotionRow = {
+  id: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  discount?: number | null;
+  original_price?: number | null;
+  discounted_price?: number | null;
+  valid_until?: string | null;
+  clinic_id?: string | null;
+  doctor_id?: string | null;
+  clinics?: { name?: string | null; city?: string | null } | null;
+  doctors?: {
+    specialty?: string | null;
+    profiles?: { full_name?: string | null } | null;
+  } | null;
+};
+
+type DoctorLookupRow = {
+  id: string;
+  specialty?: string | null;
+  user_id?: string | null;
+};
+
+type ProfileLookupRow = {
+  id: string;
+  full_name?: string | null;
+};
 
 const Promotions = () => {
   const { t } = useLanguage();
@@ -29,29 +59,74 @@ const Promotions = () => {
   const { data: promotions = [], isLoading } = useQuery({
     queryKey: ['promotions-home'],
     queryFn: async () => {
+      // Keep only the flat, reliable clinic embed. The previous query nested
+      // promotions -> doctors -> profiles, but `profiles` is a VIEW and that
+      // deep two-level embed can 500; the shim swallows the error and the whole
+      // promo block silently goes empty. We pull the doctor name in a second,
+      // separate query instead (same pattern as TopDoctors).
       const { data, error } = await supabase
         .from('promotions')
         .select(`
           *,
-          clinics:clinic_id (name, city),
-          doctors:doctor_id (
-            specialty,
-            profiles:user_id (full_name)
-          )
+          clinics:clinic_id (name, city)
         `)
         .eq('active', true)
+        .gte('valid_until', new Date().toISOString().slice(0, 10))
         .order('discount', { ascending: false })
         .limit(6);
-      
+
       if (error) throw error;
-      return data || [];
+      const promos = (data || []) as PromotionRow[];
+      if (promos.length === 0) return promos;
+
+      // Resolve doctor specialty + display name separately, guarded so a failure
+      // here never empties the promo grid (promos still render without the name).
+      try {
+        const doctorIds = Array.from(
+          new Set(promos.map((p) => p.doctor_id).filter((id): id is string => Boolean(id)))
+        );
+        if (doctorIds.length === 0) return promos;
+
+        const { data: doctorRows } = await supabase
+          .from('doctors')
+          .select('id, specialty, user_id')
+          .in('id', doctorIds);
+        const doctors = (doctorRows || []) as DoctorLookupRow[];
+
+        const userIds = Array.from(
+          new Set(doctors.map((d) => d.user_id).filter((id): id is string => Boolean(id)))
+        );
+        let profiles: ProfileLookupRow[] = [];
+        if (userIds.length > 0) {
+          const { data: profileRows } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', userIds);
+          profiles = (profileRows || []) as ProfileLookupRow[];
+        }
+
+        return promos.map((p) => {
+          const doctor = doctors.find((d) => d.id === p.doctor_id);
+          if (!doctor) return p;
+          const profile = profiles.find((pr) => pr.id === doctor.user_id);
+          return {
+            ...p,
+            doctors: { specialty: doctor.specialty, profiles: profile ? { full_name: profile.full_name } : null },
+          };
+        });
+      } catch {
+        return promos;
+      }
     }
   });
 
   const filteredPromotions =
     selectedCategory === "all"
-      ? promotions
-      : promotions.filter((promo) => promo.category === selectedCategory);
+      ? promotions.filter((promo) => isPublicPromotionCurrent(promo))
+      : promotions.filter(
+          (promo) =>
+            isPublicPromotionCurrent(promo) && promo.category === selectedCategory,
+        );
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('ru-RU').format(price) + ' ' + t('search.sum');
@@ -118,9 +193,13 @@ const Promotions = () => {
                   <img 
                     src={promo.image_url || '/promotions/cleaning.jpg'} 
                     alt={promo.title}
+                    loading="lazy"
+                    decoding="async"
+                    width={640}
+                    height={384}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                   />
-                  <Badge className="absolute top-4 right-4 bg-destructive text-white border-0 text-lg font-bold">
+                  <Badge className="absolute top-4 right-4 border-0 bg-red-700 text-lg font-bold text-white hover:bg-red-800">
                     -{promo.discount}%
                   </Badge>
                   <div className="absolute top-4 left-4">
@@ -166,8 +245,8 @@ const Promotions = () => {
                     <span>{t('promotions.validUntil')} {formatDate(promo.valid_until)}</span>
                   </div>
 
-                  <Link to="/search">
-                    <Button className="w-full group/btn">
+                  <Link to={getPublicPromotionTarget(promo)}>
+                    <Button className="w-full group/btn bg-teal-800 text-white hover:bg-teal-900">
                       {t('promotions.book')}
                       <ArrowRight className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 transition-transform" />
                     </Button>
@@ -184,8 +263,8 @@ const Promotions = () => {
         </div>
 
         <div className="text-center mt-12">
-          <Link to="/promotions">
-            <Button variant="outline" size="lg" className="group">
+          <Link to="/promotions" className="inline-block max-w-full">
+            <Button variant="outline" size="lg" className="group h-auto min-h-11 max-w-full whitespace-normal px-4 py-3">
               {t('promotions.viewAll')}
               <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
             </Button>

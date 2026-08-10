@@ -7,12 +7,23 @@ import { Calendar, DollarSign } from "lucide-react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useClinic } from "@/contexts/ClinicContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface VisitHistoryProps {
   patientId: string;
 }
 
+interface VisitDoctorProfile {
+  full_name: string | null;
+}
+
+interface VisitDoctor {
+  id: string;
+  profiles?: VisitDoctorProfile | null;
+}
+
 export function VisitHistory({ patientId }: VisitHistoryProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
 
   const { data: visits, isLoading } = useQuery({
@@ -25,7 +36,7 @@ export function VisitHistory({ patientId }: VisitHistoryProps) {
           appointment_date,
           service,
           status,
-          price,
+          total_price,
           notes,
           doctors (
             id,
@@ -48,10 +59,14 @@ export function VisitHistory({ patientId }: VisitHistoryProps) {
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, { label: string; className: string }> = {
-      pending: { label: "Новая", className: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20" },
-      confirmed: { label: "Подтверждена", className: "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20" },
-      completed: { label: "Завершена", className: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20" },
-      cancelled: { label: "Отменена", className: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20" },
+      // Hues are kept non-adjacent so neighbouring rows never blur together:
+      // pending 38 (warning) / confirmed 199 (info) / completed 160 (success) /
+      // cancelled 0 (danger). Nothing sits on the brand ramp between info and
+      // success, so `confirmed` and `completed` stay tellable apart.
+      pending: { label: t('crmTopLevel.statusNew'), className: "bg-status-warning/10 text-status-warning border-status-warning/20" },
+      confirmed: { label: t('crmTopLevel.statusConfirmed'), className: "bg-status-info/10 text-status-info border-status-info/20" },
+      completed: { label: t('crmTopLevel.statusCompleted'), className: "bg-status-success/10 text-status-success border-status-success/20" },
+      cancelled: { label: t('crmTopLevel.statusCancelled'), className: "bg-status-danger/10 text-status-danger border-status-danger/20" },
     };
     return variants[status] || variants.pending;
   };
@@ -59,9 +74,9 @@ export function VisitHistory({ patientId }: VisitHistoryProps) {
   return (
     <Card className="border-border/50 bg-card/80">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-foreground">
+        <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
           <Calendar className="w-5 h-5" />
-          История посещений
+          {t('crmTopLevel.visitHistory')}
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -75,8 +90,8 @@ export function VisitHistory({ patientId }: VisitHistoryProps) {
           <div className="space-y-3">
             {visits.map((visit) => {
               const status = getStatusBadge(visit.status || "pending");
-              const doctor = visit.doctors as any;
-              const profile = doctor?.profiles as any;
+              const doctor = visit.doctors as VisitDoctor | null;
+              const profile = doctor?.profiles;
               
               return (
                 <div
@@ -93,19 +108,19 @@ export function VisitHistory({ patientId }: VisitHistoryProps) {
                         {status.label}
                       </Badge>
                     </div>
-                    {visit.price && (
+                    {visit.total_price && (
                       <div className="flex items-center gap-1 text-foreground font-semibold">
                         <DollarSign className="w-4 h-4 text-primary" />
-                        {visit.price.toLocaleString()} UZS
+                        {visit.total_price.toLocaleString()} UZS
                       </div>
                     )}
                   </div>
                   <div className="text-muted-foreground mb-1">
-                    <strong className="text-foreground/80">Услуга:</strong> {visit.service}
+                    <strong className="text-foreground/80">{t('crmTopLevel.service')}</strong> {visit.service}
                   </div>
                   {profile?.full_name && (
                     <div className="text-muted-foreground text-sm">
-                      <strong className="text-foreground/80">Врач:</strong> {profile.full_name}
+                      <strong className="text-foreground/80">{t('crmTopLevel.doctor')}</strong> {profile.full_name}
                     </div>
                   )}
                   {visit.notes && (
@@ -120,7 +135,7 @@ export function VisitHistory({ patientId }: VisitHistoryProps) {
         ) : (
           <div className="text-center py-12 text-muted-foreground">
             <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>История посещений пуста</p>
+            <p>{t('crmTopLevel.historyEmpty')}</p>
           </div>
         )}
       </CardContent>

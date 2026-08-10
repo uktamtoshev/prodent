@@ -1,12 +1,10 @@
-import { AssistantLayout } from '@/components/assistant/AssistantLayout';
+import { AssistantLayout } from "@/components/assistant/AssistantLayout";
+import { ScheduleOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function AssistantAppointments() {
   return (
     <AssistantLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Сопровождение приёмов</h1>
-        <p className="text-muted-foreground">Ассистирование на приёмах</p>
-      </div>
+      <ScheduleOperations title="Сопровождение приёмов" description="Пациенты и врачи, которых нужно подготовить к приёму." />
     </AssistantLayout>
   );
 }

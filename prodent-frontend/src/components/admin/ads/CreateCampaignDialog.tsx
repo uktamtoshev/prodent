@@ -12,14 +12,32 @@ import { format, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { useAdPackages, useCreateCampaign } from '@/hooks/useAdCampaigns';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
+
+// Token used by other REST helpers in the app (see useAdCampaigns.ts).
+const TOKEN_KEY = 'prodent_access_token';
+function adminAuthHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+}
 
 interface Props {
   children?: React.ReactNode;
 }
 
+interface CampaignTarget {
+  id: string;
+  name?: string;
+  city?: string;
+  specialty?: string;
+  profiles?: { full_name?: string };
+}
+
 export function CreateCampaignDialog({ children }: Props) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [targetType, setTargetType] = useState<'doctor' | 'clinic'>('doctor');
   const [packageId, setPackageId] = useState('');
@@ -28,45 +46,70 @@ export function CreateCampaignDialog({ children }: Props) {
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [selectedTarget, setSelectedTarget] = useState<any>(null);
+  const [searchResults, setSearchResults] = useState<CampaignTarget[]>([]);
+  const [selectedTarget, setSelectedTarget] = useState<CampaignTarget | null>(null);
 
   const { user } = useAuth();
   const { data: packages } = useAdPackages(targetType);
   const createCampaign = useCreateCampaign();
 
   const selectedPackage = packages?.find(p => p.id === packageId);
-  const endDate = selectedPackage 
+  const endDate = selectedPackage
     ? addDays(startDate, selectedPackage.duration_days)
     : startDate;
 
-  // Search doctors or clinics
+  // Search doctors or clinics via the REST search endpoints. Doctors use the
+  // public endpoint; clinics use the authenticated one (admin is logged in).
   useEffect(() => {
     if (searchQuery.length < 2) {
       setSearchResults([]);
       return;
     }
 
+    const controller = new AbortController();
     const search = async () => {
-      if (targetType === 'doctor') {
-        const { data } = await supabase
-          .from('doctors')
-          .select('id, specialty, profiles:profiles!doctors_user_id_fkey(full_name)')
-          .ilike('profiles.full_name', `%${searchQuery}%`)
-          .limit(10);
-        setSearchResults(data || []);
-      } else {
-        const { data } = await supabase
-          .from('clinics')
-          .select('id, name, city')
-          .ilike('name', `%${searchQuery}%`)
-          .limit(10);
-        setSearchResults(data || []);
+      try {
+        if (targetType === 'doctor') {
+          const res = await fetch(
+            `/api/v1/public/doctors/search?query=${encodeURIComponent(searchQuery)}&size=10`,
+            { signal: controller.signal },
+          );
+          if (!res.ok) { setSearchResults([]); return; }
+          const page = await res.json();
+          // Normalise DoctorResponse → the shape the rest of this component
+          // expects (id, specialty, profiles.full_name).
+          const items = (page?.content ?? []).map((d: {
+            id: string;
+            firstName?: string;
+            lastName?: string;
+            specialties?: Array<{ nameRu?: string; nameUz?: string }>;
+          }) => ({
+            id: d.id,
+            specialty: d.specialties?.[0]?.nameRu ?? d.specialties?.[0]?.nameUz ?? '',
+            profiles: { full_name: `${d.firstName ?? ''} ${d.lastName ?? ''}`.trim() },
+          }));
+          setSearchResults(items);
+        } else {
+          const res = await fetch(
+            `/api/v1/clinics/search?q=${encodeURIComponent(searchQuery)}&size=10`,
+            { headers: adminAuthHeaders(), signal: controller.signal },
+          );
+          if (!res.ok) { setSearchResults([]); return; }
+          const page = await res.json();
+          const items = (page?.content ?? []).map((c: { id: string; name?: string; city?: string }) => ({
+            id: c.id,
+            name: c.name,
+            city: c.city,
+          }));
+          setSearchResults(items);
+        }
+      } catch (e) {
+        if ((e as { name?: string })?.name !== 'AbortError') setSearchResults([]);
       }
     };
 
     const timeout = setTimeout(search, 300);
-    return () => clearTimeout(timeout);
+    return () => { clearTimeout(timeout); controller.abort(); };
   }, [searchQuery, targetType]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -102,7 +145,7 @@ export function CreateCampaignDialog({ children }: Props) {
     setSelectedTarget(null);
   };
 
-  const selectTarget = (item: any) => {
+  const selectTarget = (item: CampaignTarget) => {
     setTargetId(item.id);
     setSelectedTarget(item);
     setSearchQuery('');
@@ -115,19 +158,19 @@ export function CreateCampaignDialog({ children }: Props) {
         {children || (
           <Button className="gap-2">
             <Plus className="w-4 h-4" />
-            Назначить рекламу
+            {t('adminCreateCampaign.btnTrigger')}
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Назначить рекламную кампанию</DialogTitle>
+          <DialogTitle>{t('adminCreateCampaign.title')}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Target Type */}
           <div className="space-y-2">
-            <Label>Тип</Label>
+            <Label>{t('adminCreateCampaign.labelType')}</Label>
             <Select value={targetType} onValueChange={(v: 'doctor' | 'clinic') => {
               setTargetType(v);
               setPackageId('');
@@ -138,32 +181,32 @@ export function CreateCampaignDialog({ children }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="doctor">Врач</SelectItem>
-                <SelectItem value="clinic">Клиника</SelectItem>
+                <SelectItem value="doctor">{t('adminCreateCampaign.typeDoctor')}</SelectItem>
+                <SelectItem value="clinic">{t('adminCreateCampaign.typeClinic')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Search Target */}
           <div className="space-y-2">
-            <Label>{targetType === 'doctor' ? 'Врач' : 'Клиника'}</Label>
+            <Label>{targetType === 'doctor' ? t('adminCreateCampaign.labelDoctor') : t('adminCreateCampaign.labelClinic')}</Label>
             {selectedTarget ? (
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
                 <span className="font-medium">
-                  {targetType === 'doctor' 
-                    ? selectedTarget.profiles?.full_name 
+                  {targetType === 'doctor'
+                    ? selectedTarget.profiles?.full_name
                     : selectedTarget.name}
                 </span>
-                <Button 
-                  type="button" 
-                  variant="ghost" 
+                <Button
+                  type="button"
+                  variant="ghost"
                   size="sm"
                   onClick={() => {
                     setTargetId('');
                     setSelectedTarget(null);
                   }}
                 >
-                  Изменить
+                  {t('adminCreateCampaign.btnChange')}
                 </Button>
               </div>
             ) : (
@@ -172,7 +215,7 @@ export function CreateCampaignDialog({ children }: Props) {
                 <Input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={`Поиск ${targetType === 'doctor' ? 'врача' : 'клиники'}...`}
+                  placeholder={targetType === 'doctor' ? t('adminCreateCampaign.placeholderSearchDoctor') : t('adminCreateCampaign.placeholderSearchClinic')}
                   className="pl-9"
                 />
                 {searchResults.length > 0 && (
@@ -184,7 +227,7 @@ export function CreateCampaignDialog({ children }: Props) {
                         className="w-full px-4 py-2 text-left hover:bg-muted transition-colors"
                         onClick={() => selectTarget(item)}
                       >
-                        {targetType === 'doctor' 
+                        {targetType === 'doctor'
                           ? `${item.profiles?.full_name} — ${item.specialty}`
                           : `${item.name} (${item.city})`}
                       </button>
@@ -197,15 +240,15 @@ export function CreateCampaignDialog({ children }: Props) {
 
           {/* Package */}
           <div className="space-y-2">
-            <Label>Пакет</Label>
+            <Label>{t('adminCreateCampaign.labelPackage')}</Label>
             <Select value={packageId} onValueChange={setPackageId}>
               <SelectTrigger>
-                <SelectValue placeholder="Выберите пакет" />
+                <SelectValue placeholder={t('adminCreateCampaign.placeholderPackage')} />
               </SelectTrigger>
               <SelectContent>
                 {packages?.map((pkg) => (
                   <SelectItem key={pkg.id} value={pkg.id}>
-                    {pkg.name} — {pkg.price.toLocaleString()} {pkg.currency} ({pkg.duration_days} дн.)
+                    {pkg.name} — {pkg.price.toLocaleString()} {pkg.currency} ({pkg.duration_days} {t('adminCreateCampaign.packageDaysShort')})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -214,7 +257,7 @@ export function CreateCampaignDialog({ children }: Props) {
 
           {/* Start Date */}
           <div className="space-y-2">
-            <Label>Дата начала</Label>
+            <Label>{t('adminCreateCampaign.labelStartDate')}</Label>
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" className={cn("w-full justify-start text-left font-normal")}>
@@ -234,33 +277,33 @@ export function CreateCampaignDialog({ children }: Props) {
             </Popover>
             {selectedPackage && (
               <p className="text-sm text-muted-foreground">
-                Окончание: {format(endDate, 'PPP', { locale: ru })}
+                {t('adminCreateCampaign.labelEndDate')}{format(endDate, 'PPP', { locale: ru })}
               </p>
             )}
           </div>
 
           {/* Payment Method */}
           <div className="space-y-2">
-            <Label>Способ оплаты</Label>
+            <Label>{t('adminCreateCampaign.labelPaymentMethod')}</Label>
             <Select value={paymentMethod} onValueChange={setPaymentMethod}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">Наличные</SelectItem>
-                <SelectItem value="card">Карта</SelectItem>
-                <SelectItem value="transfer">Перевод</SelectItem>
+                <SelectItem value="cash">{t('adminCreateCampaign.methodCash')}</SelectItem>
+                <SelectItem value="card">{t('adminCreateCampaign.methodCard')}</SelectItem>
+                <SelectItem value="transfer">{t('adminCreateCampaign.methodTransfer')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {/* Notes */}
           <div className="space-y-2">
-            <Label>Примечание</Label>
+            <Label>{t('adminCreateCampaign.labelNote')}</Label>
             <Textarea
               value={paymentNotes}
               onChange={(e) => setPaymentNotes(e.target.value)}
-              placeholder="Заметки об оплате..."
+              placeholder={t('adminCreateCampaign.placeholderNote')}
               rows={2}
             />
           </div>
@@ -268,7 +311,7 @@ export function CreateCampaignDialog({ children }: Props) {
           {/* Summary */}
           {selectedPackage && selectedTarget && (
             <div className="p-4 bg-muted rounded-lg">
-              <p className="font-medium">Итого к оплате:</p>
+              <p className="font-medium">{t('adminCreateCampaign.summaryLabel')}</p>
               <p className="text-2xl font-bold text-primary">
                 {selectedPackage.price.toLocaleString()} {selectedPackage.currency}
               </p>
@@ -277,14 +320,14 @@ export function CreateCampaignDialog({ children }: Props) {
 
           <div className="flex gap-3 pt-4">
             <Button type="button" variant="outline" className="flex-1" onClick={() => setOpen(false)}>
-              Отмена
+              {t('admin.cancel')}
             </Button>
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="flex-1"
               disabled={!packageId || !targetId || createCampaign.isPending}
             >
-              {createCampaign.isPending ? 'Создание...' : 'Создать'}
+              {createCampaign.isPending ? t('adminCreateCampaign.btnCreating') : t('adminCreateCampaign.btnCreate')}
             </Button>
           </div>
         </form>

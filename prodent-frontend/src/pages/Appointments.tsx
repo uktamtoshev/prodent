@@ -24,14 +24,20 @@ import { Calendar, Clock, MapPin, User, X, CheckCircle, AlertCircle } from "luci
 import { format, isPast, isFuture } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
+import { cancelAppointment } from "@/lib/appointment-api";
 
 interface Appointment {
   id: string;
   appointment_date: string;
-  service: string;
+  start_time: string | null;
+  end_time: string | null;
   status: string;
   notes: string | null;
-  price: number;
+  total_price: number | null;
+  service_id: string | null;
+  service: {
+    name_ru: string;
+  } | null;
   doctor: {
     id: string;
     specialty: string;
@@ -47,6 +53,9 @@ interface Appointment {
     phone: string;
   } | null;
 }
+
+const errorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "Не удалось отменить запись";
 
 const Appointments = () => {
   const { user, loading } = useAuth();
@@ -71,6 +80,7 @@ const Appointments = () => {
         .from("appointments")
         .select(`
           *,
+          service:services(name_ru),
           doctor:doctors(
             id,
             specialty,
@@ -90,12 +100,7 @@ const Appointments = () => {
   // Cancel appointment mutation
   const cancelMutation = useMutation({
     mutationFn: async (appointmentId: string) => {
-      const { error } = await supabase
-        .from("appointments")
-        .update({ status: "cancelled" })
-        .eq("id", appointmentId);
-
-      if (error) throw error;
+      await cancelAppointment({ appointmentId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
@@ -105,45 +110,48 @@ const Appointments = () => {
       });
       setCancellingId(null);
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
         title: "Ошибка отмены",
-        description: error.message,
+        description: errorMessage(error),
         variant: "destructive",
       });
       setCancellingId(null);
     },
   });
 
-  const upcomingAppointments = appointments.filter((apt) => 
-    isFuture(new Date(apt.appointment_date)) && apt.status !== "cancelled"
+  // Status is stored uppercase (CHECK constraint); compare case-insensitively.
+  const upcomingAppointments = appointments.filter((apt) =>
+    isFuture(new Date(apt.appointment_date)) && (apt.status || "").toLowerCase() !== "cancelled"
   );
 
-  const pastAppointments = appointments.filter((apt) => 
-    isPast(new Date(apt.appointment_date)) || apt.status === "cancelled"
+  const pastAppointments = appointments.filter((apt) =>
+    isPast(new Date(apt.appointment_date)) || (apt.status || "").toLowerCase() === "cancelled"
   );
 
   const getStatusBadge = (status: string, date: string) => {
-    if (status === "cancelled") {
+    const s = (status || "").toLowerCase();
+    if (s === "cancelled") {
       return <Badge variant="destructive">Отменено</Badge>;
     }
-    if (status === "completed") {
+    if (s === "completed") {
       return <Badge className="bg-green-500">Завершено</Badge>;
     }
     if (isPast(new Date(date))) {
       return <Badge variant="secondary">Прошедшая</Badge>;
     }
-    if (status === "confirmed") {
+    if (s === "confirmed") {
       return <Badge className="bg-accent">Подтверждено</Badge>;
     }
     return <Badge variant="secondary">Ожидание</Badge>;
   };
 
   const canCancel = (appointment: Appointment) => {
+    const s = (appointment.status || "").toLowerCase();
     return (
       isFuture(new Date(appointment.appointment_date)) &&
-      appointment.status !== "cancelled" &&
-      appointment.status !== "completed"
+      s !== "cancelled" &&
+      s !== "completed"
     );
   };
 
@@ -181,12 +189,14 @@ const Appointments = () => {
 
               <div className="flex items-center gap-2 text-sm">
                 <Clock className="w-4 h-4 text-muted-foreground" />
-                <span>{format(new Date(appointment.appointment_date), "HH:mm", { locale: ru })}</span>
+                <span>{appointment.start_time?.slice(0, 5) ?? format(new Date(appointment.appointment_date), "HH:mm", { locale: ru })}</span>
               </div>
 
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="w-4 h-4 text-muted-foreground" />
-                <span className="font-medium">{appointment.service}</span>
+                <span className="font-medium">
+                  {appointment.service?.name_ru ?? appointment.notes?.split("\n")[0]?.replace(/^Другое:\s*/, "") ?? "Услуга"}
+                </span>
               </div>
 
               {appointment.clinic && (
@@ -213,7 +223,9 @@ const Appointments = () => {
               <div>
                 <span className="text-sm text-muted-foreground">Стоимость: </span>
                 <span className="text-lg font-bold text-primary">
-                  {appointment.price.toLocaleString()} сум
+                  {appointment.total_price != null
+                    ? `${Number(appointment.total_price).toLocaleString()} сум`
+                    : "уточняется"}
                 </span>
               </div>
 

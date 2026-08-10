@@ -1,252 +1,257 @@
 import { CRMLayout } from "@/components/crm/CRMLayout";
-import { Users, DollarSign, UserPlus, TrendingUp, Plus, Calendar } from "lucide-react";
+import { AlertCircle, DollarSign, Plus, TrendingUp, UserPlus, Users } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
-import { GuestAppointmentModal } from "@/components/crm/appointments/GuestAppointmentModal";
+import { lazy, Suspense, useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { cn, formatPrice } from "@/lib/utils";
 import { useClinic } from "@/contexts/ClinicContext";
 import { DashboardStatCard } from "@/components/crm/dashboard/DashboardStatCard";
 import { TimelineSchedule } from "@/components/crm/dashboard/TimelineSchedule";
+import { Link } from "react-router-dom";
+import { useTodayAppointments } from "@/hooks/useTodayAppointments";
 import { EnhancedLiveQueue } from "@/components/crm/dashboard/EnhancedLiveQueue";
 import { DashboardTasksWidget } from "@/components/crm/tasks/DashboardTasksWidget";
 import { OnboardingWizard } from "@/components/crm/onboarding/OnboardingWizard";
+import { fetchClinicSetting } from "@/lib/clinic-settings";
+import { Card, CardContent } from "@/components/ui/card";
+import { getReportSummary } from "@/lib/crm-operations-api";
+import { useModulePermissions } from "@/hooks/useModulePermissions";
+import { useUserRole } from "@/hooks/useUserRole";
+
+const GuestAppointmentModal = lazy(() =>
+  import("@/components/crm/appointments/GuestAppointmentModal").then(
+    (module) => ({ default: module.GuestAppointmentModal }),
+  ),
+);
+
+const safeLabel = (value: string, fallback: string) =>
+  value && !/[ÐÑÂâ]/.test(value) ? value : fallback;
 
 export default function CRMDashboard() {
   const [quickAppointmentOpen, setQuickAppointmentOpen] = useState(false);
   const { currentClinic, loading: clinicLoading } = useClinic();
+  const {
+    canView,
+    isLoading: permissionsLoading,
+    permissions,
+  } = useModulePermissions();
+  const { isAdmin, isSuperAdmin } = useUserRole();
   const queryClient = useQueryClient();
+  const { t, language } = useLanguage();
+  const tr = (key: string, fallback: string) => safeLabel(t(key), fallback);
+  const localeMap: Record<string, string> = {
+    ru: "ru-RU",
+    uz: "uz-Latn-UZ",
+    uz_cyrl: "uz-Cyrl-UZ",
+    kz: "kk-KZ",
+    kg: "ky-KG",
+    tj: "tg-TJ",
+  };
+  const dateLocale = localeMap[language] || "ru-RU";
 
-  // Check onboarding status
   const { data: onboardingCompleted, isLoading: onboardingLoading } = useQuery({
     queryKey: ["onboarding-status", currentClinic?.id],
     queryFn: async () => {
-      if (!currentClinic?.id) return true; // no clinic = skip
-      const { data } = await supabase
-        .from("clinic_settings")
-        .select("value")
-        .eq("clinic_id", currentClinic.id)
-        .eq("key", "onboarding_completed")
-        .maybeSingle();
-      return data?.value === true;
+      if (!currentClinic?.id) return true;
+      return (await fetchClinicSetting(currentClinic.id, "onboarding_completed")) === true;
     },
     enabled: !clinicLoading && !!currentClinic?.id,
   });
 
-  // Получаем ID текущего врача
-  const { data: currentDoctor } = useQuery({
-    queryKey: ["current-doctor", currentClinic?.id],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const { data } = await supabase
-        .from("doctors")
-        .select("id, clinic_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      return data;
-    },
-  });
-
-  // Статистика по клинике (tenant-aware)
-  const { data: todayStats, isLoading: statsLoading } = useQuery({
+  const todayKey = new Date().toLocaleDateString("en-CA");
+  // Те же записи, что рисует сетка дня ниже: числа над ней обязаны совпадать
+  // с её содержимым, поэтому берутся из одного кеша, а не считаются отдельно.
+  const {
+    counts: todayCounts,
+    isError: appointmentsError,
+    isLoading: appointmentsLoading,
+  } = useTodayAppointments(currentClinic?.id);
+  const clinicRole = currentClinic?.role?.toLowerCase();
+  const isPlatformAdmin = isAdmin || isSuperAdmin;
+  const hasReportRole = isPlatformAdmin || [
+    "clinic_admin",
+    "clinic_manager",
+    "accountant",
+  ].includes(clinicRole ?? "");
+  const explicitReportPermission = permissions.find(
+    (permission) => permission.module === "reports",
+  );
+  const reportsPermissionGranted = explicitReportPermission
+    ? explicitReportPermission.can_view
+    : canView("reports");
+  const canViewReports = hasReportRole && (
+    isPlatformAdmin || (!permissionsLoading && reportsPermissionGranted)
+  );
+  const { data: todayStats, isLoading: statsLoading, isError: statsError } = useQuery({
     queryKey: ["today-stats", currentClinic?.id],
     queryFn: async () => {
       if (!currentClinic?.id) return null;
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      const { data: appointments } = await supabase
-        .from("appointments")
-        .select("id, status, price")
-        .eq("clinic_id", currentClinic.id)
-        .gte("appointment_date", today.toISOString())
-        .lt("appointment_date", tomorrow.toISOString());
-
-      return {
-        todayCount: appointments?.length || 0,
-        todayRevenue: appointments?.reduce((sum, a) => sum + (a.price || 0), 0) || 0,
-      };
+      return getReportSummary(currentClinic.id, todayKey, todayKey);
     },
-    enabled: !clinicLoading && !!currentClinic?.id,
+    enabled: !clinicLoading && !!currentClinic?.id && canViewReports,
   });
 
-  // Новые пациенты за неделю (tenant-aware)
-  const { data: newPatients } = useQuery({
-    queryKey: ["new-patients", currentClinic?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id) return 0;
-
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-
-      const { data } = await supabase
-        .from("appointments")
-        .select("patient_id")
-        .eq("clinic_id", currentClinic.id)
-        .gte("created_at", weekAgo.toISOString());
-
-      const uniquePatients = new Set(data?.map(a => a.patient_id));
-      return uniquePatients.size;
-    },
-    enabled: !clinicLoading && !!currentClinic?.id,
-  });
-
-  // Конверсия записей (tenant-aware)
-  const { data: conversion } = useQuery({
-    queryKey: ["conversion", currentClinic?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id) return 0;
-
-      const monthAgo = new Date();
-      monthAgo.setDate(monthAgo.getDate() - 30);
-
-      const { data: appointments } = await supabase
-        .from("appointments")
-        .select("status")
-        .eq("clinic_id", currentClinic.id)
-        .gte("created_at", monthAgo.toISOString());
-
-      const total = appointments?.length || 0;
-      const completed = appointments?.filter(a => a.status === "completed").length || 0;
-
-      return total > 0 ? Math.round((completed / total) * 100) : 0;
-    },
-    enabled: !clinicLoading && !!currentClinic?.id,
-  });
-
-  // Show onboarding wizard if not completed
   if (!onboardingLoading && onboardingCompleted === false) {
     return (
       <CRMLayout>
-        <OnboardingWizard
-          onComplete={() => {
-            queryClient.invalidateQueries({ queryKey: ["onboarding-status"] });
-          }}
-        />
+        <OnboardingWizard onComplete={() => queryClient.invalidateQueries({ queryKey: ["onboarding-status"] })} />
       </CRMLayout>
     );
   }
 
+  // Ошибка любого из двух источников: сводка отчётов или записи на сегодня.
+  // Без второго условия упавший запрос записей показывал бы нули как факт.
+  const hasKpiError = (canViewReports && statsError) || appointmentsError;
+  const operations = (todayStats?.appointments ?? {}) as Record<string, number>;
+
   return (
     <CRMLayout>
-      <div className="p-4 lg:p-6 xl:p-8 space-y-6">
-        {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h1 className="font-heading text-2xl md:text-3xl font-bold text-foreground">
-              Дашборд
-            </h1>
-            <p className="text-muted-foreground mt-1 text-sm">
-              {currentClinic ? currentClinic.name : 'Выберите клинику'} • {new Date().toLocaleDateString('ru-RU', { 
-                weekday: 'long', 
-                day: 'numeric', 
-                month: 'long' 
-              })}
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button 
-              variant="outline" 
-              className="gap-2 border-border hover:bg-muted"
-            >
-              <Calendar className="w-4 h-4" />
-              Сегодня
-            </Button>
-            <Button 
-              onClick={() => setQuickAppointmentOpen(true)}
-              className="gap-2 bg-primary hover:bg-primary/90 shadow-soft"
-              disabled={!currentClinic}
-            >
-              <Plus className="w-4 h-4" />
-              Новая запись
-            </Button>
-          </div>
+      <div className="mx-auto w-full max-w-[1440px] space-y-section p-4 md:p-6">
+        {/*
+          The clinic name and date used to sit inside a gradient hero card that
+          consumed the whole first screen of a work tool to say "Dashboard" and
+          hold two buttons. The section name now lives in the cabinet top bar, so
+          this is a single compact row: context on the left, the primary action on
+          the right, and the numbers start immediately below the fold line.
+        */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {currentClinic ? currentClinic.name : tr("crmDashboard.selectClinic", "Выберите клинику")}
+            {" · "}
+            {new Date().toLocaleDateString(dateLocale, { weekday: "long", day: "numeric", month: "long" })}
+          </p>
+          <Button
+            size="cabinet"
+            onClick={() => setQuickAppointmentOpen(true)}
+            className="gap-2"
+            disabled={!currentClinic}
+          >
+            <Plus aria-hidden="true" className="h-4 w-4" />
+            {tr("crmDashboard.newAppointment", "Новая запись")}
+          </Button>
         </div>
 
-        {/* Статистика */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <DashboardStatCard
-            title="Пациенты сегодня"
-            value={todayStats?.todayCount || 0}
-            subtitle="Записей на сегодня"
-            icon={Users}
-            loading={statsLoading || clinicLoading}
-            accentColor="blue"
-          />
-          <DashboardStatCard
-            title="Выручка сегодня"
-            value={formatPrice(todayStats?.todayRevenue || 0, 'сум', false)}
-            subtitle="За текущий день"
-            icon={DollarSign}
-            loading={statsLoading || clinicLoading}
-            accentColor="emerald"
-          />
-          <DashboardStatCard
-            title="Новые пациенты"
-            value={newPatients || 0}
-            subtitle="За последнюю неделю"
-            icon={UserPlus}
-            loading={statsLoading || clinicLoading}
-            accentColor="violet"
-          />
-          <DashboardStatCard
-            title="Конверсия"
-            value={`${conversion ?? 0}%`}
-            subtitle="Записей завершено"
-            icon={TrendingUp}
-            loading={statsLoading || clinicLoading}
-            trend={{ value: 5, positive: true }}
-            accentColor="amber"
-          />
-        </div>
+        {/* Быстрые срезы дня, как в макете. Это НЕ переключатели содержимого
+            этой страницы: каждый ведёт туда, где его список — источник истины.
+            «Ждут подтверждения» и «Завершено» открывают расписание за сегодня
+            с фильтром по статусу (страница читает его из адреса), «Долги
+            пациентов» — вкладку долгов в финансах. Так же ведут себя и числа
+            выше, поэтому переход всегда показывает ровно то, что обещано. */}
+        <nav aria-label={tr("crmDashboard.tabToday", "Сегодня")} className="flex flex-wrap items-center gap-0.5">
+          <span className="cabinet-control inline-flex items-center rounded-t-field border border-b-0 border-border bg-card px-3 py-2 text-cell font-semibold text-primary shadow-soft">
+            {tr("crmDashboard.tabToday", "Сегодня")}
+          </span>
+          {[
+            { key: "tabPending", fallback: "Ждут подтверждения", to: `/crm/schedule?from=${todayKey}&to=${todayKey}&status=pending`, count: todayCounts.pending },
+            { key: "tabDone", fallback: "Завершено", to: `/crm/schedule?from=${todayKey}&to=${todayKey}&status=completed`, count: todayCounts.completed },
+            { key: "tabDebts", fallback: "Долги пациентов", to: "/crm/finance?tab=debts", count: 0 },
+          ].map((tab) => (
+            <Link
+              key={tab.key}
+              to={tab.to}
+              className="cabinet-control inline-flex items-center gap-1.5 rounded-t-field px-3 py-2 text-cell font-medium text-muted-foreground transition-colors hover:bg-card/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {tr(`crmDashboard.${tab.key}`, tab.fallback)}
+              {tab.count > 0 && (
+                <span className="rounded-full bg-status-neutral-bg px-1.5 text-xs font-bold tabular-nums text-status-neutral">
+                  {tab.count}
+                </span>
+              )}
+            </Link>
+          ))}
+        </nav>
 
-        {/* Основной контент: Временная шкала + Очередь */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Временная шкала календаря */}
+        {hasKpiError && (
+          <Card className="border-status-warning/30 bg-status-warning-bg">
+            <CardContent
+              className="flex items-start gap-3 p-4 text-sm text-status-warning"
+              role="alert"
+            >
+              <AlertCircle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{tr("crmDashboard.kpiPartialError", "Часть показателей не загрузилась. Основные блоки ниже продолжают работать.")}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {canViewReports && (
+          <div className="grid grid-cols-1 gap-section sm:grid-cols-2 lg:grid-cols-4">
+            {/* Четыре показателя дня по макету: сколько приёмов, сколько из них
+                состоялось, сколько денег и кому надо позвонить. «Завершено» и
+                «Не подтвердили» считаются из тех же записей, что показывает
+                сетка дня ниже, — общий хук, один запрос, числа не разойдутся.
+                Возвраты и общий долг ушли отсюда: это не показатели дня, они
+                живут в «Финансах», куда и ведёт ссылка с долга. */}
+            <DashboardStatCard
+              title={tr("crmDashboard.apptsToday", "Приёмов сегодня")}
+              value={appointmentsError ? "—" : todayCounts.total || operations.appointment_count || 0}
+              subtitle={tr("crmDashboard.scheduledToday", "записей в расписании")}
+              icon={Users}
+              loading={statsLoading || clinicLoading || appointmentsLoading}
+              tone="neutral"
+              href={`/crm/schedule?from=${todayKey}&to=${todayKey}`}
+            />
+            <DashboardStatCard
+              title={tr("crmDashboard.completedToday", "Завершено")}
+              value={appointmentsError ? "—" : todayCounts.completed}
+              subtitle={tr("crmDashboard.ofTotalToday", "из них состоялось")}
+              icon={TrendingUp}
+              loading={statsLoading || clinicLoading || appointmentsLoading}
+              tone="success"
+              href={`/crm/schedule?from=${todayKey}&to=${todayKey}&status=completed`}
+            />
+            <DashboardStatCard
+              title={tr("crmDashboard.incomeToday", "Доход за день")}
+              value={formatPrice(Number(todayStats?.payments || 0), "UZS", false)}
+              subtitle={tr("crmDashboard.forCurrentDay", "за текущий день")}
+              icon={DollarSign}
+              loading={statsLoading || clinicLoading || appointmentsLoading}
+              tone="neutral"
+              href={`/crm/reports?from=${todayKey}&to=${todayKey}&type=PAYMENT`}
+            />
+            <DashboardStatCard
+              title={tr("crmDashboard.unconfirmedToday", "Не подтвердили")}
+              value={appointmentsError ? "—" : todayCounts.pending}
+              subtitle={tr("crmDashboard.needCall", "нужно позвонить")}
+              icon={UserPlus}
+              loading={statsLoading || clinicLoading || appointmentsLoading}
+              tone={!appointmentsError && todayCounts.pending > 0 ? "danger" : "neutral"}
+              href={`/crm/schedule?from=${todayKey}&to=${todayKey}&status=pending`}
+            />
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-section xl:grid-cols-3">
           <div className="xl:col-span-2">
-            <TimelineSchedule 
-              doctorId={currentDoctor?.id} 
-              clinicId={currentClinic?.id} 
-            />
+            <TimelineSchedule clinicId={currentClinic?.id} />
           </div>
 
-          {/* Расширенная живая очередь */}
-          <div className="xl:col-span-1 space-y-6">
-            <EnhancedLiveQueue 
-              doctorId={currentDoctor?.id} 
-              clinicId={currentClinic?.id} 
-            />
+          <div className="space-y-section xl:col-span-1">
+            <EnhancedLiveQueue clinicId={currentClinic?.id} />
             <DashboardTasksWidget />
           </div>
         </div>
 
-        {/* Плавающая кнопка быстрой записи (mobile) */}
         <Button
           onClick={() => setQuickAppointmentOpen(true)}
           disabled={!currentClinic}
+          aria-label={tr("crmDashboard.newAppointment", "Новая запись")}
           className={cn(
-            "fixed bottom-6 right-6 w-14 h-14 rounded-full shadow-strong z-40",
+            "fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full shadow-strong",
             "bg-primary hover:bg-primary/90 lg:hidden",
-            "hover:scale-110 active:scale-95 transition-transform"
+            "transition-transform hover:scale-110 active:scale-95",
           )}
           size="icon"
         >
-          <Plus className="w-6 h-6" />
+          <Plus className="h-6 w-6" />
         </Button>
 
-        {/* Диалог быстрой записи */}
-        <GuestAppointmentModal
-          open={quickAppointmentOpen}
-          onOpenChange={setQuickAppointmentOpen}
-          selectedDate={new Date()}
-        />
+        {quickAppointmentOpen && (
+          <Suspense fallback={null}>
+            <GuestAppointmentModal open={quickAppointmentOpen} onOpenChange={setQuickAppointmentOpen} selectedDate={new Date()} />
+          </Suspense>
+        )}
       </div>
     </CRMLayout>
   );

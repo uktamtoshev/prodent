@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -9,6 +8,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { ListPlus, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useModulePermissions } from '@/hooks/useModulePermissions';
+import {
+  bulkCreateClinicServices,
+  invalidateClinicServiceQueries,
+} from '@/lib/clinic-service-management-api';
 
 interface AddStandardServicesDialogProps {
   open: boolean;
@@ -17,82 +22,96 @@ interface AddStandardServicesDialogProps {
   existingServiceNames: string[];
 }
 
-// Standard dental services organized by category
-const standardServicesData: Record<string, Array<{ name: string; duration: number }>> = {
+// Standard dental services organized by category. Names are stored in Russian for DB
+// inserts; UI presents localized labels via crmServiceDialogs.* keys.
+const standardServicesData: Record<string, Array<{ name: string; duration: number; nameKey: string }>> = {
   'Консультация': [
-    { name: 'Первичная консультация', duration: 30 },
-    { name: 'Повторная консультация', duration: 20 },
-    { name: 'Консультация ортодонта', duration: 45 },
-    { name: 'Консультация хирурга', duration: 30 },
-    { name: 'Консультация имплантолога', duration: 45 },
+    { name: 'Первичная консультация', duration: 30, nameKey: 'svcFirstConsultation' },
+    { name: 'Повторная консультация', duration: 20, nameKey: 'svcRepeatConsultation' },
+    { name: 'Консультация ортодонта', duration: 45, nameKey: 'svcOrthodontConsultation' },
+    { name: 'Консультация хирурга', duration: 30, nameKey: 'svcSurgeonConsultation' },
+    { name: 'Консультация имплантолога', duration: 45, nameKey: 'svcImplantologistConsultation' },
   ],
   'Диагностика': [
-    { name: 'Панорамный снимок (ОПТГ)', duration: 15 },
-    { name: 'Прицельный рентген-снимок', duration: 10 },
-    { name: 'Компьютерная томография (КТ)', duration: 20 },
-    { name: '3D сканирование зубов', duration: 30 },
+    { name: 'Панорамный снимок (ОПТГ)', duration: 15, nameKey: 'svcPanoramicXray' },
+    { name: 'Прицельный рентген-снимок', duration: 10, nameKey: 'svcTargetedXray' },
+    { name: 'Компьютерная томография (КТ)', duration: 20, nameKey: 'svcCTScan' },
+    { name: '3D сканирование зубов', duration: 30, nameKey: 'svc3DScan' },
   ],
   'Терапия': [
-    { name: 'Лечение кариеса', duration: 45 },
-    { name: 'Лечение пульпита', duration: 60 },
-    { name: 'Лечение периодонтита', duration: 60 },
-    { name: 'Пломба светоотверждаемая', duration: 40 },
-    { name: 'Реставрация зуба', duration: 60 },
-    { name: 'Эндодонтическое лечение (1 канал)', duration: 45 },
-    { name: 'Эндодонтическое лечение (2 канала)', duration: 60 },
-    { name: 'Эндодонтическое лечение (3+ каналов)', duration: 90 },
+    { name: 'Лечение кариеса', duration: 45, nameKey: 'svcCariesTreatment' },
+    { name: 'Лечение пульпита', duration: 60, nameKey: 'svcPulpitisTreatment' },
+    { name: 'Лечение периодонтита', duration: 60, nameKey: 'svcPeriodontitisTreatment' },
+    { name: 'Пломба светоотверждаемая', duration: 40, nameKey: 'svcLightFilling' },
+    { name: 'Реставрация зуба', duration: 60, nameKey: 'svcRestoration' },
+    { name: 'Эндодонтическое лечение (1 канал)', duration: 45, nameKey: 'svcEndo1' },
+    { name: 'Эндодонтическое лечение (2 канала)', duration: 60, nameKey: 'svcEndo2' },
+    { name: 'Эндодонтическое лечение (3+ каналов)', duration: 90, nameKey: 'svcEndo3' },
   ],
   'Профилактика': [
-    { name: 'Профессиональная чистка зубов', duration: 60 },
-    { name: 'Ультразвуковая чистка', duration: 45 },
-    { name: 'Air Flow', duration: 40 },
-    { name: 'Фторирование зубов', duration: 30 },
-    { name: 'Герметизация фиссур', duration: 30 },
+    { name: 'Профессиональная чистка зубов', duration: 60, nameKey: 'svcProfessionalCleaning' },
+    { name: 'Ультразвуковая чистка', duration: 45, nameKey: 'svcUltrasonicCleaning' },
+    { name: 'Air Flow', duration: 40, nameKey: 'svcAirFlow' },
+    { name: 'Фторирование зубов', duration: 30, nameKey: 'svcFluoridation' },
+    { name: 'Герметизация фиссур', duration: 30, nameKey: 'svcFissureSealing' },
   ],
   'Хирургия': [
-    { name: 'Удаление зуба простое', duration: 30 },
-    { name: 'Удаление зуба сложное', duration: 60 },
-    { name: 'Удаление зуба мудрости', duration: 90 },
-    { name: 'Резекция верхушки корня', duration: 60 },
-    { name: 'Пластика уздечки губы', duration: 30 },
-    { name: 'Синус-лифтинг закрытый', duration: 90 },
-    { name: 'Синус-лифтинг открытый', duration: 120 },
+    { name: 'Удаление зуба простое', duration: 30, nameKey: 'svcSimpleExtraction' },
+    { name: 'Удаление зуба сложное', duration: 60, nameKey: 'svcComplexExtraction' },
+    { name: 'Удаление зуба мудрости', duration: 90, nameKey: 'svcWisdomToothExtraction' },
+    { name: 'Резекция верхушки корня', duration: 60, nameKey: 'svcRootApex' },
+    { name: 'Пластика уздечки губы', duration: 30, nameKey: 'svcLipFrenulum' },
+    { name: 'Синус-лифтинг закрытый', duration: 90, nameKey: 'svcSinusLiftClosed' },
+    { name: 'Синус-лифтинг открытый', duration: 120, nameKey: 'svcSinusLiftOpen' },
   ],
   'Имплантация': [
-    { name: 'Имплантация (1 имплант)', duration: 60 },
-    { name: 'Установка формирователя десны', duration: 30 },
-    { name: 'Костная пластика', duration: 90 },
-    { name: 'Установка абатмента', duration: 30 },
+    { name: 'Имплантация (1 имплант)', duration: 60, nameKey: 'svcImplant' },
+    { name: 'Установка формирователя десны', duration: 30, nameKey: 'svcGumFormer' },
+    { name: 'Костная пластика', duration: 90, nameKey: 'svcBoneGraft' },
+    { name: 'Установка абатмента', duration: 30, nameKey: 'svcAbutment' },
   ],
   'Ортопедия': [
-    { name: 'Металлокерамическая коронка', duration: 45 },
-    { name: 'Циркониевая коронка', duration: 45 },
-    { name: 'Керамическая коронка E-max', duration: 45 },
-    { name: 'Временная коронка', duration: 30 },
-    { name: 'Винир керамический', duration: 60 },
-    { name: 'Мостовидный протез (1 единица)', duration: 45 },
-    { name: 'Съёмный протез частичный', duration: 60 },
-    { name: 'Съёмный протез полный', duration: 60 },
+    { name: 'Металлокерамическая коронка', duration: 45, nameKey: 'svcMetalCeramicCrown' },
+    { name: 'Циркониевая коронка', duration: 45, nameKey: 'svcZirconiaCrown' },
+    { name: 'Керамическая коронка E-max', duration: 45, nameKey: 'svcEmaxCrown' },
+    { name: 'Временная коронка', duration: 30, nameKey: 'svcTempCrown' },
+    { name: 'Винир керамический', duration: 60, nameKey: 'svcVeneer' },
+    { name: 'Мостовидный протез (1 единица)', duration: 45, nameKey: 'svcBridge' },
+    { name: 'Съёмный протез частичный', duration: 60, nameKey: 'svcRemovablePartial' },
+    { name: 'Съёмный протез полный', duration: 60, nameKey: 'svcRemovableFull' },
   ],
   'Ортодонтия': [
-    { name: 'Установка брекет-системы (металлическая)', duration: 120 },
-    { name: 'Установка брекет-системы (керамическая)', duration: 120 },
-    { name: 'Элайнеры (полный курс)', duration: 60 },
-    { name: 'Активация брекет-системы', duration: 45 },
-    { name: 'Снятие брекет-системы', duration: 60 },
-    { name: 'Ретейнер несъёмный', duration: 45 },
+    { name: 'Установка брекет-системы (металлическая)', duration: 120, nameKey: 'svcMetalBraces' },
+    { name: 'Установка брекет-системы (керамическая)', duration: 120, nameKey: 'svcCeramicBraces' },
+    { name: 'Элайнеры (полный курс)', duration: 60, nameKey: 'svcAligners' },
+    { name: 'Активация брекет-системы', duration: 45, nameKey: 'svcBracesActivation' },
+    { name: 'Снятие брекет-системы', duration: 60, nameKey: 'svcBracesRemoval' },
+    { name: 'Ретейнер несъёмный', duration: 45, nameKey: 'svcRetainer' },
   ],
   'Эстетика': [
-    { name: 'Отбеливание зубов (кабинетное)', duration: 90 },
-    { name: 'Отбеливание зубов (домашнее)', duration: 30 },
-    { name: 'Художественная реставрация', duration: 90 },
+    { name: 'Отбеливание зубов (кабинетное)', duration: 90, nameKey: 'svcOfficeBleach' },
+    { name: 'Отбеливание зубов (домашнее)', duration: 30, nameKey: 'svcHomeBleach' },
+    { name: 'Художественная реставрация', duration: 90, nameKey: 'svcArtRestoration' },
   ],
   'Детская стоматология': [
-    { name: 'Лечение молочного зуба', duration: 30 },
-    { name: 'Удаление молочного зуба', duration: 20 },
-    { name: 'Серебрение зубов', duration: 20 },
-    { name: 'Пломба на молочный зуб', duration: 30 },
+    { name: 'Лечение молочного зуба', duration: 30, nameKey: 'svcMilkToothTreatment' },
+    { name: 'Удаление молочного зуба', duration: 20, nameKey: 'svcMilkToothExtraction' },
+    { name: 'Серебрение зубов', duration: 20, nameKey: 'svcSilvering' },
+    { name: 'Пломба на молочный зуб', duration: 30, nameKey: 'svcMilkToothFilling' },
   ],
+};
+
+const categoryKeyMap: Record<string, string> = {
+  'Консультация': 'catConsultation',
+  'Диагностика': 'catDiagnostics',
+  'Терапия': 'catTherapy',
+  'Профилактика': 'catPrevention',
+  'Хирургия': 'catSurgery',
+  'Имплантация': 'catImplantation',
+  'Ортопедия': 'catProsthetics',
+  'Ортодонтия': 'catOrthodontics',
+  'Эстетика': 'catAesthetics',
+  'Детская стоматология': 'catPediatric',
 };
 
 const categoryColors: Record<string, string> = {
@@ -115,8 +134,12 @@ export function AddStandardServicesDialog({
   existingServiceNames,
 }: AddStandardServicesDialogProps) {
   const queryClient = useQueryClient();
-  const existingNamesLower = new Set(existingServiceNames.map(n => n.toLowerCase()));
-  
+  const { t } = useLanguage();
+  const { canEdit } = useModulePermissions();
+  const existingNamesLower = new Set(
+    existingServiceNames.filter(Boolean).map((n) => n.toLowerCase()),
+  );
+
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
   const [selectedServices, setSelectedServices] = useState<Set<string>>(new Set());
 
@@ -124,23 +147,23 @@ export function AddStandardServicesDialog({
     const newSelected = new Set(selectedCategories);
     const newServices = new Set(selectedServices);
     const categoryServices = standardServicesData[category];
-    
+
     if (newSelected.has(category)) {
       newSelected.delete(category);
       categoryServices.forEach(s => {
-        if (!existingNamesLower.has(s.name.toLowerCase())) {
+        if (!existingNamesLower.has((s.name ?? '').toLowerCase())) {
           newServices.delete(`${category}:${s.name}`);
         }
       });
     } else {
       newSelected.add(category);
       categoryServices.forEach(s => {
-        if (!existingNamesLower.has(s.name.toLowerCase())) {
+        if (!existingNamesLower.has((s.name ?? '').toLowerCase())) {
           newServices.add(`${category}:${s.name}`);
         }
       });
     }
-    
+
     setSelectedCategories(newSelected);
     setSelectedServices(newServices);
   };
@@ -148,26 +171,26 @@ export function AddStandardServicesDialog({
   const toggleService = (category: string, serviceName: string) => {
     const key = `${category}:${serviceName}`;
     const newServices = new Set(selectedServices);
-    
+
     if (newServices.has(key)) {
       newServices.delete(key);
     } else {
       newServices.add(key);
     }
-    
+
     setSelectedServices(newServices);
   };
 
   const addServicesMutation = useMutation({
     mutationFn: async () => {
+      if (!canEdit('services')) throw new Error(t('crm.accessDenied'));
       const servicesToAdd: Array<{
-        name: string;
+        nameRu: string;
         category: string;
-        duration_minutes: number;
+        duration: number;
         price: number;
-        currency: string;
-        clinic_id: string;
-        is_active: boolean;
+        currency: 'UZS';
+        isActive: boolean;
       }> = [];
 
       selectedServices.forEach(key => {
@@ -175,44 +198,43 @@ export function AddStandardServicesDialog({
         const serviceData = standardServicesData[category]?.find(s => s.name === name);
         if (serviceData) {
           servicesToAdd.push({
-            name: serviceData.name,
+            nameRu: serviceData.name,
             category,
-            duration_minutes: serviceData.duration,
+            duration: serviceData.duration,
             price: 0,
             currency: 'UZS',
-            clinic_id: clinicId,
-            is_active: false,
+            isActive: false,
           });
         }
       });
 
       if (servicesToAdd.length === 0) {
-        throw new Error('Выберите услуги для добавления');
+        throw new Error(t('crmServiceDialogs.noServicesSelected'));
       }
 
-      const { error } = await supabase
-        .from('services')
-        .insert(servicesToAdd);
-
-      if (error) throw error;
-      return servicesToAdd.length;
+      return (await bulkCreateClinicServices(clinicId, servicesToAdd)).length;
     },
     onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ['clinic-services'] });
-      queryClient.invalidateQueries({ queryKey: ['services'] });
-      toast.success(`Добавлено ${count} услуг. Установите цены и активируйте их.`);
+      void invalidateClinicServiceQueries(queryClient);
+      toast.success(`${t('crmServiceDialogs.addedServices')} ${count} ${t('crmServiceDialogs.setPricesAndActivate')}`);
       onOpenChange(false);
       setSelectedCategories(new Set());
       setSelectedServices(new Set());
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Ошибка при добавлении');
+      toast.error(error.message || t('crmServiceDialogs.addError'));
     },
   });
 
   const totalAvailable = Object.entries(standardServicesData).reduce((acc, [_, services]) => {
-    return acc + services.filter(s => !existingNamesLower.has(s.name.toLowerCase())).length;
+    return acc + services.filter(s => !existingNamesLower.has((s.name ?? '').toLowerCase())).length;
   }, 0);
+
+  const pluralServiceWord = (n: number) => {
+    if (n === 1) return t('crmServiceDialogs.service1');
+    if (n < 5) return t('crmServiceDialogs.service24');
+    return t('crmServiceDialogs.service5plus');
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -220,22 +242,22 @@ export function AddStandardServicesDialog({
         <DialogHeader>
           <DialogTitle className="font-heading flex items-center gap-2">
             <ListPlus className="w-5 h-5 text-primary" />
-            Добавить стандартные услуги
+            {t('crmServiceDialogs.addStandardServices')}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Выберите категории или отдельные услуги. После добавления установите цены и активируйте их.
+            {t('crmServiceDialogs.standardServicesDescription')}
           </p>
 
           <ScrollArea className="h-[400px] pr-4">
             <div className="space-y-4">
               {Object.entries(standardServicesData).map(([category, services]) => {
                 const availableServices = services.filter(
-                  s => !existingNamesLower.has(s.name.toLowerCase())
+                  s => !existingNamesLower.has((s.name ?? '').toLowerCase())
                 );
-                
+
                 if (availableServices.length === 0) return null;
 
                 const allSelected = availableServices.every(
@@ -255,20 +277,20 @@ export function AddStandardServicesDialog({
                       )}
                     >
                       <div className="flex items-center gap-3">
-                        <Checkbox 
+                        <Checkbox
                           checked={allSelected}
                           ref={(el) => {
                             if (el) (el as HTMLButtonElement).dataset.state = someSelected && !allSelected ? 'indeterminate' : (allSelected ? 'checked' : 'unchecked');
                           }}
                         />
-                        <Badge 
-                          variant="secondary" 
+                        <Badge
+                          variant="secondary"
                           className={cn("font-medium", categoryColors[category])}
                         >
-                          {category}
+                          {t(`crmServiceDialogs.${categoryKeyMap[category]}`)}
                         </Badge>
                         <span className="text-sm text-muted-foreground">
-                          {availableServices.length} услуг
+                          {availableServices.length} {pluralServiceWord(availableServices.length)}
                         </span>
                       </div>
                       {allSelected && (
@@ -290,10 +312,10 @@ export function AddStandardServicesDialog({
                           >
                             <Checkbox checked={isSelected} />
                             <div className="flex-1">
-                              <span className="text-sm">{service.name}</span>
+                              <span className="text-sm">{t(`crmServiceDialogs.${service.nameKey}`)}</span>
                             </div>
                             <span className="text-xs text-muted-foreground">
-                              {service.duration} мин
+                              {service.duration} {t('crmServiceDialogs.minutesShort')}
                             </span>
                           </button>
                         );
@@ -307,17 +329,17 @@ export function AddStandardServicesDialog({
 
           <div className="flex items-center justify-between pt-4 border-t">
             <span className="text-sm text-muted-foreground">
-              Выбрано: <span className="font-medium text-foreground">{selectedServices.size}</span> из {totalAvailable}
+              {t('crmServiceDialogs.selectedFromTotal')}: <span className="font-medium text-foreground">{selectedServices.size}</span> {t('crmServiceDialogs.ofTotal')} {totalAvailable}
             </span>
             <div className="flex gap-3">
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Отмена
+                {t('common.cancel')}
               </Button>
               <Button
                 onClick={() => addServicesMutation.mutate()}
                 disabled={selectedServices.size === 0 || addServicesMutation.isPending}
               >
-                {addServicesMutation.isPending ? 'Добавление...' : `Добавить (${selectedServices.size})`}
+                {addServicesMutation.isPending ? t('common.loading') : `${t('crmServiceDialogs.addServicesCount')} (${selectedServices.size})`}
               </Button>
             </div>
           </div>

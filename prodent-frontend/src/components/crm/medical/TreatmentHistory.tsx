@@ -7,30 +7,63 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileText, CheckCircle2, Clock, Calendar } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface TreatmentHistoryProps {
   patientId: string;
 }
 
+interface AppointmentHistoryRow {
+  id: string;
+  appointment_date: string;
+  start_time: string;
+  notes: string | null;
+  total_price: number | null;
+  currency: string | null;
+  doctor?: { profiles?: { full_name?: string | null } | null } | null;
+  service?: { name?: string | null } | null;
+}
+
+interface DentalHistoryRow {
+  id: string;
+  tooth_number: number;
+  condition: string;
+  diagnosis: string | null;
+  updated_at: string;
+}
+
+interface CompletedPlanItemRow {
+  id: string;
+  treatment_plan_id: string;
+  tooth_number: number | null;
+  description: string;
+  total_price: number;
+  completed_at: string | null;
+  plan?: { title?: string | null; currency?: string | null } | null;
+}
+
 export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
 
   // Загружаем завершённые визиты
   const { data: appointments, isLoading: loadingAppts } = useQuery({
     queryKey: ["patient-appointments-history", patientId, currentClinic?.id],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("appointments")
         .select(`
-          *,
-          doctor:doctors(id, user_id, profiles:user_id(full_name))
+          id, appointment_date, start_time, notes, total_price, currency,
+          doctor:doctors(id, user_id, profiles:user_id(full_name)),
+          service:services(name)
         `)
         .eq("patient_id", patientId)
         .eq("clinic_id", currentClinic?.id)
-        .eq("status", "completed")
+        .eq("status", "COMPLETED")
         .order("appointment_date", { ascending: false })
         .limit(20);
-      return data || [];
+      if (error) throw new Error(error.message);
+      return (data || []) as AppointmentHistoryRow[];
     },
     enabled: !!currentClinic?.id && !!patientId,
   });
@@ -39,14 +72,15 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
   const { data: dentalHistory, isLoading: loadingDental } = useQuery({
     queryKey: ["dental-history", patientId, currentClinic?.id],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("dental_chart")
-        .select("*")
+        .select("id,tooth_number,condition,diagnosis,updated_at")
         .eq("patient_id", patientId)
         .eq("clinic_id", currentClinic?.id)
-        .not("status", "eq", "healthy")
+        .not("condition", "eq", "HEALTHY")
         .order("updated_at", { ascending: false });
-      return data || [];
+      if (error) throw new Error(error.message);
+      return (data || []) as DentalHistoryRow[];
     },
     enabled: !!currentClinic?.id,
   });
@@ -56,27 +90,29 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
     queryKey: ["completed-plan-items", patientId, currentClinic?.id],
     queryFn: async () => {
       // Сначала получаем планы пациента
-      const { data: plans } = await supabase
+      const { data: plans, error: plansError } = await supabase
         .from("treatment_plans")
         .select("id")
         .eq("patient_id", patientId)
         .eq("clinic_id", currentClinic?.id);
+      if (plansError) throw new Error(plansError.message);
 
       if (!plans || plans.length === 0) return [];
 
       const planIds = plans.map(p => p.id);
-      
-      const { data } = await supabase
+
+      const { data, error } = await supabase
         .from("treatment_plan_items")
         .select(`
-          *,
-          plan:treatment_plans(name)
+          id, treatment_plan_id, tooth_number, description, total_price, completed_at,
+          plan:treatment_plans(title,currency)
         `)
-        .in("plan_id", planIds)
-        .eq("status", "completed")
+        .in("treatment_plan_id", planIds)
+        .eq("status", "COMPLETED")
         .order("completed_at", { ascending: false });
-      
-      return data || [];
+
+      if (error) throw new Error(error.message);
+      return (data || []) as CompletedPlanItemRow[];
     },
     enabled: !!currentClinic?.id && !!patientId,
   });
@@ -85,13 +121,14 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
 
   const getToothStatusLabel = (status: string) => {
     const labels: Record<string, { label: string; className: string }> = {
-      caries: { label: "Кариес", className: "bg-red-500/20 text-red-400 border-red-500/50" },
-      filling: { label: "Пломба", className: "bg-blue-500/20 text-blue-400 border-blue-500/50" },
-      crown: { label: "Коронка", className: "bg-amber-500/20 text-amber-400 border-amber-500/50" },
-      implant: { label: "Имплант", className: "bg-purple-500/20 text-purple-400 border-purple-500/50" },
-      removed: { label: "Удален", className: "bg-muted text-muted-foreground border-muted-foreground/50" },
+      CARIES: { label: t('crmTreatmentHistory.cariesLabel'), className: "bg-tooth-caries-bg text-tooth-caries border-tooth-caries/50" },
+      FILLING: { label: t('crmTreatmentHistory.fillingLabel'), className: "bg-tooth-filling-bg text-tooth-filling border-tooth-filling/50" },
+      CROWN: { label: t('crmTreatmentHistory.crownLabel'), className: "bg-tooth-crown-bg text-tooth-crown border-tooth-crown/50" },
+      IMPLANT: { label: t('crmTreatmentHistory.implantLabel'), className: "bg-tooth-implant-bg text-tooth-implant border-tooth-implant/50" },
+      MISSING: { label: t('crmTreatmentHistory.removedLabel'), className: "bg-tooth-removed-bg text-tooth-removed border-tooth-removed/50 line-through" },
     };
-    return labels[status] || { label: status, className: "bg-muted" };
+    const normalized = status.toUpperCase();
+    return labels[normalized] || { label: normalized.replace("_", " "), className: "bg-muted" };
   };
 
   if (isLoading) {
@@ -103,8 +140,8 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
     );
   }
 
-  const hasData = (appointments && appointments.length > 0) || 
-                  (dentalHistory && dentalHistory.length > 0) || 
+  const hasData = (appointments && appointments.length > 0) ||
+                  (dentalHistory && dentalHistory.length > 0) ||
                   (completedItems && completedItems.length > 0);
 
   if (!hasData) {
@@ -113,7 +150,7 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
         <CardContent className="py-12">
           <div className="text-center text-muted-foreground">
             <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>История процедур пуста</p>
+            <p>{t('crmTreatmentHistory.historyEmpty')}</p>
           </div>
         </CardContent>
       </Card>
@@ -126,14 +163,15 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
       {appointments && appointments.length > 0 && (
         <Card className="bg-card/80 border-border/50">
           <CardHeader>
-            <CardTitle className="text-foreground flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
               <Calendar className="w-5 h-5" />
-              Завершённые визиты
+              {t('crmTreatmentHistory.completedVisits')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {appointments.map((apt) => {
-              const doctorName = (apt.doctor as any)?.profiles?.full_name || "Врач не указан";
+              const doctorName = apt.doctor?.profiles?.full_name || t('crmTreatmentHistory.doctorNotSpecified');
+              const appointmentDate = new Date(`${apt.appointment_date}T${apt.start_time}`);
               return (
                 <div
                   key={apt.id}
@@ -141,16 +179,18 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      <span className="font-medium text-foreground">{apt.service}</span>
+                      <CheckCircle2 className="w-4 h-4 text-status-success" />
+                      <span className="font-medium text-foreground">
+                        {apt.service?.name || apt.notes || t('crmTreatmentHistory.completedVisits')}
+                      </span>
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {doctorName} • {format(new Date(apt.appointment_date), "dd MMMM yyyy, HH:mm", { locale: ru })}
+                      {doctorName} • {format(appointmentDate, "dd MMMM yyyy, HH:mm", { locale: ru })}
                     </div>
                   </div>
-                  {apt.price && (
+                  {apt.total_price != null && (
                     <span className="text-sm font-medium text-foreground">
-                      {apt.price.toLocaleString()} UZS
+                      {apt.total_price.toLocaleString()} {apt.currency || "UZS"}
                     </span>
                   )}
                 </div>
@@ -164,14 +204,14 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
       {dentalHistory && dentalHistory.length > 0 && (
         <Card className="bg-card/80 border-border/50">
           <CardHeader>
-            <CardTitle className="text-foreground flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
               <Clock className="w-5 h-5" />
-              История изменений зубов
+              {t('crmTreatmentHistory.teethChangesHistory')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {dentalHistory.map((tooth) => {
-              const statusInfo = getToothStatusLabel(tooth.status || "healthy");
+              const statusInfo = getToothStatusLabel(tooth.condition || "HEALTHY");
               return (
                 <div
                   key={tooth.id}
@@ -204,9 +244,9 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
       {completedItems && completedItems.length > 0 && (
         <Card className="bg-card/80 border-border/50">
           <CardHeader>
-            <CardTitle className="text-foreground flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
               <CheckCircle2 className="w-5 h-5" />
-              Выполненные процедуры из планов
+              {t('crmTreatmentHistory.completedFromPlans')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -216,16 +256,16 @@ export function TreatmentHistory({ patientId }: TreatmentHistoryProps) {
                 className="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
               >
               <div className="space-y-1">
-                  <span className="font-medium text-foreground">{item.procedure}</span>
+                  <span className="font-medium text-foreground">{item.description}</span>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    {item.tooth_number && <span>Зуб #{item.tooth_number}</span>}
+                    {item.tooth_number && <span>{t('crmTreatmentHistory.tooth')} #{item.tooth_number}</span>}
                     <span>•</span>
-                    <span>{(item.plan as any)?.name}</span>
+                    <span>{item.plan?.title}</span>
                   </div>
                 </div>
                 <div className="text-right">
                   <span className="text-sm font-medium text-foreground">
-                    {item.price?.toLocaleString()} UZS
+                    {item.total_price.toLocaleString()} {item.plan?.currency || "UZS"}
                   </span>
                 </div>
               </div>

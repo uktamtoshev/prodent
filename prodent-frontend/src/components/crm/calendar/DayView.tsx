@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { format, addHours, startOfDay, setHours, setMinutes } from "date-fns";
 import { ru } from "date-fns/locale";
 import { DndContext, DragEndEvent, DragOverlay, pointerWithin } from "@dnd-kit/core";
@@ -17,7 +17,10 @@ import {
 import { DraggableAppointmentCard } from "./DraggableAppointmentCard";
 import { DroppableTimeSlot } from "./DroppableTimeSlot";
 import { AppointmentModal } from "./AppointmentModal";
-import { AppointmentData, APPOINTMENT_STATUSES } from "./appointmentConstants";
+import { AppointmentData, APPOINTMENT_STATUSES, appointmentMatchesStatus, getAppointmentHour } from "./appointmentConstants";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { placeAppointment } from "@/lib/appointment-api";
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface DayViewProps {
   selectedDate: Date;
@@ -34,6 +37,7 @@ interface Doctor {
 }
 
 export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
@@ -46,14 +50,7 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
 
   const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8:00 - 20:00
 
-  useEffect(() => {
-    if (currentClinic) {
-      loadDoctors();
-      loadAppointments();
-    }
-  }, [currentClinic, selectedDate]);
-
-  const loadDoctors = async () => {
+  const loadDoctors = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("doctors")
@@ -71,11 +68,11 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
       setDoctors(data || []);
     } catch (error) {
       console.error("Error loading doctors:", error);
-      toast.error("Ошибка загрузки врачей");
+      toast.error(t('crmDayView.doctorsLoadError'));
     }
-  };
+  }, [currentClinic, t]);
 
-  const loadAppointments = async () => {
+  const loadAppointments = useCallback(async () => {
     try {
       setLoading(true);
       const startOfDayDate = startOfDay(selectedDate);
@@ -96,12 +93,14 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
         .select(`
           id,
           appointment_date,
+          start_time,
+          room_id,
           service,
           status,
           notes,
           doctor_id,
           patient_id,
-          price,
+          total_price,
           profiles:patient_id (
             full_name,
             phone
@@ -121,17 +120,24 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
       const appointmentsWithType = (data || []).map(apt => ({
         ...apt,
         isPersonalPatient: personalPatientIds.has(apt.patient_id) || 
-          (apt.doctors as any)?.cooperation_type === 'chair_rental'
+          apt.doctors?.cooperation_type === 'chair_rental'
       }));
       
       setAppointments(appointmentsWithType);
     } catch (error) {
       console.error("Error loading appointments:", error);
-      toast.error("Ошибка загрузки записей");
+      toast.error(t('crmDayView.apptsLoadError'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentClinic, selectedDate, t]);
+
+  useEffect(() => {
+    if (currentClinic) {
+      loadDoctors();
+      loadAppointments();
+    }
+  }, [currentClinic, loadAppointments, loadDoctors]);
 
   const checkDoctorAvailability = async (doctorId: string, newDate: Date, excludeAppointmentId: string) => {
     const startOfHour = new Date(newDate);
@@ -171,25 +177,23 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
       // Check availability
       const isAvailable = await checkDoctorAvailability(doctorId, newDate, appointmentId);
       if (!isAvailable) {
-        toast.error("Врач занят в это время");
+        toast.error(t('crmDayView.doctorBusy'));
         return;
       }
 
-      const { error } = await supabase
-        .from("appointments")
-        .update({
-          doctor_id: doctorId,
-          appointment_date: newDate.toISOString(),
-        })
-        .eq("id", appointmentId);
+      await placeAppointment({
+        appointmentId,
+        doctorId,
+        roomId: appointment.room_id ?? null,
+        appointmentDate: format(newDate, "yyyy-MM-dd"),
+        startTime: format(newDate, "HH:mm"),
+      });
 
-      if (error) throw error;
-
-      toast.success("Запись перенесена");
+      toast.success(t('crmDayView.apptMoved'));
       loadAppointments();
     } catch (error) {
       console.error("Error moving appointment:", error);
-      toast.error("Ошибка переноса записи");
+      toast.error(t('crmDayView.moveApptError'));
     }
   };
 
@@ -215,10 +219,9 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
 
   const getAppointmentsForDoctorAndHour = (doctorId: string, hour: number) => {
     return appointments.filter((apt) => {
-      const aptDate = new Date(apt.appointment_date);
       const matchesDoctor = apt.doctor_id === doctorId;
-      const matchesHour = aptDate.getHours() === hour;
-      const matchesStatus = selectedStatus === "all" || apt.status === selectedStatus;
+      const matchesHour = getAppointmentHour(apt) === hour;
+      const matchesStatus = appointmentMatchesStatus(apt.status, selectedStatus);
       return matchesDoctor && matchesHour && matchesStatus;
     });
   };
@@ -234,39 +237,39 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
       <div className="space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={goToPreviousDay}>
+            <Button variant="outline" size="sm" onClick={goToPreviousDay} aria-label={a11yLabel("prev")}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button variant="outline" size="sm" onClick={goToToday}>
-              Сегодня
+              {t('crmDayView.today')}
             </Button>
-            <Button variant="outline" size="sm" onClick={goToNextDay}>
+            <Button variant="outline" size="sm" onClick={goToNextDay} aria-label={a11yLabel("next")}>
               <ChevronRight className="h-4 w-4" />
             </Button>
-            <h2 className="text-lg font-semibold ml-2">
+            <h2 className="text-base font-bold ml-2">
               {format(selectedDate, "d MMMM yyyy, EEEE", { locale: ru })}
             </h2>
           </div>
           <div className="flex items-center gap-2">
             <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Все врачи" />
+                <SelectValue placeholder={t('crmDayView.allDoctors')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все врачи</SelectItem>
+                <SelectItem value="all">{t('crmDayView.allDoctors')}</SelectItem>
                 {doctors.map((doctor) => (
                   <SelectItem key={doctor.id} value={doctor.id}>
-                    {doctor.profiles?.full_name || "Врач"}
+                    {doctor.profiles?.full_name || t('crmDayView.doctorFallback')}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Select value={selectedStatus} onValueChange={setSelectedStatus}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Все статусы" />
+                <SelectValue placeholder={t('crmDayView.allStatuses')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
+                <SelectItem value="all">{t('crmDayView.allStatuses')}</SelectItem>
                 {Object.entries(APPOINTMENT_STATUSES).map(([key, value]) => (
                   <SelectItem key={key} value={key}>
                     {value.label}
@@ -279,10 +282,10 @@ export const DayView = ({ selectedDate, onDateChange }: DayViewProps) => {
 
         <div className="border rounded-lg overflow-hidden bg-card">
           <div className="grid bg-muted/50" style={{ gridTemplateColumns: `100px repeat(${filteredDoctors.length}, minmax(200px, 1fr))` }}>
-            <div className="p-3 border-r font-medium text-sm">Время</div>
+            <div className="p-3 border-r font-medium text-sm">{t('crmDayView.time')}</div>
             {filteredDoctors.map((doctor) => (
               <div key={doctor.id} className="p-3 border-r font-medium text-center text-sm">
-                {doctor.profiles?.full_name || "Врач"}
+                {doctor.profiles?.full_name || t('crmDayView.doctorFallback')}
               </div>
             ))}
           </div>

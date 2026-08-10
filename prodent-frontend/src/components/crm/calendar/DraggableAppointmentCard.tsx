@@ -1,20 +1,20 @@
 import { useDraggable } from "@dnd-kit/core";
-import { format } from "date-fns";
 import { Clock, Check, X, GripVertical, UserCheck, Building2, UserX } from "lucide-react";
+import type { MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { 
   AppointmentData, 
+  APPOINTMENT_STATUSES,
   getStatusStyle, 
-  APPOINTMENT_STATUSES, 
   AppointmentStatus,
-  PERSONAL_PATIENT_STYLE,
-  CLINIC_PATIENT_STYLE,
-  GUEST_PATIENT_STYLE
+  getAppointmentTime,
+  normalizeAppointmentStatus,
 } from "./appointmentConstants";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { setAppointmentStatus } from "@/lib/appointment-api";
 
 interface DraggableAppointmentCardProps {
   appointment: AppointmentData;
@@ -27,8 +27,9 @@ export const DraggableAppointmentCard = ({
   appointment, 
   onUpdate, 
   onClick,
-  compact = false 
+  compact = false
 }: DraggableAppointmentCardProps) => {
+  const { t } = useLanguage();
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: appointment.id,
     data: appointment,
@@ -40,38 +41,24 @@ export const DraggableAppointmentCard = ({
   } : undefined;
 
   const statusStyle = getStatusStyle(appointment.status);
+  const normalizedStatus = normalizeAppointmentStatus(appointment.status);
 
-  const updateStatus = async (newStatus: AppointmentStatus, e: React.MouseEvent) => {
+  const updateStatus = async (newStatus: AppointmentStatus, e: MouseEvent) => {
     e.stopPropagation();
     try {
-      const { error } = await supabase
-        .from("appointments")
-        .update({ status: newStatus })
-        .eq("id", appointment.id);
+      await setAppointmentStatus({ appointmentId: appointment.id, status: newStatus });
 
-      if (error) throw error;
-
-      const statusLabel = APPOINTMENT_STATUSES[newStatus]?.label || newStatus;
-      await supabase.from("notifications").insert({
-        user_id: appointment.patient_id,
-        type: "internal",
-        title: "Изменение статуса записи",
-        message: `Статус вашей записи изменён на: ${statusLabel}`,
-        metadata: { appointment_id: appointment.id },
-      });
-
-      toast.success("Статус обновлён");
+      toast.success(t('crmStatusDropdown.statusChanged'));
       onUpdate();
     } catch (error) {
       console.error("Error updating status:", error);
-      toast.error("Ошибка обновления статуса");
+      toast.error(t('crmStatusDropdown.statusError'));
     }
   };
 
-  const patientStyle = appointment.isPersonalPatient ? PERSONAL_PATIENT_STYLE : CLINIC_PATIENT_STYLE;
   const isPersonal = appointment.isPersonalPatient;
   const isGuest = !!appointment.guest_patient_id;
-  const patientName = appointment.guest_patients?.name || appointment.profiles?.full_name || "Пациент";
+  const patientName = appointment.guest_patients?.name || appointment.profiles?.full_name || t('crmStatusDropdown.patientFallback');
 
   if (compact) {
     return (
@@ -79,11 +66,11 @@ export const DraggableAppointmentCard = ({
         ref={setNodeRef}
         style={style}
         className={cn(
-          "p-2 rounded border-l-4 cursor-pointer hover:shadow-md transition-all group relative",
+          "group relative rounded border-l-4 p-2 transition-all hover:shadow-md",
           isGuest 
-            ? "bg-slate-50 dark:bg-slate-900/50 border-slate-400"
+            ? "border-muted-foreground/40 bg-muted text-foreground"
             : isPersonal 
-              ? "bg-amber-50 dark:bg-amber-950/30 border-amber-500" 
+              ? "border-warning-amber bg-warning-amber/10 text-foreground"
               : statusStyle.bgColor,
           !isPersonal && !isGuest && statusStyle.borderColor,
           statusStyle.color,
@@ -93,67 +80,99 @@ export const DraggableAppointmentCard = ({
       >
         {isGuest && (
           <div className="absolute -top-1 -right-1">
-            <span className="flex h-3 w-3 items-center justify-center rounded-full bg-slate-400">
-              <UserX className="h-2 w-2 text-white" />
+            <span className="flex h-3 w-3 items-center justify-center rounded-full bg-muted-foreground">
+              <UserX
+                aria-hidden="true"
+                className="h-2 w-2 text-background"
+              />
             </span>
           </div>
         )}
         {isPersonal && !isGuest && (
           <div className="absolute -top-1 -right-1">
             <span className="flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning-amber opacity-75" />
+              <span className="relative inline-flex h-3 w-3 rounded-full bg-warning-amber" />
             </span>
           </div>
         )}
         <div className="flex items-start gap-1">
-          <div
+          <button
             {...listeners}
             {...attributes}
-            className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab"
+            type="button"
+            aria-label={`${patientName}: ${getAppointmentTime(appointment)}`}
+            className="flex min-h-11 min-w-11 cursor-grab items-center justify-center rounded-md opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            onClick={(event) => event.stopPropagation()}
           >
-            <GripVertical className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="flex-1 min-w-0">
+            <GripVertical
+              aria-hidden="true"
+              className="h-4 w-4 text-muted-foreground"
+            />
+          </button>
+          <button
+            type="button"
+            className="min-h-11 min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={patientName}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick?.();
+            }}
+          >
             <div className="text-xs font-medium truncate flex items-center gap-1">
-              {isGuest && <UserX className="h-3 w-3 text-slate-500 flex-shrink-0" />}
-              {isPersonal && !isGuest && <UserCheck className="h-3 w-3 text-amber-500 flex-shrink-0" />}
+              {isGuest && (
+                <UserX
+                  aria-hidden="true"
+                  className="h-3 w-3 flex-shrink-0 text-muted-foreground"
+                />
+              )}
+              {isPersonal && !isGuest && (
+                <UserCheck
+                  aria-hidden="true"
+                  className="h-3 w-3 flex-shrink-0 text-warning-amber"
+                />
+              )}
               {patientName}
             </div>
             <div className="text-xs opacity-75">
-              {format(new Date(appointment.appointment_date), "HH:mm")}
+              {getAppointmentTime(appointment)}
             </div>
             {isGuest && (
-              <div className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Гость
+              <div className="mt-0.5 text-xs text-muted-foreground">
+                {t('crmStatusDropdown.guest')}
               </div>
             )}
             {isPersonal && !isGuest && (
-              <div className="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5">
-                Вне кассы
+              <div className="mt-0.5 text-xs text-foreground">
+                {t('crmStatusDropdown.offCash')}
               </div>
             )}
-          </div>
+          </button>
         </div>
-        {(appointment.status === "pending" || appointment.status === "confirmed") && (
-          <div className="flex gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {appointment.status === "pending" && (
+        {(normalizedStatus === "pending" || normalizedStatus === "confirmed") && (
+          <div className="mt-1 flex gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+            {normalizedStatus === "pending" && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-5 w-5 p-0"
+                className="h-11 w-11 p-0"
+                aria-label={APPOINTMENT_STATUSES.confirmed.label}
                 onClick={(e) => updateStatus("confirmed", e)}
               >
-                <Check className="h-3 w-3 text-green-600" />
+                <Check
+                  aria-hidden="true"
+                  className="h-4 w-4 text-success-green"
+                />
               </Button>
             )}
             <Button
               size="sm"
               variant="ghost"
-              className="h-5 w-5 p-0"
+              className="h-11 w-11 p-0"
+              aria-label={APPOINTMENT_STATUSES.cancelled.label}
               onClick={(e) => updateStatus("cancelled", e)}
             >
-              <X className="h-3 w-3 text-red-600" />
+              <X aria-hidden="true" className="h-4 w-4 text-destructive" />
             </Button>
           </div>
         )}
@@ -166,11 +185,11 @@ export const DraggableAppointmentCard = ({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "p-3 rounded-lg border-l-4 cursor-pointer hover:shadow-md transition-all group relative",
+        "group relative rounded-lg border-l-4 p-3 transition-all hover:shadow-md",
         isGuest 
-          ? "bg-slate-50 dark:bg-slate-900/50 border-slate-400"
+          ? "border-muted-foreground/40 bg-muted text-foreground"
           : isPersonal 
-            ? "bg-amber-50 dark:bg-amber-950/30 border-amber-500" 
+            ? "border-warning-amber bg-warning-amber/10 text-foreground"
             : statusStyle.bgColor,
         !isPersonal && !isGuest && statusStyle.borderColor,
         statusStyle.color,
@@ -180,82 +199,119 @@ export const DraggableAppointmentCard = ({
     >
       {isGuest && (
         <div className="absolute -top-1 -right-1">
-          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-400">
-            <UserX className="h-2.5 w-2.5 text-white" />
+          <span className="flex h-4 w-4 items-center justify-center rounded-full bg-muted-foreground">
+            <UserX
+              aria-hidden="true"
+              className="h-2.5 w-2.5 text-background"
+            />
           </span>
         </div>
       )}
       {isPersonal && !isGuest && (
         <div className="absolute -top-1 -right-1">
           <span className="flex h-4 w-4">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-4 w-4 bg-amber-500 items-center justify-center">
-              <UserCheck className="h-2.5 w-2.5 text-white" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-warning-amber opacity-75" />
+            <span className="relative inline-flex h-4 w-4 items-center justify-center rounded-full bg-warning-amber">
+              <UserCheck
+                aria-hidden="true"
+                className="h-2.5 w-2.5 text-primary-foreground"
+              />
             </span>
           </span>
         </div>
       )}
       <div className="flex items-start gap-2">
-        <div
+        <button
           {...listeners}
           {...attributes}
-          className="opacity-0 group-hover:opacity-100 transition-opacity cursor-grab mt-1"
+          type="button"
+          aria-label={`${patientName}: ${getAppointmentTime(appointment)}`}
+          className="mt-1 flex min-h-11 min-w-11 cursor-grab items-center justify-center rounded-md opacity-100 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+          onClick={(event) => event.stopPropagation()}
         >
-          <GripVertical className="h-4 w-4 text-muted-foreground" />
-        </div>
+          <GripVertical
+            aria-hidden="true"
+            className="h-4 w-4 text-muted-foreground"
+          />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
+            <button
+              type="button"
+              className="min-h-11 min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={patientName}
+              onClick={(event) => {
+                event.stopPropagation();
+                onClick?.();
+              }}
+            >
               <div className="font-medium truncate flex items-center gap-1.5">
                 {isGuest ? (
-                  <UserX className="h-4 w-4 text-slate-500 flex-shrink-0" />
+                  <UserX
+                    aria-hidden="true"
+                    className="h-4 w-4 flex-shrink-0 text-muted-foreground"
+                  />
                 ) : isPersonal ? (
-                  <UserCheck className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                  <UserCheck
+                    aria-hidden="true"
+                    className="h-4 w-4 flex-shrink-0 text-warning-amber"
+                  />
                 ) : (
-                  <Building2 className="h-4 w-4 text-primary flex-shrink-0" />
+                  <Building2
+                    aria-hidden="true"
+                    className="h-4 w-4 flex-shrink-0 text-primary"
+                  />
                 )}
                 {patientName}
               </div>
               <div className="text-sm opacity-75 truncate">{appointment.service}</div>
               <div className="flex items-center gap-2 text-xs mt-1">
                 <span className="flex items-center gap-1 opacity-75">
-                  <Clock className="h-3 w-3" />
-                  {format(new Date(appointment.appointment_date), "HH:mm")}
+                  <Clock aria-hidden="true" className="h-3 w-3" />
+                  {getAppointmentTime(appointment)}
                 </span>
                 <Badge 
                   variant="outline" 
                   className={cn(
-                    "text-[10px] px-1.5 py-0",
+                    "px-1.5 py-0 text-xs",
                     isGuest 
-                      ? "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300" 
+                      ? "border-muted-foreground/30 bg-muted text-foreground"
                       : isPersonal 
-                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30" 
+                        ? "border-warning-amber/30 bg-warning-amber/10 text-foreground"
                         : "bg-primary/10 text-primary border-primary/30"
                   )}
                 >
-                  {isGuest ? "Гость" : isPersonal ? "Вне кассы" : "Клиника"}
+                  {isGuest ? t('crmStatusDropdown.guest') : isPersonal ? t('crmStatusDropdown.offCash') : t('crmStatusDropdown.clinic')}
                 </Badge>
               </div>
-            </div>
-            {(appointment.status === "pending" || appointment.status === "confirmed") && (
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {appointment.status === "pending" && (
+            </button>
+            {(normalizedStatus === "pending" || normalizedStatus === "confirmed") && (
+              <div className="flex gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                {normalizedStatus === "pending" && (
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-7 w-7 p-0"
+                    className="h-11 w-11 p-0"
+                    aria-label={APPOINTMENT_STATUSES.confirmed.label}
                     onClick={(e) => updateStatus("confirmed", e)}
                   >
-                    <Check className="h-4 w-4 text-green-600" />
+                    <Check
+                      aria-hidden="true"
+                      className="h-4 w-4 text-success-green"
+                    />
                   </Button>
                 )}
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 w-7 p-0"
+                  className="h-11 w-11 p-0"
+                  aria-label={APPOINTMENT_STATUSES.cancelled.label}
                   onClick={(e) => updateStatus("cancelled", e)}
                 >
-                  <X className="h-4 w-4 text-red-600" />
+                  <X
+                    aria-hidden="true"
+                    className="h-4 w-4 text-destructive"
+                  />
                 </Button>
               </div>
             )}

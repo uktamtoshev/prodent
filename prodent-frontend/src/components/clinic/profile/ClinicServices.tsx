@@ -1,29 +1,73 @@
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Clock, Briefcase, ListChecks } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatPrice } from '@/lib/utils';
+import { useLanguage, type Language } from '@/contexts/LanguageContext';
+import {
+  listPublicClinicServices,
+  type ClinicService,
+} from '@/lib/clinic-service-management-api';
+
+interface PublicService {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  price: number;
+  currency: string;
+  duration: number;
+}
+
+function localizedValue(
+  row: ClinicService,
+  language: Language,
+  prefix: 'name' | 'description',
+): string | null {
+  const values: Record<Language, string | null> = prefix === 'name'
+    ? {
+        ru: row.nameRu,
+        uz: row.nameUz,
+        uz_cyrl: row.nameUzCyrl,
+        kz: row.nameKz,
+        kg: row.nameKg,
+        tj: row.nameTj,
+      }
+    : {
+        ru: row.descriptionRu,
+        uz: row.descriptionUz,
+        uz_cyrl: row.descriptionUzCyrl,
+        kz: row.descriptionKz,
+        kg: row.descriptionKg,
+        tj: row.descriptionTj,
+      };
+  const localized = values[language];
+  const fallback = values.ru;
+  return localized?.trim()
+    || fallback?.trim()
+    || null;
+}
 
 interface ClinicServicesProps {
   clinicId: string;
 }
 
 export function ClinicServices({ clinicId }: ClinicServicesProps) {
-  const { data: services, isLoading } = useQuery({
-    queryKey: ['clinic-services', clinicId],
+  const { language } = useLanguage();
+  const { data: services, isLoading } = useQuery<PublicService[]>({
+    queryKey: ['clinic-public-services', clinicId, language],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('services')
-        .select('*')
-        .eq('clinic_id', clinicId)
-        .eq('is_active', true)
-        .order('category', { ascending: true })
-        .order('name', { ascending: true });
-
-      if (error) throw error;
-      return data;
+      const rows = await listPublicClinicServices(clinicId);
+      return rows.map((row) => ({
+        id: row.id,
+        name: localizedValue(row, language, 'name') ?? '',
+        description: localizedValue(row, language, 'description'),
+        category: row.category ?? 'Другое',
+        price: Number(row.price),
+        currency: row.currency,
+        duration: row.duration,
+      }));
     },
   });
 
@@ -58,7 +102,7 @@ export function ClinicServices({ clinicId }: ClinicServicesProps) {
     );
   }
 
-  const groupedServices = services.reduce((acc: Record<string, any[]>, service) => {
+  const groupedServices = services.reduce<Record<string, PublicService[]>>((acc, service) => {
     const category = service.category || 'Другое';
     if (!acc[category]) acc[category] = [];
     acc[category].push(service);
@@ -82,7 +126,7 @@ export function ClinicServices({ clinicId }: ClinicServicesProps) {
             </Badge>
           </div>
           <div className="grid md:grid-cols-2 gap-3">
-            {categoryServices.map((service: any) => (
+            {categoryServices.map((service) => (
               <Card key={service.id} className="group border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-lg hover:border-primary/30 transition-all duration-300">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-4">
@@ -95,16 +139,16 @@ export function ClinicServices({ clinicId }: ClinicServicesProps) {
                           {service.description}
                         </p>
                       )}
-                      {service.duration_minutes && (
+                      {service.duration > 0 && (
                         <div className="inline-flex items-center gap-1.5 mt-2 px-2 py-1 rounded-md bg-muted text-xs text-muted-foreground">
                           <Clock className="w-3.5 h-3.5" />
-                          <span>{service.duration_minutes} мин</span>
+                          <span>{service.duration} мин</span>
                         </div>
                       )}
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-lg font-bold text-primary">
-                        {formatPrice(service.price)}
+                        {formatPrice(service.price, service.currency)}
                       </div>
                     </div>
                   </div>

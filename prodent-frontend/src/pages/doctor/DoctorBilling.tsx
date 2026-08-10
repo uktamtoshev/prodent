@@ -8,8 +8,9 @@ import { AddOnServicesList } from '@/components/billing/AddOnServicesList';
 import { AppointmentLimitBanner } from '@/components/billing/AppointmentLimitBanner';
 import { PlanStatusBadge } from '@/components/billing/PlanStatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { supabase } from '@/integrations/supabase/client';
-import { useSubscribeToPlan, useAppointmentLimit, usePlanFeatures } from '@/hooks/useSubscriptionPlan';
+import { useSubscribeToPlan, useAppointmentLimit, usePlanFeatures, useSubscriptionStatus } from '@/hooks/useSubscriptionPlan';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -21,6 +22,7 @@ import uzumLogo from '@/assets/payments/uzum-logo.png';
 
 export default function DoctorBilling() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('balance');
 
@@ -31,7 +33,7 @@ export default function DoctorBilling() {
       if (!user?.id) return null;
       const { data, error } = await supabase
         .from('doctors')
-        .select('id, specialty, subscription_plan, subscription_expires_at, monthly_appointments_count, appointments_reset_at')
+        .select('id, specialty, subscription_plan, subscription_expires_at')
         .eq('user_id', user.id)
         .single();
       if (error) throw error;
@@ -56,51 +58,33 @@ export default function DoctorBilling() {
     enabled: !!user?.id,
   });
 
-  // Get virtual account
-  const { data: virtualAccount, isLoading: accountLoading } = useQuery({
-    queryKey: ['virtual-account', 'doctor', doctor?.id],
-    queryFn: async () => {
-      if (!doctor?.id) return null;
-      const { data, error } = await supabase
-        .from('virtual_accounts')
-        .select('*')
-        .eq('doctor_id', doctor.id)
-        .single();
-      if (error && error.code !== 'PGRST116') throw error;
-      return data;
-    },
-    enabled: !!doctor?.id,
-  });
+  // Wallet + subscription status (USER-scoped wallet, server-authoritative)
+  const { data: status, isLoading: accountLoading } = useSubscriptionStatus();
+  const virtualAccount = status
+    ? { id: status.account_id, balance: status.balance }
+    : null;
 
   // Get appointment limit info
   const { data: limitInfo } = useAppointmentLimit('doctor', doctor?.id);
-  
+
   // Get plan features
   const { data: planFeatures } = usePlanFeatures('doctor', doctor?.id);
 
   // Subscribe mutation
   const subscribeMutation = useSubscribeToPlan();
 
-  const handleSubscribe = (planId: string, price: number) => {
-    if (!virtualAccount || !doctor) {
-      toast.error('Аккаунт не найден');
+  const handleSubscribe = (planSlug: string, _price: number) => {
+    if (!doctor) {
+      toast.error(t("doctorBilling.accountNotFound"));
       return;
     }
-    
-    subscribeMutation.mutate({
-      entityType: 'doctor',
-      entityId: doctor.id,
-      planId,
-      price,
-      virtualAccountId: virtualAccount.id,
-      currentBalance: virtualAccount.balance,
-    });
+    subscribeMutation.mutate({ planSlug, entityType: 'doctor' });
   };
 
   if (doctorLoading) {
     return (
       <DoctorLayout>
-        <div className="p-6">
+        <div className="p-card-x">
           <Skeleton className="h-[400px]" />
         </div>
       </DoctorLayout>
@@ -110,11 +94,11 @@ export default function DoctorBilling() {
   if (!doctor) {
     return (
       <DoctorLayout>
-        <div className="p-6">
+        <div className="p-card-x">
           <Card>
             <CardContent className="py-12 text-center">
               <CreditCard className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-muted-foreground">Профиль врача не найден</p>
+              <p className="text-muted-foreground">{t("doctor.profileNotFound")}</p>
             </CardContent>
           </Card>
         </div>
@@ -131,9 +115,9 @@ export default function DoctorBilling() {
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold font-heading">Оплата и подписки</h1>
+            <h1 className="cabinet-page-title font-heading text-xl font-bold tracking-tight text-foreground">{t("doctorBilling.title")}</h1>
             <p className="text-muted-foreground">
-              Управление балансом, подписками и рекламой
+              {t("doctorBilling.subtitle")}
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -144,13 +128,13 @@ export default function DoctorBilling() {
             {limitInfo && limitInfo.limit && (
               <div className="flex items-center gap-2 text-sm">
                 <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span>{limitInfo.count}/{limitInfo.limit} записей</span>
+                <span>{limitInfo.count}/{limitInfo.limit} {t("doctorBilling.bookings")}</span>
                 <Progress value={(limitInfo.count / limitInfo.limit) * 100} className="w-20 h-2" />
               </div>
             )}
             {virtualAccount && (
               <div className="text-right">
-                <p className="text-sm text-muted-foreground">Баланс</p>
+                <p className="text-sm text-muted-foreground">{t("doctorBilling.balanceLabel")}</p>
                 <p className="text-2xl font-bold text-primary">
                   {new Intl.NumberFormat('ru-RU').format(virtualAccount.balance)} UZS
                 </p>
@@ -164,15 +148,15 @@ export default function DoctorBilling() {
           <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
             <TabsTrigger value="balance" className="gap-2">
               <Wallet className="w-4 h-4" />
-              Баланс
+              {t("doctorBilling.tabBalance")}
             </TabsTrigger>
             <TabsTrigger value="subscription" className="gap-2">
               <Crown className="w-4 h-4" />
-              Подписка
+              {t("doctorBilling.tabSubscription")}
             </TabsTrigger>
             <TabsTrigger value="addons" className="gap-2">
               <Sparkles className="w-4 h-4" />
-              Услуги
+              {t("doctorBilling.tabAddons")}
             </TabsTrigger>
           </TabsList>
 
@@ -182,15 +166,15 @@ export default function DoctorBilling() {
               <VirtualAccountCard
                 type="doctor"
                 entityId={doctor.id}
-                entityName={profile?.full_name || 'Врач'}
+                entityName={profile?.full_name || t("doctor.doctor")}
               />
 
               <div className="space-y-6">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2 text-base font-bold">
                       <CreditCard className="w-5 h-5 text-primary" />
-                      Способы пополнения
+                      {t("doctorBilling.methods")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -198,21 +182,21 @@ export default function DoctorBilling() {
                       <img src={paymeLogo} alt="Payme" className="w-12 h-12 object-contain" />
                       <div>
                         <p className="font-medium">Payme</p>
-                        <p className="text-sm text-muted-foreground">Оплата картой</p>
+                        <p className="text-sm text-muted-foreground">{t("doctorBilling.paymeFast")}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
                       <img src={clickLogo} alt="Click" className="w-12 h-12 object-contain" />
                       <div>
                         <p className="font-medium">Click</p>
-                        <p className="text-sm text-muted-foreground">Быстрая оплата</p>
+                        <p className="text-sm text-muted-foreground">{t("doctorBilling.clickFast")}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-4 p-3 rounded-lg bg-muted/50">
                       <img src={uzumLogo} alt="Uzum Bank" className="w-12 h-12 object-contain" />
                       <div>
                         <p className="font-medium">Uzum Bank</p>
-                        <p className="text-sm text-muted-foreground">Uzum приложение</p>
+                        <p className="text-sm text-muted-foreground">{t("doctorBilling.uzumFast")}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -220,23 +204,23 @@ export default function DoctorBilling() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
+                    <CardTitle className="flex items-center gap-2 text-base font-bold">
                       <TrendingUp className="w-5 h-5 text-primary" />
-                      Для чего нужен баланс?
+                      {t("doctorBilling.whyBalance")}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3 text-sm text-muted-foreground">
                     <div className="flex items-start gap-2">
                       <Crown className="w-4 h-4 mt-0.5 text-primary" />
-                      <p>Оплата подписок и премиум-функций</p>
+                      <p>{t("doctorBilling.whyPlans")}</p>
                     </div>
                     <div className="flex items-start gap-2">
                       <Sparkles className="w-4 h-4 mt-0.5 text-primary" />
-                      <p>Бейджи и продвижение профиля</p>
+                      <p>{t("doctorBilling.whyBadges")}</p>
                     </div>
                     <div className="flex items-start gap-2">
                       <History className="w-4 h-4 mt-0.5 text-primary" />
-                      <p>Покупка бейджей и значков</p>
+                      <p>{t("doctorBilling.whyShop")}</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -248,9 +232,9 @@ export default function DoctorBilling() {
           <TabsContent value="subscription" className="space-y-6 mt-6">
             <Card>
               <CardHeader>
-                <CardTitle>Выберите план подписки</CardTitle>
+                <CardTitle>{t("doctorBilling.choosePlan")}</CardTitle>
                 <CardDescription>
-                  Расширьте возможности вашего профиля с премиум-функциями
+                  {t("doctorBilling.choosePlanDesc")}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -277,12 +261,12 @@ export default function DoctorBilling() {
           <TabsContent value="addons" className="space-y-6 mt-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
+                <CardTitle className="flex items-center gap-2 text-base font-bold">
                   <Sparkles className="w-5 h-5 text-primary" />
-                  Дополнительные услуги
+                  {t("doctorBilling.addonsTitle")}
                 </CardTitle>
                 <CardDescription>
-                  Бейджи, продвижение в поиске и особые рамки профиля — покупайте отдельно на любой срок
+                  {t("doctorBilling.addonsDesc")}
                 </CardDescription>
               </CardHeader>
               <CardContent>

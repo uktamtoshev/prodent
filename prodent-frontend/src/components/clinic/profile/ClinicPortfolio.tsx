@@ -23,12 +23,22 @@ interface ClinicPortfolioProps {
   isOwner: boolean;
 }
 
+interface ClinicPortfolioItem {
+  id: string;
+  title: string;
+  description: string | null;
+  type: string;
+  media_url: string | null;
+  before_image_url: string | null;
+  after_image_url: string | null;
+}
+
 export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [filter, setFilter] = useState<string>('all');
-  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [selectedItem, setSelectedItem] = useState<ClinicPortfolioItem | null>(null);
 
   // Form state
   const [title, setTitle] = useState('');
@@ -53,7 +63,7 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return (data || []) as ClinicPortfolioItem[];
     },
   });
 
@@ -123,8 +133,8 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
       resetForm();
       setShowAddDialog(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: unknown) => {
+      toast({ title: 'Ошибка', description: error instanceof Error ? error.message : 'Неизвестная ошибка', variant: 'destructive' });
     },
   });
 
@@ -169,15 +179,17 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 max-w-full space-y-6">
       {/* Filters */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex max-w-full flex-wrap gap-2" role="group" aria-label="Фильтр портфолио">
           {['all', 'image', 'video', 'case', 'certificate'].map((f) => (
             <Button
               key={f}
               variant={filter === f ? 'default' : 'outline'}
               size="sm"
+              className="min-h-11"
+              aria-pressed={filter === f}
               onClick={() => setFilter(f)}
             >
               {f === 'all' ? 'Все' : getTypeLabel(f)}
@@ -188,8 +200,8 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
         {isOwner && (
           <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
             <DialogTrigger asChild>
-              <Button className="gap-2">
-                <Plus className="w-4 h-4" />
+              <Button className="min-h-11 gap-2">
+                <Plus aria-hidden="true" className="h-4 w-4" />
                 Добавить
               </Button>
             </DialogTrigger>
@@ -199,43 +211,67 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label>Тип</Label>
+                  <Label htmlFor="clinic-portfolio-type">Тип</Label>
                   <Select value={type} onValueChange={setType}>
-                    <SelectTrigger>
+                    <SelectTrigger id="clinic-portfolio-type" className="min-h-11">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="image">Фото</SelectItem>
-                      <SelectItem value="video">Видео</SelectItem>
-                      <SelectItem value="case">Кейс (до/после)</SelectItem>
-                      <SelectItem value="certificate">Сертификат</SelectItem>
+                      <SelectItem className="min-h-11" value="image">Фото</SelectItem>
+                      <SelectItem className="min-h-11" value="video">Видео</SelectItem>
+                      <SelectItem className="min-h-11" value="case">Кейс (до/после)</SelectItem>
+                      <SelectItem className="min-h-11" value="certificate">Сертификат</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
-                  <Label>Название</Label>
-                  <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+                  <Label htmlFor="clinic-portfolio-title">Название</Label>
+                  <Input
+                    id="clinic-portfolio-title"
+                    className="min-h-11"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    required
+                  />
                 </div>
                 <div>
-                  <Label>Описание</Label>
-                  <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+                  <Label htmlFor="clinic-portfolio-description">Описание</Label>
+                  <Textarea
+                    id="clinic-portfolio-description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
                 </div>
                 
                 {type === 'case' ? (
                   <>
                     <div>
-                      <Label>Фото "До"</Label>
-                      <Input type="file" accept="image/*" onChange={(e) => setBeforeFile(e.target.files?.[0] || null)} />
+                      <Label htmlFor="clinic-portfolio-before">Фото "До"</Label>
+                      <Input
+                        id="clinic-portfolio-before"
+                        className="min-h-11"
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setBeforeFile(e.target.files?.[0] || null)}
+                      />
                     </div>
                     <div>
-                      <Label>Фото "После"</Label>
-                      <Input type="file" accept="image/*" onChange={(e) => setAfterFile(e.target.files?.[0] || null)} />
+                      <Label htmlFor="clinic-portfolio-after">Фото "После"</Label>
+                      <Input
+                        id="clinic-portfolio-after"
+                        className="min-h-11"
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setAfterFile(e.target.files?.[0] || null)}
+                      />
                     </div>
                   </>
                 ) : (
                   <div>
-                    <Label>Файл</Label>
+                    <Label htmlFor="clinic-portfolio-media">Файл</Label>
                     <Input 
+                      id="clinic-portfolio-media"
+                      className="min-h-11"
                       type="file" 
                       accept={type === 'video' ? 'video/*' : 'image/*'} 
                       onChange={(e) => setMediaFile(e.target.files?.[0] || null)} 
@@ -243,9 +279,9 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setShowAddDialog(false)}>Отмена</Button>
-                  <Button onClick={() => addItem.mutate()} disabled={!title || addItem.isPending}>
+                <div className="flex flex-col-reverse justify-end gap-2 sm:flex-row">
+                  <Button className="min-h-11 w-full sm:w-auto" variant="outline" onClick={() => setShowAddDialog(false)}>Отмена</Button>
+                  <Button className="min-h-11 w-full sm:w-auto" onClick={() => addItem.mutate()} disabled={!title || addItem.isPending}>
                     {addItem.isPending ? 'Добавление...' : 'Добавить'}
                   </Button>
                 </div>
@@ -257,21 +293,26 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
 
       {/* Grid */}
       {isLoading ? (
-        <div className="text-center py-12 text-muted-foreground">Загрузка...</div>
+        <div className="py-12 text-center text-muted-foreground" role="status">Загрузка...</div>
       ) : portfolio?.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">
           Портфолио пока пусто
         </div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {portfolio?.map((item: any) => {
+        <div className="grid min-w-0 grid-cols-2 gap-4 md:grid-cols-3">
+          {portfolio?.map((item) => {
             const Icon = getTypeIcon(item.type);
             return (
               <Card 
                 key={item.id} 
-                className="overflow-hidden cursor-pointer group"
-                onClick={() => setSelectedItem(item)}
+                className="group relative min-w-0 overflow-hidden"
               >
+                <button
+                  type="button"
+                  className="absolute inset-0 z-10 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  aria-label={`Открыть ${item.title}`}
+                  onClick={() => setSelectedItem(item)}
+                />
                 <div className="aspect-square relative bg-muted">
                   {item.type === 'case' ? (
                     <div className="w-full h-full grid grid-cols-2">
@@ -293,7 +334,7 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
                   )}
                   
                   <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <Icon className="w-8 h-8 text-white" />
+                    <Icon aria-hidden="true" className="h-8 w-8 text-primary-foreground" />
                   </div>
 
                   <Badge className="absolute top-2 left-2" variant="secondary">
@@ -306,7 +347,8 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
                         <Button 
                           variant="secondary" 
                           size="icon" 
-                          className="absolute top-2 right-2 w-8 h-8 opacity-0 group-hover:opacity-100"
+                          className="absolute right-2 top-2 z-20 h-11 w-11 opacity-100 focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                          aria-label={`Действия с ${item.title}`}
                         >
                           <MoreHorizontal className="w-4 h-4" />
                         </Button>
@@ -317,7 +359,7 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
                             e.stopPropagation();
                             deleteItem.mutate(item.id);
                           }}
-                          className="text-destructive"
+                          className="min-h-11 text-destructive focus:text-destructive"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
                           Удалить
@@ -327,7 +369,7 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
                   )}
                 </div>
                 <CardContent className="p-3">
-                  <h4 className="font-medium truncate">{item.title}</h4>
+                  <h4 className="truncate font-medium">{item.title}</h4>
                   {item.description && (
                     <p className="text-sm text-muted-foreground truncate">{item.description}</p>
                   )}
@@ -348,7 +390,7 @@ export function ClinicPortfolio({ clinicId, isOwner }: ClinicPortfolioProps) {
               </DialogHeader>
               <div className="space-y-4">
                 {selectedItem.type === 'case' ? (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <p className="text-sm text-muted-foreground mb-2">До</p>
                       <img src={selectedItem.before_image_url} alt="До" className="w-full rounded-lg" />

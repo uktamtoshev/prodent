@@ -1,6 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { tGlobal } from "@/contexts/LanguageContext";
+
+const fmt = (key: string, vars: Record<string, string | number> = {}) =>
+  Object.entries(vars).reduce(
+    (s, [k, v]) => s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v)),
+    tGlobal(key),
+  );
 
 export interface AddOnService {
   id: string;
@@ -247,7 +254,7 @@ export const usePurchaseAddOn = () => {
       const canPurchase: CanPurchaseResult = canPurchaseData as unknown as CanPurchaseResult;
       
       if (!canPurchase.can_purchase) {
-        throw new Error(canPurchase.reason || 'Нельзя приобрести эту услугу');
+        throw new Error(canPurchase.reason || tGlobal('apiMessages.addonCannotPurchase'));
       }
 
       // 2. Check balance
@@ -259,7 +266,7 @@ export const usePurchaseAddOn = () => {
       
       if (accountError) throw accountError;
       if ((account?.balance || 0) < price) {
-        throw new Error('Недостаточно средств на балансе');
+        throw new Error(tGlobal('apiMessages.addonInsufficientBalance'));
       }
 
       // 3. Get add-on name for transaction description
@@ -292,7 +299,9 @@ export const usePurchaseAddOn = () => {
           amount: -price,
           balance_before: balanceBefore,
           balance_after: balanceAfter,
-          description: `${isExtension ? 'Продление' : 'Покупка'}: ${addOn.name} на ${durationDays} дней`,
+          description: isExtension
+            ? fmt('apiMessages.addonExtendDesc', { name: addOn.name, days: durationDays })
+            : fmt('apiMessages.addonPurchaseDesc', { name: addOn.name, days: durationDays }),
         })
         .select()
         .single();
@@ -318,7 +327,7 @@ export const usePurchaseAddOn = () => {
       return { success: true, isExtension, newEndDate: result.new_end_date };
     },
     onSuccess: (data) => {
-      toast.success(data.isExtension ? 'Услуга успешно продлена!' : 'Услуга успешно активирована!');
+      toast.success(data.isExtension ? tGlobal('apiMessages.addonExtended') : tGlobal('apiMessages.addonActivated'));
       queryClient.invalidateQueries({ queryKey: ['active-add-ons'] });
       queryClient.invalidateQueries({ queryKey: ['virtual-account'] });
       queryClient.invalidateQueries({ queryKey: ['entity-badges'] });
@@ -326,7 +335,7 @@ export const usePurchaseAddOn = () => {
       queryClient.invalidateQueries({ queryKey: ['add-on-remaining-days'] });
     },
     onError: (error: Error) => {
-      toast.error(error.message || 'Ошибка при покупке услуги');
+      toast.error(error.message || tGlobal('apiMessages.addonPurchaseError'));
     },
   });
 };

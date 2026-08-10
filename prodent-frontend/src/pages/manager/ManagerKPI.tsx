@@ -1,12 +1,10 @@
-import { ManagerLayout } from '@/components/manager/ManagerLayout';
+import { ManagerLayout } from "@/components/manager/ManagerLayout";
+import { PerformanceOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function ManagerKPI() {
   return (
     <ManagerLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">KPI</h1>
-        <p className="text-muted-foreground">Ключевые показатели эффективности</p>
-      </div>
+      <PerformanceOperations title="KPI" description="Записи, оплаты, возвраты и долги за текущий месяц." />
     </ManagerLayout>
   );
 }

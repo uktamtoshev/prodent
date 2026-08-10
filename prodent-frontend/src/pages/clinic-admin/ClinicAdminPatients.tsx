@@ -1,12 +1,10 @@
-import { ClinicAdminLayout } from '@/components/clinic-admin/ClinicAdminLayout';
+import { ClinicAdminLayout } from "@/components/clinic-admin/ClinicAdminLayout";
+import { PatientOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function ClinicAdminPatients() {
   return (
     <ClinicAdminLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Пациенты</h1>
-        <p className="text-muted-foreground">База данных пациентов клиники</p>
-      </div>
+      <PatientOperations />
     </ClinicAdminLayout>
   );
 }

@@ -1,12 +1,10 @@
-import { ClinicAdminLayout } from '@/components/clinic-admin/ClinicAdminLayout';
+import { ClinicAdminLayout } from "@/components/clinic-admin/ClinicAdminLayout";
+import { ScheduleOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function ClinicAdminSchedule() {
   return (
     <ClinicAdminLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Расписание</h1>
-        <p className="text-muted-foreground">Управление расписанием клиники</p>
-      </div>
+      <ScheduleOperations title="Расписание" description="Записи, врачи и кабинеты на сегодня." />
     </ClinicAdminLayout>
   );
 }

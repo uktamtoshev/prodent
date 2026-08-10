@@ -3,8 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/favicon.png" />
+    <meta name="theme-color" content="#00C6BB" />
+    <link rel="icon" type="image/png" href="/favicon.png?v=3" />
+    <link rel="shortcut icon" type="image/png" href="/favicon.png?v=3" />
+    <link rel="apple-touch-icon" href="/favicon.png?v=3" />
     <title>PRODENT - Премиум портал стоматологов Центральной Азии</title>
     <meta name="description" content="Найдите лучшего стоматолога за 7 секунд. Онлайн-запись, проверенные врачи, реальные отзывы и фото работ. Более 500 специалистов в Узбекистане." />
     <meta name="author" content="PRODENT" />
@@ -17,17 +19,24 @@
     <meta property="og:title" content="PRODENT - Первый премиум портал стоматологов" />
     <meta property="og:description" content="Запись к лучшим стоматологам Узбекистана за 7 секунд. 500+ проверенных врачей." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://prodent.uz/" />
+    <meta property="og:site_name" content="PRODENT" />
     <meta property="og:image" content="https://prodent.uz/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="ru_RU" />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@prodent_uz" />
+    <meta name="twitter:title" content="PRODENT - Первый премиум портал стоматологов" />
+    <meta name="twitter:description" content="Запись к лучшим стоматологам Узбекистана за 7 секунд. 500+ проверенных врачей." />
     <meta name="twitter:image" content="https://prodent.uz/og-image.png" />
 
     <!-- Google Tag Manager (loads GA4 via GTM container) -->
     <script>
       (function(){
         var id = '%VITE_GTM_ID%';
-        if (!id || id.indexOf('VITE_') === 0) return;
+        if (!/^GTM-[A-Z0-9]+$/i.test(id)) return;
         var s = document.createElement('script');
         s.async = true;
         s.src = 'https://www.googletagmanager.com/gtm.js?id=' + id;
@@ -41,7 +50,7 @@
     <script>
       (function(){
         var id = '%VITE_YM_ID%';
-        if (!id || id.indexOf('VITE_') === 0) return;
+        if (!/^\d+$/.test(id)) return;
         (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
         m[i].l=1*new Date();
         for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r)return;}
@@ -51,10 +60,14 @@
       })();
     </script>
 
-    <!-- PRODENT Fonts -->
+    <!-- PRODENT Fonts — Inter is loaded as a variable font (rsms.me builds it
+         as InterVariable). Manrope, IBM Plex Sans and Tajawal come from Google
+         Fonts. See ops/typography-guidelines.md. -->
+    <link rel="preconnect" href="https://rsms.me/">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
   </head>
 
   <body>

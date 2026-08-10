@@ -2,10 +2,19 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
-      <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
+interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  containerLabel?: string;
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, containerLabel, ...props }, ref) => (
+    <div
+      className="relative w-full overflow-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      role={containerLabel ? "region" : undefined}
+      aria-label={containerLabel}
+      tabIndex={containerLabel ? 0 : undefined}
+    >
+      <table ref={ref} className={cn("w-full caption-bottom text-cell", className)} {...props} />
     </div>
   ),
 );
@@ -46,7 +55,11 @@ const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttributes<
     <th
       ref={ref}
       className={cn(
-        "h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0",
+        // Шапка по макету: 36px, 12px/600, на собственной поверхности внутри
+        // карточки. Было h-12 (48px) и вес 500 без заливки — шапка ничем не
+        // отличалась от строк. Значения идут первым аргументом cn, поэтому
+        // точечные классы экранов по-прежнему побеждают.
+        "h-row-head bg-surface-2 px-card-x text-left align-middle text-xs font-semibold text-muted-foreground [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}
@@ -57,7 +70,14 @@ TableHead.displayName = "TableHead";
 
 const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttributes<HTMLTableCellElement>>(
   ({ className, ...props }, ref) => (
-    <td ref={ref} className={cn("p-4 align-middle [&:has([role=checkbox])]:pr-0", className)} {...props} />
+    <td
+      ref={ref}
+      // Строка по макету — 42px ровной высоты, отступы только по горизонтали.
+      // Было p-4 со всех сторон: высота строки плавала от содержимого (замер
+      // живьём давал 46.5px на расписании и 70.1px на услугах).
+      className={cn("h-row px-card-x py-0 align-middle [&:has([role=checkbox])]:pr-0", className)}
+      {...props}
+    />
   ),
 );
 TableCell.displayName = "TableCell";

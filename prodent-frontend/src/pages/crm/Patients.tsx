@@ -1,513 +1,381 @@
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
+import { GitMerge, Search, UserPlus, UserRound, Users } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { CRMLayout } from "@/components/crm/CRMLayout";
-import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Plus, Search, X, LayoutGrid, List, Filter, ChevronDown, ChevronUp, UserCheck, Building2 } from "lucide-react";
-import { AddPatientDialog } from "@/components/crm/AddPatientDialog";
-import { useClinic } from "@/contexts/ClinicContext";
-import { useUserRole } from "@/hooks/useUserRole";
-import { useAuth } from "@/contexts/AuthContext";
+import { AddNewPatientDialog } from "@/components/crm/AddNewPatientDialog";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Label } from "@/components/ui/label";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/contexts/AuthContext";
+import { useClinic } from "@/contexts/ClinicContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { PatientCardView } from "@/components/crm/patients/PatientCardView";
-import { PatientTableView } from "@/components/crm/patients/PatientTableView";
-import { PatientsEmptyState } from "@/components/crm/patients/PatientsEmptyState";
-import { TagFilterButton } from "@/components/crm/patients/PatientTagBadge";
-import { PaginationControls } from "@/components/crm/patients/PaginationControls";
+  clearPersistentClientRequestId,
+  getPersistentClientRequestId,
+  listDuplicatePatients,
+  mergeDuplicatePatients,
+  searchClinicPatients,
+} from "@/lib/crm-operations-api";
 
-type ViewMode = "cards" | "table";
+interface PatientRow {
+  id: string;
+  patient_type: "registered" | "guest";
+  name: string;
+  phone?: string | null;
+}
+
+interface GuestRow {
+  id: string;
+  name: string;
+  phone?: string | null;
+}
+
+interface DuplicateGroup {
+  phone_normalized: string;
+  duplicate_count: number;
+  guests: GuestRow[];
+}
 
 export default function Patients() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTag, setSelectedTag] = useState<string>("all");
-  const [selectedGender, setSelectedGender] = useState<string>("all");
-  const [ageFrom, setAgeFrom] = useState("");
-  const [ageTo, setAgeTo] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [addPatientOpen, setAddPatientOpen] = useState(false);
-  const [patientView, setPatientView] = useState<"clinic" | "personal">("clinic");
-  const [viewMode, setViewMode] = useState<ViewMode>("cards");
-  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(12);
-  
-  const { currentClinic, loading: clinicLoading } = useClinic();
-  const { isDoctor, isSuperAdmin, isClinicAdmin, isClinicManager } = useUserRole();
+  const { currentClinic } = useClinic();
   const { user } = useAuth();
+  const { t } = useLanguage();
+  const queryClient = useQueryClient();
+  const [input, setInput] = useState("");
+  const [addPatientOpen, setAddPatientOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [pendingMerge, setPendingMerge] = useState<DuplicateGroup | null>(null);
+  /**
+   * Срез списка. Из эталонных вкладок (Все / Мои / С долгом / Давно не были /
+   * Новые) поддержаны только те, что опираются на реально приходящие поля:
+   * поиск возвращает id, тип, имя и телефон — ни долга, ни даты последнего
+   * визита, ни даты создания в ответе нет. Остальные вкладки будут ложью:
+   * они показали бы пустой список независимо от данных.
+   */
+  const [patientTab, setPatientTab] = useState<"all" | "registered" | "guest">("all");
 
-  // Get current doctor info (for chair rental)
-  const { data: currentDoctor } = useQuery({
-    queryKey: ["current-doctor", user?.id],
-    queryFn: async () => {
-      if (!user?.id) return null;
-      const { data } = await supabase
-        .from("doctors")
-        .select("id, cooperation_type, user_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      return data;
-    },
-    enabled: !!user?.id && isDoctor,
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(input.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [input]);
+
+  const patients = useQuery({
+    queryKey: ["s7-clinic-patients", currentClinic?.id, search],
+    queryFn: () =>
+      searchClinicPatients(currentClinic!.id, search) as Promise<PatientRow[]>,
+    enabled: !!currentClinic?.id && search.trim().length >= 2,
+  });
+  const duplicates = useQuery({
+    queryKey: ["s7-patient-duplicates", currentClinic?.id],
+    queryFn: () =>
+      listDuplicatePatients(currentClinic!.id) as Promise<DuplicateGroup[]>,
+    enabled: !!currentClinic?.id,
   });
 
-  const isChairRental = currentDoctor?.cooperation_type === "chair_rental";
-  const canViewAllPatients = isSuperAdmin || isClinicAdmin || isClinicManager;
-
-  // Get clinic patients (only for staff doctors and admins)
-  const { data: clinicPatients, isLoading: clinicLoading2 } = useQuery({
-    queryKey: ["clinic-patients", currentClinic?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id) return [];
-
-      const { data: members } = await supabase
-        .from("clinic_members")
-        .select("user_id")
-        .eq("clinic_id", currentClinic.id)
-        .eq("role", "patient")
-        .is("assigned_doctor_id", null);
-
-      if (!members || members.length === 0) return [];
-
-      const patientIds = members.map(m => m.user_id);
-
-      const { data } = await supabase
-        .from("profiles")
-        .select(`
-          id,
-          full_name,
-          phone,
-          avatar_url,
-          created_at,
-          gender,
-          birth_date,
-          patient_tags (
-            id,
-            tag,
-            clinic_id
-          )
-        `)
-        .in("id", patientIds);
-
-      return (data || []).map(p => ({
-        ...p,
-        patient_tags: (p.patient_tags as any[])?.filter(t => t.clinic_id === currentClinic.id) || [],
-        patientType: "clinic" as const
-      }));
-    },
-    enabled: !clinicLoading && !!currentClinic?.id && (canViewAllPatients || !isChairRental),
-  });
-
-  // Get personal patients for chair rental doctors
-  const { data: personalPatients, isLoading: personalLoading } = useQuery({
-    queryKey: ["personal-patients", currentClinic?.id, currentDoctor?.id],
-    queryFn: async () => {
-      if (!currentClinic?.id || !currentDoctor?.id) return [];
-
-      const { data: members } = await supabase
-        .from("clinic_members")
-        .select("user_id")
-        .eq("clinic_id", currentClinic.id)
-        .eq("role", "patient")
-        .eq("assigned_doctor_id", currentDoctor.id);
-
-      if (!members || members.length === 0) return [];
-
-      const patientIds = members.map(m => m.user_id);
-
-      const { data } = await supabase
-        .from("profiles")
-        .select(`
-          id,
-          full_name,
-          phone,
-          avatar_url,
-          created_at,
-          gender,
-          birth_date,
-          patient_tags (
-            id,
-            tag,
-            clinic_id
-          )
-        `)
-        .in("id", patientIds);
-
-      return (data || []).map(p => ({
-        ...p,
-        patient_tags: (p.patient_tags as any[])?.filter(t => t.clinic_id === currentClinic.id) || [],
-        patientType: "personal" as const
-      }));
-    },
-    enabled: !clinicLoading && !!currentClinic?.id && !!currentDoctor?.id && isChairRental,
-  });
-
-  // Combine patients based on role
-  const patients = useMemo(() => {
-    if (isChairRental && !canViewAllPatients) {
-      return personalPatients || [];
-    }
-    if (canViewAllPatients) {
-      if (patientView === "personal" && currentDoctor?.id) {
-        return personalPatients || [];
-      }
-      return clinicPatients || [];
-    }
-    return clinicPatients || [];
-  }, [clinicPatients, personalPatients, isChairRental, canViewAllPatients, patientView, currentDoctor?.id]);
-
-  const isLoading = clinicLoading2 || personalLoading;
-
-  // Tag counts
-  const tags = useMemo(() => {
-    const allTags = [
-      { value: "all", label: "Все", count: patients?.length || 0 },
-      { value: "VIP", label: "VIP", count: 0 },
-      { value: "Дети", label: "Дети", count: 0 },
-      { value: "Аллергия", label: "Аллергия", count: 0 },
-      { value: "Долг", label: "Долг", count: 0 },
-      { value: "Постоянный", label: "Постоянный", count: 0 },
-      { value: "Новый", label: "Новый", count: 0 },
-    ];
-
-    if (patients) {
-      allTags.forEach(tag => {
-        if (tag.value !== "all") {
-          tag.count = patients.filter(p => 
-            (p.patient_tags as any[])?.some(t => t.tag === tag.value)
-          ).length;
-        }
+  const merge = useMutation({
+    mutationFn: async (group: DuplicateGroup) => {
+      const [survivor, ...others] = group.guests;
+      const actionKey = `patient-merge:${group.phone_normalized}:${group.guests
+        .map((guest) => guest.id)
+        .sort()
+        .join(",")}`;
+      const clientRequestId = getPersistentClientRequestId(
+        user?.id ?? "anonymous",
+        currentClinic!.id,
+        actionKey,
+      );
+      const result = await mergeDuplicatePatients(currentClinic!.id, {
+        clientRequestId,
+        survivorGuestId: survivor.id,
+        duplicateGuestIds: others.map((guest) => guest.id),
       });
-    }
-
-    return allTags;
-  }, [patients]);
-
-  // Filter patients
-  const filteredPatients = useMemo(() => {
-    if (!patients) return [];
-
-    return patients.filter(patient => {
-      // Search by name and phone
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const nameMatch = patient.full_name?.toLowerCase().includes(query);
-        const phoneMatch = patient.phone?.includes(query);
-        if (!nameMatch && !phoneMatch) return false;
-      }
-
-      // Tag filter
-      if (selectedTag !== "all") {
-        const hasTag = (patient.patient_tags as any[])?.some(t => t.tag === selectedTag);
-        if (!hasTag) return false;
-      }
-
-      // Gender filter
-      if (selectedGender !== "all" && patient.gender !== selectedGender) {
-        return false;
-      }
-
-      // Age filter
-      if (ageFrom || ageTo) {
-        if (!patient.birth_date) return false;
-        const birthDate = new Date(patient.birth_date);
-        const today = new Date();
-        let age = today.getFullYear() - birthDate.getFullYear();
-        const monthDiff = today.getMonth() - birthDate.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-          age--;
-        }
-        if (ageFrom && age < parseInt(ageFrom)) return false;
-        if (ageTo && age > parseInt(ageTo)) return false;
-      }
-
-      // Date filter
-      if (dateFrom || dateTo) {
-        if (!patient.created_at) return false;
-        const createdAt = new Date(patient.created_at);
-        if (dateFrom && createdAt < new Date(dateFrom)) return false;
-        if (dateTo && createdAt > new Date(dateTo + "T23:59:59")) return false;
-      }
-
-      return true;
-    });
-  }, [patients, searchQuery, selectedTag, selectedGender, ageFrom, ageTo, dateFrom, dateTo]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredPatients.length / pageSize);
-  const paginatedPatients = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredPatients.slice(start, start + pageSize);
-  }, [filteredPatients, currentPage, pageSize]);
-
-  // Reset page when filters change
-  useMemo(() => {
-    setCurrentPage(1);
-  }, [searchQuery, selectedTag, selectedGender, ageFrom, ageTo, dateFrom, dateTo]);
-
-  const handleClearFilters = () => {
-    setSearchQuery("");
-    setSelectedTag("all");
-    setSelectedGender("all");
-    setAgeFrom("");
-    setAgeTo("");
-    setDateFrom("");
-    setDateTo("");
-  };
-
-  const hasActiveFilters = selectedGender !== "all" || !!ageFrom || !!ageTo || !!dateFrom || !!dateTo || !!searchQuery || selectedTag !== "all";
-  const hasAdvancedFilters = selectedGender !== "all" || !!ageFrom || !!ageTo || !!dateFrom || !!dateTo;
+      clearPersistentClientRequestId(
+        user?.id ?? "anonymous",
+        currentClinic!.id,
+        actionKey,
+      );
+      return result;
+    },
+    onSuccess: () => {
+      toast.success(t("crmPatientSearch.duplicatesMerged"));
+      void queryClient.invalidateQueries({ queryKey: ["s7-patient-duplicates"] });
+      void queryClient.invalidateQueries({ queryKey: ["s7-clinic-patients"] });
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
   return (
     <CRMLayout>
-      <div className="p-4 lg:p-6 space-y-6">
-        {/* Header */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="max-w-full space-y-section overflow-x-clip p-4 pb-24 md:p-6 lg:p-8">
+        {/* A decorative gradient card used to sit here holding a title and a
+            counter. The section name now lives in the cabinet top bar, so this
+            row spends its height on the thing that was missing entirely: a way
+            to create a patient. */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Показатель «Найдено». Четыре эталонных («Всего пациентов»,
+              «Новые за месяц», «Давно не были», «Общий долг») построить не из
+              чего: поиск возвращает id, тип, имя и телефон — ни даты создания,
+              ни последнего визита, ни долга в ответе нет. */}
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-foreground">Пациенты</h1>
-              {isChairRental && !canViewAllPatients && (
-                <Badge variant="outline" className="bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-                  <UserCheck className="w-3 h-3 mr-1" />
-                  Личные пациенты
-                </Badge>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {currentClinic 
-                ? `${currentClinic.name} • ${filteredPatients.length} пациентов` 
-                : "Выберите клинику"}
+            <p className="text-meta font-medium text-muted-foreground">
+              {t("crmPatientSearch.subtitle")}
             </p>
+            <p className="text-kpi tabular-nums font-heading">{patients.data?.length ?? 0}</p>
           </div>
-          <Button
-            onClick={() => setAddPatientOpen(true)}
-            disabled={!currentClinic}
-            className="gap-2 bg-neutral-900 hover:bg-neutral-800 dark:bg-white dark:hover:bg-neutral-100 dark:text-neutral-900"
-          >
-            <Plus className="w-4 h-4" />
-            {isChairRental ? "Добавить своего пациента" : "Добавить пациента"}
+          <Button onClick={() => setAddPatientOpen(true)} disabled={!currentClinic?.id}>
+            <UserPlus aria-hidden="true" className="mr-2 h-4 w-4" />
+            {t("crmAddNewPatient.newPatient")}
           </Button>
         </div>
 
-        {/* View toggle for admins who are also chair rental doctors */}
-        {canViewAllPatients && isDoctor && isChairRental && (
-          <Tabs value={patientView} onValueChange={(v) => setPatientView(v as "clinic" | "personal")}>
-            <TabsList className="bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700">
-              <TabsTrigger value="clinic" className="gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-700">
-                <Building2 className="w-4 h-4" />
-                Пациенты клиники
-              </TabsTrigger>
-              <TabsTrigger value="personal" className="gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-700">
-                <UserCheck className="w-4 h-4" />
-                Мои пациенты
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        )}
-
-        {/* Search and View Toggle */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Поиск по имени или телефону..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-9 h-10 bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
-            />
-            {searchQuery && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+        {/* Срезы и счётчик найденных. Опираются на поля, которые реально
+            приходят в ответе поиска. */}
+        {patients.data && patients.data.length > 0 && (
+          <div className="flex flex-wrap items-center gap-0.5">
+            {([
+              { key: "all" as const, label: t("crmPatientSearch.tabAll"), n: patients.data.length },
+              { key: "registered" as const, label: t("crmPatientSearch.registered"), n: patients.data.filter((x) => x.patient_type === "registered").length },
+              { key: "guest" as const, label: t("crmPatientSearch.guest"), n: patients.data.filter((x) => x.patient_type === "guest").length },
+            ]).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setPatientTab(item.key)}
+                aria-pressed={patientTab === item.key}
+                className={cn(
+                  "cabinet-control inline-flex items-center gap-1.5 rounded-t-field px-3 py-2 text-cell transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  patientTab === item.key
+                    ? "border border-b-0 border-border bg-card font-semibold text-primary shadow-soft"
+                    : "font-medium text-muted-foreground hover:text-foreground",
+                )}
               >
-                <X className="h-4 w-4" />
-              </Button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {hasActiveFilters && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleClearFilters}
-                className="gap-1.5 border-neutral-200 dark:border-neutral-700"
-              >
-                <X className="w-3.5 h-3.5" />
-                Сбросить
-              </Button>
-            )}
-            <div className="flex items-center border border-neutral-200 dark:border-neutral-700 rounded-lg overflow-hidden">
-              <Button
-                variant={viewMode === "cards" ? "secondary" : "ghost"}
-                size="icon"
-                className="h-9 w-9 rounded-none"
-                onClick={() => setViewMode("cards")}
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-              <Button
-                variant={viewMode === "table" ? "secondary" : "ghost"}
-                size="icon"
-                className="h-9 w-9 rounded-none border-l border-neutral-200 dark:border-neutral-700"
-                onClick={() => setViewMode("table")}
-              >
-                <List className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Tag Filters */}
-        <div className="flex flex-wrap gap-2">
-          {tags.map((tag) => (
-            <TagFilterButton
-              key={tag.value}
-              tag={tag.value}
-              label={tag.label}
-              count={tag.count}
-              selected={selectedTag === tag.value}
-              onClick={() => setSelectedTag(tag.value)}
-            />
-          ))}
-        </div>
-
-        {/* Advanced Filters */}
-        <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
-          <CollapsibleTrigger asChild>
-            <Button 
-              variant="ghost" 
-              className="gap-2 text-muted-foreground hover:text-foreground"
-            >
-              <Filter className="w-4 h-4" />
-              Расширенные фильтры
-              {hasAdvancedFilters && (
-                <Badge variant="secondary" className="ml-1 text-[10px]">Активны</Badge>
-              )}
-              {isAdvancedOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-4">
-            <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Пол</Label>
-                  <Select value={selectedGender} onValueChange={setSelectedGender}>
-                    <SelectTrigger className="bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700">
-                      <SelectValue placeholder="Все" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Все</SelectItem>
-                      <SelectItem value="male">Мужской</SelectItem>
-                      <SelectItem value="female">Женский</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Возраст</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      placeholder="От"
-                      value={ageFrom}
-                      onChange={(e) => setAgeFrom(e.target.value)}
-                      className="bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
-                      min="0"
-                      max="120"
-                    />
-                    <Input
-                      type="number"
-                      placeholder="До"
-                      value={ageTo}
-                      onChange={(e) => setAgeTo(e.target.value)}
-                      className="bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
-                      min="0"
-                      max="120"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Добавлен с</Label>
-                  <Input
-                    type="date"
-                    value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
-                    className="bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Добавлен до</Label>
-                  <Input
-                    type="date"
-                    value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
-                    className="bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700"
-                  />
-                </div>
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-
-        {/* Patient List */}
-        {isLoading || clinicLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-[180px] rounded-xl" />
+                {item.label}
+                {item.n > 0 && (
+                  <span className="rounded-full bg-status-neutral-bg px-1.5 text-xs font-bold tabular-nums text-status-neutral">
+                    {item.n}
+                  </span>
+                )}
+              </button>
             ))}
           </div>
-        ) : filteredPatients.length === 0 ? (
-          <PatientsEmptyState 
-            onAddPatient={() => setAddPatientOpen(true)}
-            isFiltered={hasActiveFilters}
-            isPersonalPatients={isChairRental && !canViewAllPatients}
-          />
-        ) : (
-          <>
-            {viewMode === "cards" ? (
-              <PatientCardView patients={paginatedPatients} />
-            ) : (
-              <PatientTableView patients={paginatedPatients} />
-            )}
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <PaginationControls
-                currentPage={currentPage}
-                totalPages={totalPages}
-                pageSize={pageSize}
-                totalItems={filteredPatients.length}
-                onPageChange={setCurrentPage}
-                onPageSizeChange={setPageSize}
-              />
-            )}
-          </>
         )}
 
-        <AddPatientDialog
+        <div className="relative max-w-xl">
+          <Search aria-hidden="true" className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            data-testid="crm-patient-search"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={t("crmPatients.searchPlaceholder")}
+            aria-label={t("crmPatients.searchPlaceholder")}
+            className="min-h-11 max-w-full pl-9"
+          />
+        </div>
+
+        {duplicates.isLoading && (
+          <Card className="border-dashed">
+            <CardContent className="py-8 text-center text-muted-foreground" role="status">
+              {t("common.loading")}
+            </CardContent>
+          </Card>
+        )}
+
+        {duplicates.isError && (
+          <Card className="border-destructive/30">
+            <CardContent className="py-8 text-center" role="alert">
+              <p>{t("crmPatientSearch.loadError")}</p>
+              <Button className="mt-3 min-h-11" variant="outline" onClick={() => void duplicates.refetch()}>
+                {t("crmPatientSearch.retry")}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {duplicates.data && duplicates.data.length > 0 && (
+          <Card className="border-warning-amber/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base font-bold">
+                <GitMerge aria-hidden="true" className="h-5 w-5 text-warning-amber" />
+                {t("crmPatientSearch.possibleDuplicates")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {duplicates.data.map((group) => (
+                <div
+                  key={group.phone_normalized}
+                  className="flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words font-medium">{group.guests.map((guest) => guest.name).join(" · ")}</p>
+                    <p className="text-sm text-muted-foreground">{group.guests[0]?.phone || "—"}</p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="min-h-11 w-full sm:w-auto"
+                    disabled={merge.isPending || group.guests.length < 2}
+                    aria-busy={merge.isPending}
+                    onClick={() => setPendingMerge(group)}
+                  >
+                    <GitMerge aria-hidden="true" className="mr-2 h-4 w-4" />
+                    {t("crmPatientSearch.merge")}
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {search.trim().length < 2 ? (
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-4 py-14 text-center">
+              <Search aria-hidden="true" className="h-10 w-10 text-muted-foreground" />
+              <p className="text-muted-foreground">{t("crmPatientSearch.minSearchLength")}</p>
+              {/* An empty state with no action is a dead end: the administrator
+                  who could not find a patient had nowhere to go from here and
+                  ended up creating them as a "guest" from the schedule instead,
+                  retyping the name and phone. */}
+              <Button variant="outline" onClick={() => setAddPatientOpen(true)} disabled={!currentClinic?.id}>
+                <UserPlus aria-hidden="true" className="mr-2 h-4 w-4" />
+                {t("crmAddNewPatient.newPatient")}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : patients.isLoading ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" role="status" aria-label={t("common.loading")}>
+            {[1, 2, 3].map((item) => <Skeleton key={item} className="h-28" />)}
+          </div>
+        ) : patients.isError ? (
+          <Card className="border-destructive/30">
+            <CardContent className="py-10 text-center">
+              <p>{t("crmPatientSearch.loadError")}</p>
+              <Button className="mt-3 min-h-11" variant="outline" onClick={() => void patients.refetch()}>
+                {t("crmPatientSearch.retry")}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : patients.data?.length ? (
+          // Список пациентов — таблица, как в макете. Сетка карточек давала три
+          // пациента в ряд и разную высоту строк: сравнивать телефоны и типы
+          // глазом было нечем. Таблица держит колонки на месте, плотность
+          // строки (42px) приходит из примитива. data-testid и data-patient-id
+          // сохранены: по ним ищут тесты.
+          <Card className="overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("crmPatientSearch.nameColumn")}</TableHead>
+                    <TableHead>{t("crmPatientSearch.phoneColumn")}</TableHead>
+                    <TableHead className="text-right">{t("crmPatientSearch.typeColumn")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {patients.data.filter((patient) => patientTab === "all" || patient.patient_type === patientTab).map((patient) => (
+                    <TableRow
+                      key={`${patient.patient_type}:${patient.id}`}
+                      data-testid="crm-patient-result"
+                      data-patient-id={patient.id}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2.5">
+                          <div className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary/10">
+                            <UserRound className="h-4 w-4 text-primary" />
+                          </div>
+                          {patient.patient_type === "registered" ? (
+                            <Link
+                              className="min-h-11 inline-flex items-center rounded-md font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              to={`/crm/patients/${patient.id}`}
+                            >
+                              {patient.name || "—"}
+                            </Link>
+                          ) : (
+                            <span className="font-medium">{patient.name || "—"}</span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        {patient.phone || "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Badge variant={patient.patient_type === "guest" ? "muted" : "info"}>
+                          {patient.patient_type === "guest"
+                            ? t("crmPatientSearch.guest")
+                            : t("crmPatientSearch.registered")}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        ) : (
+          <Card className="border-dashed">
+            <CardContent className="py-14 text-center text-muted-foreground">
+              <UserRound className="mx-auto mb-3 h-10 w-10" />
+              {t("crmPatientSearch.notFound")}
+            </CardContent>
+          </Card>
+        )}
+
+        <AlertDialog
+          open={!!pendingMerge}
+          onOpenChange={(open) => {
+            if (!open && !merge.isPending) setPendingMerge(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("crmPatientSearch.possibleDuplicates")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingMerge
+                  ? `${pendingMerge.guests.map((guest) => guest.name).join(" · ")} — ${
+                      pendingMerge.guests[0]?.phone || "—"
+                    }`
+                  : ""}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="min-h-11" disabled={merge.isPending}>
+                {t("common.cancel")}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="min-h-11"
+                disabled={!pendingMerge || merge.isPending}
+                onClick={() => {
+                  if (!pendingMerge) return;
+                  merge.mutate(pendingMerge);
+                  setPendingMerge(null);
+                }}
+              >
+                {t("crmPatientSearch.merge")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+        <AddNewPatientDialog
           open={addPatientOpen}
-          onOpenChange={setAddPatientOpen}
+          onOpenChange={(open) => {
+            setAddPatientOpen(open);
+            if (!open) void patients.refetch();
+          }}
         />
       </div>
     </CRMLayout>

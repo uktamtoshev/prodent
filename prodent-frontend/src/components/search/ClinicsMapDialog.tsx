@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { X, Building2 } from "lucide-react";
 import L from "leaflet";
@@ -97,15 +103,15 @@ export function ClinicsMapDialog({ open, onOpenChange, clinics }: ClinicsMapDial
 
       // Add markers for clinics
       const bounds: L.LatLngTuple[] = [];
-      
+
       clinicsWithCoords.forEach((clinic) => {
         if (clinic.latitude && clinic.longitude) {
           bounds.push([clinic.latitude, clinic.longitude]);
-          
+
           const popupContent = `
             <div style="min-width: 200px; font-family: system-ui, sans-serif;">
               <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
-                ${clinic.images?.[0] 
+                ${clinic.images?.[0]
                   ? `<img src="${clinic.images[0]}" alt="${clinic.name}" style="width: 48px; height: 48px; border-radius: 8px; object-fit: cover;" />`
                   : `<div style="width: 48px; height: 48px; border-radius: 8px; background: #f3f4f6; display: flex; align-items: center; justify-content: center;">
                       <svg style="width: 24px; height: 24px; color: #9ca3af;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -115,7 +121,7 @@ export function ClinicsMapDialog({ open, onOpenChange, clinics }: ClinicsMapDial
                 }
                 <div>
                   <div style="font-weight: 600; font-size: 14px; color: #1a1a1a;">${clinic.name}</div>
-                  ${clinic.verified ? '<span style="font-size: 11px; color: #0D9488; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;">✓ Верифицирована</span>' : ''}
+                  ${clinic.verified ? `<span style="font-size: 11px; color: #0D9488; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;">✓ ${t('searchMaps.clinicVerified')}</span>` : ''}
                 </div>
               </div>
               <div style="font-size: 12px; color: #666; margin-bottom: 8px;">
@@ -124,7 +130,7 @@ export function ClinicsMapDialog({ open, onOpenChange, clinics }: ClinicsMapDial
               <div style="font-size: 12px; color: #888; margin-bottom: 8px;">
                 ${clinic.address}
               </div>
-              ${clinic.doctorCount ? `<div style="font-size: 12px; color: #666; margin-bottom: 8px;">👨‍⚕️ ${clinic.doctorCount} врачей</div>` : ''}
+              ${clinic.doctorCount ? `<div style="font-size: 12px; color: #666; margin-bottom: 8px;">👨‍⚕️ ${clinic.doctorCount} ${t('searchMaps.clinicDoctors')}</div>` : ''}
               <div style="display: flex; justify-content: flex-end; padding-top: 8px; border-top: 1px solid #eee;">
                 <a href="/clinic/${clinic.id}" style="
                   background: #0D9488;
@@ -134,13 +140,13 @@ export function ClinicsMapDialog({ open, onOpenChange, clinics }: ClinicsMapDial
                   font-size: 12px;
                   text-decoration: none;
                   font-weight: 500;
-                ">Подробнее</a>
+                ">${t('searchMaps.moreInfo')}</a>
               </div>
             </div>
           `;
 
-          const marker = L.marker([clinic.latitude, clinic.longitude], { 
-            icon: createCustomIcon(clinic.verified || false) 
+          const marker = L.marker([clinic.latitude, clinic.longitude], {
+            icon: createCustomIcon(clinic.verified || false)
           })
             .addTo(map)
             .bindPopup(popupContent, { maxWidth: 280 });
@@ -167,16 +173,19 @@ export function ClinicsMapDialog({ open, onOpenChange, clinics }: ClinicsMapDial
       }
       setIsMapReady(false);
     };
-  }, [open, clinicsWithCoords]);
+  }, [open, clinicsWithCoords, t]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl h-[85vh] p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 py-4 border-b flex-row items-center justify-between">
+      <DialogContent className="max-w-5xl h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
+        <DialogHeader className="px-6 py-4 border-b flex-row items-center justify-between shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-primary" />
             {t('clinics.onMap')} ({clinicsWithCoords.length})
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t('clinics.onMap')}: {clinicsWithCoords.length}
+          </DialogDescription>
           <Button
             variant="ghost"
             size="icon"
@@ -186,16 +195,22 @@ export function ClinicsMapDialog({ open, onOpenChange, clinics }: ClinicsMapDial
             <X className="w-4 h-4" />
           </Button>
         </DialogHeader>
-        
-        <div className="flex-1 relative">
-          <div 
-            ref={mapRef} 
+
+        <div className="relative flex-1 min-h-0">
+          <div
+            ref={mapRef}
             className="absolute inset-0"
             style={{ minHeight: '400px' }}
           />
           {!isMapReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
+            <div className="absolute inset-0 flex items-center justify-center bg-muted/50 pointer-events-none">
               <div className="text-muted-foreground">{t('common.loading')}...</div>
+            </div>
+          )}
+          {isMapReady && clinicsWithCoords.length === 0 && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[400] bg-white/95 backdrop-blur-sm border border-border rounded-lg px-4 py-2.5 shadow-md text-sm text-foreground">
+              <Building2 className="inline-block w-4 h-4 mr-1.5 text-primary align-text-bottom" />
+              {t('searchMaps.noClinicsCoords')}
             </div>
           )}
         </div>

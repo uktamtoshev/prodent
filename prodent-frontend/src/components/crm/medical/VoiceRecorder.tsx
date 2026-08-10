@@ -3,13 +3,19 @@ import { Button } from "@/components/ui/button";
 import { Mic, Square, Play, Pause, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface VoiceRecorderProps {
   patientId: string;
   onVoiceNoteAdded: (url: string) => void;
 }
 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
 export function VoiceRecorder({ patientId, onVoiceNoteAdded }: VoiceRecorderProps) {
+  const { t } = useLanguage();
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -42,7 +48,7 @@ export function VoiceRecorder({ patientId, onVoiceNoteAdded }: VoiceRecorderProp
       mediaRecorder.start();
       setIsRecording(true);
     } catch (error) {
-      toast.error("Не удалось получить доступ к микрофону");
+      toast.error(t('crmVoiceRecorder.micError'));
     }
   };
 
@@ -96,10 +102,10 @@ export function VoiceRecorder({ patientId, onVoiceNoteAdded }: VoiceRecorderProp
       const { data: urlData } = supabase.storage.from("voice-notes").getPublicUrl(fileName);
 
       onVoiceNoteAdded(urlData.publicUrl);
-      toast.success("Голосовая заметка добавлена");
+      toast.success(t('crmVoiceRecorder.noteAdded'));
       deleteRecording();
-    } catch (error: any) {
-      toast.error("Ошибка загрузки: " + error.message);
+    } catch (error: unknown) {
+      toast.error(`${t('crmVoiceRecorder.uploadError')}: ${getErrorMessage(error)}`);
     } finally {
       setUploading(false);
     }
@@ -112,17 +118,17 @@ export function VoiceRecorder({ patientId, onVoiceNoteAdded }: VoiceRecorderProp
       {!audioBlob ? (
         <div className="flex gap-2">
           {!isRecording ? (
-            <Button onClick={startRecording} variant="outline" className="border-slate-600">
+            <Button onClick={startRecording} variant="outline" className="border-border">
               <Mic className="w-4 h-4 mr-2" />
-              Записать голосовую заметку
+              {t('crmVoiceRecorder.recordNote')}
             </Button>
           ) : (
             <div className="flex items-center gap-2 w-full">
-              <div className="flex-1 flex items-center gap-2 px-4 py-2 bg-red-500/10 border border-red-500/30 rounded-lg">
-                <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                <span className="text-sm text-red-400">Идет запись...</span>
+              <div className="flex-1 flex items-center gap-2 px-4 py-2 bg-status-danger/10 border border-status-danger/30 rounded-lg">
+                <div className="w-2 h-2 bg-status-danger rounded-full animate-pulse" />
+                <span className="text-sm text-status-danger">{t('crmVoiceRecorder.recording')}</span>
               </div>
-              <Button onClick={stopRecording} variant="outline" className="border-slate-600">
+              <Button onClick={stopRecording} variant="outline" className="border-border" aria-label={a11yLabel("stop")}>
                 <Square className="w-4 h-4" />
               </Button>
             </div>
@@ -130,27 +136,27 @@ export function VoiceRecorder({ patientId, onVoiceNoteAdded }: VoiceRecorderProp
         </div>
       ) : (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 p-3 bg-slate-700/50 rounded-lg border border-slate-600">
+          <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg border border-border">
             <Button
               size="sm"
               variant="outline"
               onClick={isPlaying ? pauseAudio : playAudio}
-              className="border-slate-600"
+              className="border-border"
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </Button>
-            <span className="text-sm text-slate-400 flex-1">Голосовая заметка записана</span>
+            <span className="text-sm text-muted-foreground flex-1">{t('crmVoiceRecorder.noteRecorded')}</span>
             <Button
               size="sm"
               variant="ghost"
               onClick={deleteRecording}
-              className="text-red-400 hover:text-red-300"
-            >
+              className="text-status-danger hover:text-status-danger/80"
+             aria-label={a11yLabel("delete")}>
               <Trash2 className="w-4 h-4" />
             </Button>
           </div>
           <Button onClick={uploadRecording} disabled={uploading} className="w-full">
-            {uploading ? "Загрузка..." : "Добавить в запись"}
+            {uploading ? t('crmVoiceRecorder.uploading') : t('crmVoiceRecorder.addToRecord')}
           </Button>
         </div>
       )}

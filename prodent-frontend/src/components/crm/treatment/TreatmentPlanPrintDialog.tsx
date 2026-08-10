@@ -5,11 +5,46 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Printer, FileText, Download } from "lucide-react";
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import QRCode from "react-qr-code";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { loadTreatmentPlanPdfDependencies } from "@/lib/treatment-plan-pdf-dependencies";
+
+type TreatmentStatus = "PLANNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+
+interface TreatmentPlanPrintRow {
+  id: string;
+  title: string;
+  description: string | null;
+  status: TreatmentStatus;
+  total_cost: number | null;
+  discount_type: "PERCENT" | "FIXED";
+  discount_value: number;
+  discount_amount: number;
+  discount_comment: string | null;
+  patient_consent_confirmed_at: string | null;
+  currency: string | null;
+  approved_at: string | null;
+  created_at: string;
+  patient?: { full_name?: string | null; phone?: string | null } | null;
+  doctor?: { profiles?: { full_name?: string | null } | null } | null;
+  clinic?: { name?: string | null; address?: string | null; phone?: string | null } | null;
+}
+
+interface TreatmentPlanPrintItemRow {
+  id: string;
+  treatment_plan_id: string;
+  tooth_number: number | null;
+  description: string;
+  quantity: number | null;
+  unit_price: number;
+  total_price: number;
+  status: TreatmentStatus;
+  completed_at: string | null;
+  sort_order: number | null;
+  stage_name: string | null;
+  notes: string | null;
+}
 
 interface TreatmentPlanPrintDialogProps {
   open: boolean;
@@ -24,39 +59,47 @@ export function TreatmentPlanPrintDialog({
   planId,
   byStages = false,
 }: TreatmentPlanPrintDialogProps) {
+  const { t } = useLanguage();
   const printRef = useRef<HTMLDivElement>(null);
   const [isDownloading, setIsDownloading] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["treatment-plan-print", planId],
     queryFn: async () => {
-      const { data: plan } = await supabase
+      const { data: plan, error: planError } = await supabase
         .from("treatment_plans")
         .select(`
-          *,
-          patient:patient_id(full_name, phone),
-          doctor:doctor_id(
+          id, title, description, status, total_cost,
+          discount_type, discount_value, discount_amount, discount_comment,
+          patient_consent_confirmed_at, currency, approved_at, created_at,
+          patient:profiles!patient_id(full_name, phone),
+          doctor:doctors!doctor_id(
             id,
             profiles:user_id(full_name)
           ),
-          clinic:clinic_id(name, address, phone)
+          clinic:clinics!clinic_id(name, address, phone)
         `)
         .eq("id", planId)
         .single();
+      if (planError) throw new Error(planError.message);
 
-      const { data: items } = await supabase
+      const { data: items, error: itemsError } = await supabase
         .from("treatment_plan_items")
-        .select("*")
-        .eq("plan_id", planId)
-        .order("stage_name")
-        .order("created_at");
+        .select("id,treatment_plan_id,tooth_number,description,quantity,unit_price,total_price,status,completed_at,sort_order,stage_name,notes")
+        .eq("treatment_plan_id", planId)
+        .order("sort_order")
+        .order("id");
+      if (itemsError) throw new Error(itemsError.message);
 
-      return { plan, items: items || [] };
+      return {
+        plan: plan as TreatmentPlanPrintRow,
+        items: (items || []) as TreatmentPlanPrintItemRow[],
+      };
     },
     enabled: open && !!planId,
   });
 
-  const formatPrice = (price: number) =>
+  const formatPrice = (price: number | null | undefined) =>
     new Intl.NumberFormat("uz-UZ").format(price || 0);
 
   const printStyles = `
@@ -330,35 +373,6 @@ export function TreatmentPlanPrintDialog({
       font-weight: 700;
     }
 
-    /* ── QR & Consent ── */
-    .bottom-section {
-      display: flex;
-      gap: 24px;
-      margin-top: 28px;
-      align-items: flex-start;
-    }
-    .qr-block {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 10px;
-      padding: 16px;
-      flex: 1;
-    }
-    .qr-text-label {
-      font-size: 12px;
-      font-weight: 600;
-      color: #0f172a;
-      margin-bottom: 4px;
-    }
-    .qr-text-hint {
-      font-size: 11px;
-      color: #94a3b8;
-      line-height: 1.4;
-    }
-
     /* ── Signatures ── */
     .signatures-block {
       display: grid;
@@ -444,7 +458,6 @@ export function TreatmentPlanPrintDialog({
       .totals-block { margin-top: 12px; }
       .total-line { padding: 6px 16px; font-size: 12px; }
       .total-final { padding: 10px 16px; font-size: 15px; }
-      .qr-block { padding: 10px; }
       .signatures-block { margin-top: 24px; gap: 32px; }
       .print-footer { margin-top: 20px; }
     }
@@ -461,7 +474,7 @@ export function TreatmentPlanPrintDialog({
       <!DOCTYPE html>
       <html>
         <head>
-          <title>План лечения ${data?.plan?.plan_number || ""}</title>
+          <title></title>
           <style>${printStyles}</style>
         </head>
         <body>${printContent.innerHTML}</body>
@@ -469,6 +482,7 @@ export function TreatmentPlanPrintDialog({
     `);
 
     printWindow.document.close();
+    printWindow.document.title = `${t('crmTreatmentPrint.treatmentPlan')} ${data?.plan?.title || ""}`;
     printWindow.focus();
     setTimeout(() => {
       printWindow.print();
@@ -481,13 +495,14 @@ export function TreatmentPlanPrintDialog({
     if (!el) return;
     setIsDownloading(true);
     try {
+      const { html2canvas, JsPDF } = await loadTreatmentPlanPdfDependencies();
       const canvas = await html2canvas(el, {
         scale: 2,
         useCORS: true,
         backgroundColor: "#ffffff",
       });
       const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
+      const pdf = new JsPDF("p", "mm", "a4");
       const pageWidth = 210;
       const pageHeight = 297;
       const margin = 8;
@@ -505,7 +520,10 @@ export function TreatmentPlanPrintDialog({
         pdf.addImage(imgData, "PNG", xOffset, margin, scaledWidth, scaledHeight);
       }
 
-      const fileName = `План_лечения_${data?.plan?.plan_number || "план"}.pdf`;
+      const safeTitle = (data?.plan?.title || t('crmTreatmentPrint.planFallback'))
+        .replace(/[\\/:*?"<>|]+/g, "_")
+        .slice(0, 80);
+      const fileName = `${t('crmTreatmentPrint.fileNamePrefix')}_${safeTitle}.pdf`;
       pdf.save(fileName);
     } catch (e) {
       console.error("PDF generation error:", e);
@@ -514,46 +532,25 @@ export function TreatmentPlanPrintDialog({
     }
   };
 
-  const itemsByStage = data?.items?.reduce((acc: Record<string, any[]>, item: any) => {
-    const stage = item.stage_name || "Без этапа";
+  const formatStatus = (status: TreatmentStatus) => status.replace("_", " ");
+
+  const itemsByStage = data?.items?.reduce<Record<string, TreatmentPlanPrintItemRow[]>>((acc, item) => {
+    const stage = item.stage_name?.trim() || t('crmTreatmentForm.stagePrefix');
     if (!acc[stage]) acc[stage] = [];
     acc[stage].push(item);
     return acc;
-  }, {} as Record<string, any[]>);
+  }, {});
 
-  const publicUrl = data?.plan?.public_access_token
-    ? `${window.location.origin}/treatment-plan/${data.plan.public_access_token}`
-    : null;
-
-  const isApproved = data?.plan?.status === "approved";
-  const subtotal = data?.plan?.total_price || 0;
-  const discountValue = data?.plan?.discount_value || 0;
-  const discountType = data?.plan?.discount_type || "percent";
-  const discountAmount = discountType === "percent"
-    ? Math.round(subtotal * discountValue / 100)
-    : discountValue;
-  const finalPrice = data?.plan?.final_price || Math.max(0, subtotal - discountAmount);
-  const clinicInitial = data?.plan?.clinic?.name?.charAt(0)?.toUpperCase() || "К";
+  const isCompleted = data?.plan?.status === "COMPLETED";
+  const hasConsent = Boolean(data?.plan?.patient_consent_confirmed_at);
+  const subtotal = data?.items?.reduce((sum, item) => sum + (item.total_price || 0), 0) ?? 0;
+  const totalCost = data?.plan?.total_cost ?? subtotal;
+  const discountAmount = data?.plan?.discount_amount
+    ?? Math.max(0, subtotal - totalCost);
+  const currency = data?.plan?.currency || "UZS";
+  const clinicInitial = data?.plan?.clinic?.name?.charAt(0)?.toUpperCase() || t('crmTreatmentPrint.clinicInitial');
 
   const stageEntries = Object.entries(itemsByStage || {});
-  const hasMultipleStages = stageEntries.length > 1;
-
-  const renderTableRows = (items: any[], startIndex = 0) =>
-    items.map((item: any, idx: number) => (
-      `<tr>
-        <td class="row-num">${startIndex + idx + 1}</td>
-        <td class="tooth-col">
-          ${item.tooth_number
-            ? `<span class="tooth-badge">${item.tooth_number}</span>`
-            : `<span class="general-badge">—</span>`
-          }
-        </td>
-        <td class="service-name">${item.procedure || "—"}</td>
-        <td class="center">${item.quantity || 1}</td>
-        <td class="price-col" style="text-align:right">${formatPrice(item.price)}</td>
-        <td class="price-col" style="text-align:right">${formatPrice((item.price || 0) * (item.quantity || 1))}</td>
-      </tr>`
-    )).join("");
 
   if (isLoading) {
     return (
@@ -571,14 +568,14 @@ export function TreatmentPlanPrintDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5" />
-            Предпросмотр печати
+            {t('crmTreatmentPrint.printPreview')}
           </DialogTitle>
         </DialogHeader>
 
         {/* Print Preview */}
         <div
           ref={printRef}
-          className="bg-white text-black rounded-lg border"
+          className="bg-card text-black rounded-lg border"
           style={{ padding: "32px", minHeight: "600px", fontSize: "14px", fontFamily: "'Segoe UI', sans-serif" }}
         >
           {/* Header */}
@@ -590,20 +587,20 @@ export function TreatmentPlanPrintDialog({
               <div>
                 <div style={{ fontSize: "22px", fontWeight: 700, color: "#0f172a" }}>{data?.plan?.clinic?.name}</div>
                 <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
-                  {data?.plan?.clinic?.address}{data?.plan?.clinic?.phone && ` • Тел: ${data.plan.clinic.phone}`}
+                  {data?.plan?.clinic?.address}{data?.plan?.clinic?.phone && ` • ${t('crmTreatmentPrint.phoneLabel')}: ${data.plan.clinic.phone}`}
                 </div>
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: "13px", fontWeight: 700, color: "#0d9488", background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: "6px", padding: "4px 12px", display: "inline-block" }}>
-                {data?.plan?.plan_number}
+                {data?.plan?.title || t('crmTreatmentPrint.treatmentPlan')}
               </div>
               <div style={{ fontSize: "12px", color: "#94a3b8", marginTop: "6px" }}>
                 {data?.plan?.created_at && format(new Date(data.plan.created_at), "dd MMMM yyyy", { locale: ru })}
               </div>
               <div style={{ marginTop: "6px" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 600, padding: "3px 10px", borderRadius: "20px", background: isApproved ? "#dcfce7" : "#fef3c7", color: isApproved ? "#15803d" : "#92400e" }}>
-                  {isApproved ? "✓ Утверждён" : "● Черновик"}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", fontWeight: 600, padding: "3px 10px", borderRadius: "20px", background: isCompleted ? "#dcfce7" : "#fef3c7", color: isCompleted ? "#15803d" : "#92400e" }}>
+                  {formatStatus(data?.plan?.status || "PLANNED")}
                 </span>
               </div>
             </div>
@@ -611,22 +608,28 @@ export function TreatmentPlanPrintDialog({
 
           {/* Title */}
           <div style={{ textAlign: "center", fontSize: "16px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px", color: "#0f172a", marginBottom: "24px", padding: "12px 0", borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0" }}>
-            План лечения
+            {data?.plan?.title || t('crmTreatmentPrint.treatmentPlan')}
           </div>
+
+          {data?.plan?.description && (
+            <div style={{ margin: "-12px 0 24px", color: "#64748b", textAlign: "center", whiteSpace: "pre-wrap" }}>
+              {data.plan.description}
+            </div>
+          )}
 
           {/* Info Cards */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "28px" }}>
             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px" }}>
-              <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#94a3b8", marginBottom: "6px" }}>Пациент</div>
+              <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#94a3b8", marginBottom: "6px" }}>{t('crmTreatmentPrint.patient')}</div>
               <div style={{ fontSize: "15px", fontWeight: 600, color: "#0f172a" }}>{data?.plan?.patient?.full_name || "—"}</div>
               <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>{data?.plan?.patient?.phone || ""}</div>
             </div>
             <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px 18px" }}>
-              <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#94a3b8", marginBottom: "6px" }}>Лечащий врач</div>
+              <div style={{ fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "1px", color: "#94a3b8", marginBottom: "6px" }}>{t('crmTreatmentPrint.attendingDoctor')}</div>
               <div style={{ fontSize: "15px", fontWeight: 600, color: "#0f172a" }}>{data?.plan?.doctor?.profiles?.full_name || "—"}</div>
               <div style={{ fontSize: "12px", color: "#64748b", marginTop: "2px" }}>
                 {data?.plan?.approved_at
-                  ? `Утверждён: ${format(new Date(data.plan.approved_at), "dd.MM.yyyy", { locale: ru })}`
+                  ? `${t('crmTreatmentPrint.approvedOn')}: ${format(new Date(data.plan.approved_at), "dd.MM.yyyy", { locale: ru })}`
                   : ""}
               </div>
             </div>
@@ -634,14 +637,14 @@ export function TreatmentPlanPrintDialog({
 
           {/* Section Label */}
           <div style={{ fontSize: "13px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", color: "#0d9488", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span>Услуги и процедуры</span>
+            <span>{t('crmTreatmentPrint.servicesAndProcedures')}</span>
             <span style={{ flex: 1, height: "1px", background: "#e2e8f0" }} />
           </div>
 
           {/* Table */}
-          {byStages && hasMultipleStages ? (
-            stageEntries.map(([stage, stageItems]: [string, any[]], stageIdx) => {
-              const stageTotal = stageItems.reduce((s: number, i: any) => s + (i.price || 0) * (i.quantity || 1), 0);
+          {byStages && stageEntries.length > 0 ? (
+            stageEntries.map(([stage, stageItems], stageIdx) => {
+              const stageTotal = stageItems.reduce((sum, item) => sum + (item.total_price || 0), 0);
               return (
                 <div key={stage} style={{ marginBottom: stageIdx < stageEntries.length - 1 ? "16px" : "0" }}>
                   <table className="services-table" style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, border: "1px solid #e2e8f0", borderRadius: "10px", overflow: "hidden", marginBottom: "4px" }}>
@@ -653,15 +656,15 @@ export function TreatmentPlanPrintDialog({
                       </tr>
                       <tr>
                         <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", width: "36px" }}>№</th>
-                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", width: "60px", textAlign: "center" }}>Зуб</th>
-                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px" }}>Услуга</th>
-                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "center", width: "50px" }}>Кол.</th>
-                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "100px" }}>Цена</th>
-                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "110px" }}>Сумма</th>
+                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", width: "60px", textAlign: "center" }}>{t('crmTreatmentPrint.tooth')}</th>
+                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px" }}>{t('crmTreatmentPrint.service')}</th>
+                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "center", width: "50px" }}>{t('crmTreatmentPrint.qty')}</th>
+                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "100px" }}>{t('crmTreatmentPrint.price')}</th>
+                        <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "110px" }}>{t('crmTreatmentPrint.sum')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {stageItems.map((item: any, idx: number) => (
+                      {stageItems.map((item, idx) => (
                         <tr key={item.id || idx} style={{ background: idx % 2 === 1 ? "#f8fafc" : "white" }}>
                           <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", color: "#94a3b8", fontWeight: 500 }}>{idx + 1}</td>
                           <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "center" }}>
@@ -670,15 +673,22 @@ export function TreatmentPlanPrintDialog({
                               : <span style={{ color: "#94a3b8" }}>—</span>
                             }
                           </td>
-                          <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", fontWeight: 500 }}>{item.procedure || "—"}</td>
+                          <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", fontWeight: 500 }}>
+                            <div>{item.description || "—"}</div>
+                            {item.notes && (
+                              <div style={{ marginTop: "3px", color: "#64748b", fontSize: "11px", fontWeight: 400, whiteSpace: "pre-wrap" }}>
+                                {item.notes}
+                              </div>
+                            )}
+                          </td>
                           <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "center" }}>{item.quantity || 1}</td>
-                          <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPrice(item.price)}</td>
-                          <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{formatPrice((item.price || 0) * (item.quantity || 1))}</td>
+                          <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPrice(item.unit_price)}</td>
+                          <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{formatPrice(item.total_price)}</td>
                         </tr>
                       ))}
                       <tr>
-                        <td colSpan={5} style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: "#64748b", fontSize: "13px" }}>Итого по этапу:</td>
-                        <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: "#0f172a", fontSize: "14px", fontVariantNumeric: "tabular-nums" }}>{formatPrice(stageTotal)} UZS</td>
+                        <td colSpan={5} style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: "#64748b", fontSize: "13px" }}>{t('crmTreatmentPrint.stageTotal')}:</td>
+                        <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: "#0f172a", fontSize: "14px", fontVariantNumeric: "tabular-nums" }}>{formatPrice(stageTotal)} {currency}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -690,15 +700,15 @@ export function TreatmentPlanPrintDialog({
               <thead>
                 <tr>
                   <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", width: "36px" }}>№</th>
-                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", width: "60px", textAlign: "center" }}>Зуб</th>
-                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px" }}>Услуга</th>
-                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "center", width: "50px" }}>Кол.</th>
-                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "100px" }}>Цена</th>
-                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "110px" }}>Сумма</th>
+                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", width: "60px", textAlign: "center" }}>{t('crmTreatmentPrint.tooth')}</th>
+                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px" }}>{t('crmTreatmentPrint.service')}</th>
+                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "center", width: "50px" }}>{t('crmTreatmentPrint.qty')}</th>
+                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "100px" }}>{t('crmTreatmentPrint.price')}</th>
+                  <th style={{ background: "#0d9488", color: "white", padding: "10px 14px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", textAlign: "right", width: "110px" }}>{t('crmTreatmentPrint.sum')}</th>
                 </tr>
               </thead>
               <tbody>
-                {data?.items?.map((item: any, idx: number) => (
+                {data?.items?.map((item, idx) => (
                   <tr key={item.id || idx} style={{ background: idx % 2 === 1 ? "#f8fafc" : "white" }}>
                     <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", color: "#94a3b8", fontWeight: 500 }}>{idx + 1}</td>
                     <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "center" }}>
@@ -707,10 +717,17 @@ export function TreatmentPlanPrintDialog({
                         : <span style={{ color: "#94a3b8" }}>—</span>
                       }
                     </td>
-                    <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", fontWeight: 500 }}>{item.procedure || "—"}</td>
+                    <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", fontWeight: 500 }}>
+                      <div>{item.description || "—"}</div>
+                      {item.notes && (
+                        <div style={{ marginTop: "3px", color: "#64748b", fontSize: "11px", fontWeight: 400, whiteSpace: "pre-wrap" }}>
+                          {item.notes}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "center" }}>{item.quantity || 1}</td>
-                    <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPrice(item.price)}</td>
-                    <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{formatPrice((item.price || 0) * (item.quantity || 1))}</td>
+                    <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{formatPrice(item.unit_price)}</td>
+                    <td style={{ padding: "10px 14px", fontSize: "13px", borderBottom: "1px solid #f1f5f9", textAlign: "right", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{formatPrice(item.total_price)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -720,57 +737,54 @@ export function TreatmentPlanPrintDialog({
           {/* Totals */}
           <div style={{ marginTop: "20px", border: "1px solid #e2e8f0", borderRadius: "10px", overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 20px", fontSize: "14px", borderBottom: "1px solid #f1f5f9" }}>
-              <span style={{ color: "#64748b" }}>Сумма услуг</span>
-              <span style={{ fontWeight: 600, color: "#1e293b", fontVariantNumeric: "tabular-nums" }}>{formatPrice(subtotal)} UZS</span>
+              <span style={{ color: "#64748b" }}>{t('crmTreatmentPrint.servicesTotal')}</span>
+              <span style={{ fontWeight: 600, color: "#1e293b", fontVariantNumeric: "tabular-nums" }}>{formatPrice(subtotal)} {currency}</span>
             </div>
-            {discountValue > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 20px", fontSize: "14px", borderBottom: "1px solid #f1f5f9" }}>
-                <span style={{ color: "#64748b" }}>
-                  Скидка {discountType === "percent" ? `(${discountValue}%)` : "(фикс.)"}
+            {discountAmount > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "20px", padding: "10px 20px", fontSize: "14px", borderBottom: "1px solid #f1f5f9", color: "#15803d" }}>
+                <span>
+                  {t('crmTreatmentForm.discount')}
+                  {data?.plan?.discount_type === "PERCENT"
+                    ? ` (${formatPrice(data.plan.discount_value)}%)`
+                    : ` (${formatPrice(data?.plan?.discount_value)} ${currency})`}
+                  {data?.plan?.discount_comment && (
+                    <span style={{ display: "block", marginTop: "2px", color: "#64748b", fontSize: "11px", whiteSpace: "pre-wrap" }}>
+                      {data.plan.discount_comment}
+                    </span>
+                  )}
                 </span>
-                <span style={{ fontWeight: 600, color: "#16a34a", fontVariantNumeric: "tabular-nums" }}>−{formatPrice(discountAmount)} UZS</span>
+                <span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>−{formatPrice(discountAmount)} {currency}</span>
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 20px", background: "linear-gradient(135deg, #0d9488, #14b8a6)", color: "white", fontSize: "18px", fontWeight: 700 }}>
-              <span>К оплате</span>
-              <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatPrice(finalPrice)} UZS</span>
+              <span>{t('crmTreatmentPrint.toPayLabel')}</span>
+              <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatPrice(totalCost)} {currency}</span>
             </div>
           </div>
 
           {/* Consent */}
-          {isApproved && (
+          {hasConsent && (
             <div style={{ marginTop: "20px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "10px", padding: "12px 16px", fontSize: "12px", color: "#166534", display: "flex", alignItems: "center", gap: "8px" }}>
               <span style={{ fontSize: "16px" }}>🛡️</span>
-              <span>План лечения и стоимость услуг разъяснены и согласованы с пациентом</span>
+              <span>
+                {t('crmTreatmentPrint.consentText')}
+                {data?.plan?.patient_consent_confirmed_at && (
+                  <> · {format(new Date(data.plan.patient_consent_confirmed_at), "dd.MM.yyyy HH:mm", { locale: ru })}</>
+                )}
+              </span>
             </div>
           )}
-
-          {/* QR + Signatures */}
-          <div style={{ display: "flex", gap: "24px", marginTop: "28px", alignItems: "flex-start" }}>
-            {publicUrl && (
-              <div style={{ display: "flex", alignItems: "center", gap: "14px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "16px", flex: 1 }}>
-                <QRCode value={publicUrl} size={72} />
-                <div>
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "#0f172a", marginBottom: "4px" }}>Онлайн-версия плана</div>
-                  <div style={{ fontSize: "11px", color: "#94a3b8", lineHeight: 1.4 }}>
-                    Отсканируйте QR-код для просмотра<br />
-                    актуальной версии плана лечения
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Signatures */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "48px", marginTop: "40px", paddingTop: "20px" }}>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "28px" }}>Лечащий врач</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "28px" }}>{t('crmTreatmentPrint.attendingDoctor')}</div>
               <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "8px", fontSize: "13px", fontWeight: 500, color: "#1e293b" }}>
                 {data?.plan?.doctor?.profiles?.full_name || "___________________"}
               </div>
             </div>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "28px" }}>Пациент</div>
+              <div style={{ fontSize: "11px", color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "28px" }}>{t('crmTreatmentPrint.patient')}</div>
               <div style={{ borderTop: "1px solid #cbd5e1", paddingTop: "8px", fontSize: "13px", fontWeight: 500, color: "#1e293b" }}>
                 {data?.plan?.patient?.full_name || "___________________"}
               </div>
@@ -779,22 +793,22 @@ export function TreatmentPlanPrintDialog({
 
           {/* Footer */}
           <div style={{ marginTop: "32px", paddingTop: "12px", borderTop: "1px solid #e2e8f0", textAlign: "center", fontSize: "10px", color: "#94a3b8" }}>
-            Документ сформирован автоматически • {data?.plan?.clinic?.name} • {format(new Date(), "dd.MM.yyyy HH:mm", { locale: ru })}
+            {t('crmTreatmentPrint.autoGenerated')} • {data?.plan?.clinic?.name} • {format(new Date(), "dd.MM.yyyy HH:mm", { locale: ru })}
           </div>
         </div>
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Закрыть
+            {t('crmTreatmentPrint.close')}
           </Button>
           <Button variant="outline" onClick={handleDownloadPDF} disabled={isDownloading}>
             <Download className="w-4 h-4 mr-2" />
-            {isDownloading ? "Генерация..." : "Скачать PDF"}
+            {isDownloading ? t('crmTreatmentPrint.generating') : t('crmTreatmentPrint.downloadPdf')}
           </Button>
           <Button onClick={handlePrint}>
             <Printer className="w-4 h-4 mr-2" />
-            Печать
+            {t('crmTreatmentPrint.print')}
           </Button>
         </div>
       </DialogContent>

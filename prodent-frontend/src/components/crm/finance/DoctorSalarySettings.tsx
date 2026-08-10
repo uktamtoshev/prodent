@@ -19,12 +19,31 @@ import {
 import { Label } from "@/components/ui/label";
 import { Percent, User, Settings, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+type ProfileSummary = {
+  full_name: string | null;
+  avatar_url: string | null;
+};
+
+type StaffDoctor = {
+  id: string;
+  salary_percent: number | null;
+  cooperation_type: string | null;
+  specialty: string | null;
+  profiles: ProfileSummary | ProfileSummary[] | null;
+};
+
+const getProfile = (
+  profile: ProfileSummary | ProfileSummary[] | null | undefined,
+): ProfileSummary | null => (Array.isArray(profile) ? profile[0] ?? null : profile ?? null);
 
 export function DoctorSalarySettings() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [selectedDoctor, setSelectedDoctor] = useState<any>(null);
+  const [selectedDoctor, setSelectedDoctor] = useState<StaffDoctor | null>(null);
   const [salaryPercent, setSalaryPercent] = useState(30);
 
   // Get staff doctors
@@ -59,16 +78,16 @@ export function DoctorSalarySettings() {
       queryClient.invalidateQueries({ queryKey: ["staff-doctors-settings"] });
       queryClient.invalidateQueries({ queryKey: ["staff-doctor-report"] });
       queryClient.invalidateQueries({ queryKey: ["clinic-staff-doctors"] });
-      toast.success("Процент обновлён");
+      toast.success(t('crmDoctorSalary.pctUpdated'));
       setEditDialogOpen(false);
       setSelectedDoctor(null);
     },
     onError: () => {
-      toast.error("Ошибка обновления");
+      toast.error(t('crmDoctorSalary.updateError'));
     },
   });
 
-  const openEditDialog = (doctor: any) => {
+  const openEditDialog = (doctor: StaffDoctor) => {
     setSelectedDoctor(doctor);
     setSalaryPercent(doctor.salary_percent || 30);
     setEditDialogOpen(true);
@@ -82,29 +101,31 @@ export function DoctorSalarySettings() {
     <div className="space-y-4">
       <Card className="bg-card/80 border-border/50">
         <CardHeader>
-          <CardTitle className="text-foreground flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <Percent className="w-5 h-5" />
-            Настройка процентов штатных врачей
+            {t('crmDoctorSalary.pctSettingsTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {staffDoctors && staffDoctors.length > 0 ? (
             <div className="space-y-3">
-              {staffDoctors.map((doctor) => (
+              {(staffDoctors as StaffDoctor[]).map((doctor) => {
+                const profile = getProfile(doctor.profiles);
+                return (
                 <div
                   key={doctor.id}
                   className="flex items-center justify-between p-4 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <Avatar className="h-10 w-10">
-                      <AvatarImage src={(doctor.profiles as any)?.avatar_url || ""} />
+                      <AvatarImage src={profile?.avatar_url || ""} />
                       <AvatarFallback>
                         <User className="h-5 w-5" />
                       </AvatarFallback>
                     </Avatar>
                     <div>
                       <p className="font-medium text-foreground">
-                        {(doctor.profiles as any)?.full_name || "Врач"}
+                        {profile?.full_name || t('crmDoctorSalary.doctorFallback')}
                       </p>
                       <p className="text-sm text-muted-foreground">{doctor.specialty}</p>
                     </div>
@@ -126,12 +147,13 @@ export function DoctorSalarySettings() {
                     </Button>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
               <User className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Штатных врачей нет</p>
+              <p>{t('crmDoctorSalary.noStaffDoctors')}</p>
             </div>
           )}
         </CardContent>
@@ -141,21 +163,21 @@ export function DoctorSalarySettings() {
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Настройка процента врача</DialogTitle>
+            <DialogTitle>{t('crmDoctorSalary.pctDialogTitle')}</DialogTitle>
           </DialogHeader>
 
           {selectedDoctor && (
             <div className="space-y-6">
               <div className="flex items-center gap-3 p-4 bg-muted/30 rounded-lg">
                 <Avatar className="h-12 w-12">
-                  <AvatarImage src={(selectedDoctor.profiles as any)?.avatar_url || ""} />
+                  <AvatarImage src={getProfile(selectedDoctor.profiles)?.avatar_url || ""} />
                   <AvatarFallback>
                     <User className="h-6 w-6" />
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium text-foreground">
-                    {(selectedDoctor.profiles as any)?.full_name || "Врач"}
+                    {getProfile(selectedDoctor.profiles)?.full_name || t('crmDoctorSalary.doctorFallback')}
                   </p>
                   <p className="text-sm text-muted-foreground">{selectedDoctor.specialty}</p>
                 </div>
@@ -163,10 +185,10 @@ export function DoctorSalarySettings() {
 
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label>Процент от услуг</Label>
+                  <Label>{t('crmDoctorSalary.pctOfServices')}</Label>
                   <span className="text-2xl font-bold text-primary">{salaryPercent}%</span>
                 </div>
-                
+
                 <Slider
                   value={[salaryPercent]}
                   onValueChange={(v) => setSalaryPercent(v[0])}
@@ -198,17 +220,17 @@ export function DoctorSalarySettings() {
               </div>
 
               <div className="p-4 bg-muted/30 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-2">Пример расчёта:</p>
+                <p className="text-sm text-muted-foreground mb-2">{t('crmDoctorSalary.exampleCalc')}:</p>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-muted-foreground">Услуга: 500 000 UZS</p>
+                    <p className="text-muted-foreground">{t('crmDoctorSalary.service500')}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-amber-400">
-                      Врач: {(500000 * salaryPercent / 100).toLocaleString()} UZS
+                    <p className="text-status-warning">
+                      {t('crmDoctorSalary.doctorEarns')}: {(500000 * salaryPercent / 100).toLocaleString()} UZS
                     </p>
-                    <p className="text-emerald-400">
-                      Клиника: {(500000 * (100 - salaryPercent) / 100).toLocaleString()} UZS
+                    <p className="text-status-success">
+                      {t('crmDoctorSalary.clinicEarns')}: {(500000 * (100 - salaryPercent) / 100).toLocaleString()} UZS
                     </p>
                   </div>
                 </div>
@@ -218,12 +240,13 @@ export function DoctorSalarySettings() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Отмена
+              {t('crmDoctorSalary.cancel')}
             </Button>
             <Button
               onClick={() =>
+                selectedDoctor &&
                 updatePercentMutation.mutate({
-                  doctorId: selectedDoctor?.id,
+                  doctorId: selectedDoctor.id,
                   percent: salaryPercent,
                 })
               }
@@ -234,7 +257,7 @@ export function DoctorSalarySettings() {
               ) : (
                 <Save className="w-4 h-4 mr-2" />
               )}
-              Сохранить
+              {t('crmDoctorSalary.save')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,21 +1,22 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useClinic } from "@/contexts/ClinicContext";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ListChecks, Check, Plus } from "lucide-react";
+import { Loader2, ListChecks, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-
-const DEFAULT_SERVICES = [
-  { category: "Диагностика", services: ["Первичный осмотр", "Рентгенография", "КТ (КЛКТ)", "Панорамный снимок"] },
-  { category: "Терапия", services: ["Лечение кариеса", "Лечение пульпита", "Пломбирование", "Чистка каналов"] },
-  { category: "Хирургия", services: ["Удаление зуба простое", "Удаление зуба сложное", "Удаление зуба мудрости", "Имплантация"] },
-  { category: "Ортодонтия", services: ["Брекеты металлические", "Брекеты керамические", "Элайнеры", "Ретейнеры"] },
-  { category: "Гигиена", services: ["Профессиональная чистка", "Air Flow", "Фторирование", "Отбеливание"] },
-  { category: "Протезирование", services: ["Коронка металлокерамика", "Коронка циркониевая", "Виниры", "Мост"] },
-];
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { useModulePermissions } from "@/hooks/useModulePermissions";
+import {
+  bulkCreateClinicServices,
+  invalidateClinicServiceQueries,
+} from "@/lib/clinic-service-management-api";
+import {
+  buildOnboardingServiceInputs,
+  localizeOnboardingServiceCatalog,
+} from "@/lib/onboarding-service-catalog";
 
 interface StepPriceListProps {
   onNext: () => void;
@@ -24,10 +25,15 @@ interface StepPriceListProps {
 }
 
 export function StepPriceList({ onNext, onBack, onSkip }: StepPriceListProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { canEdit } = useModulePermissions();
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const defaultServices = useMemo(() => localizeOnboardingServiceCatalog(t), [t]);
 
   const toggleService = (service: string) => {
     const next = new Set(selected);
@@ -38,7 +44,7 @@ export function StepPriceList({ onNext, onBack, onSkip }: StepPriceListProps) {
 
   const selectAll = () => {
     const all = new Set<string>();
-    DEFAULT_SERVICES.forEach((cat) => cat.services.forEach((s) => all.add(s)));
+    defaultServices.forEach((cat) => cat.services.forEach((service) => all.add(service.nameRu)));
     setSelected(all);
   };
 
@@ -49,27 +55,18 @@ export function StepPriceList({ onNext, onBack, onSkip }: StepPriceListProps) {
     }
     setLoading(true);
     try {
+      if (!canEdit("services")) throw new Error(t('crm.accessDenied'));
       if (!currentClinic?.id) throw new Error("No clinic");
 
-      const services = Array.from(selected).map((name) => {
-        const category = DEFAULT_SERVICES.find((c) => c.services.includes(name))?.category || "Другое";
-        return {
-          name,
-          category,
-          clinic_id: currentClinic.id,
-          price: 0,
-          currency: "сум",
-          is_active: true,
-        };
-      });
+      const services = buildOnboardingServiceInputs(selected);
+      const inserted = (await bulkCreateClinicServices(currentClinic.id, services)).length;
+      await invalidateClinicServiceQueries(queryClient);
 
-      const { error } = await supabase.from("services").insert(services);
-      if (error) throw error;
-
-      toast({ title: `${selected.size} услуг добавлено ✓` });
+      toast({ title: `${inserted} ${t('crmStepPriceList.servicesAdded')}` });
       onNext();
-    } catch {
-      toast({ title: "Ошибка добавления услуг", variant: "destructive" });
+    } catch (e) {
+      console.error("StepPriceList save error:", e);
+      toast({ title: t('crmStepPriceList.addError'), variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -81,28 +78,28 @@ export function StepPriceList({ onNext, onBack, onSkip }: StepPriceListProps) {
         <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
           <ListChecks className="w-7 h-7 text-primary" />
         </div>
-        <CardTitle className="text-xl">Настройте прайс-лист</CardTitle>
+        <CardTitle className="text-xl">{t('crmStepPriceList.configurePriceList')}</CardTitle>
         <CardDescription>
-          Выберите услуги для быстрого старта. Цены можно настроить позже.
+          {t('crmStepPriceList.selectStartServices')}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex justify-between items-center">
-          <Badge variant="outline">{selected.size} выбрано</Badge>
-          <Button variant="ghost" size="sm" onClick={selectAll}>Выбрать все</Button>
+          <Badge variant="outline">{selected.size} {t('crmStepPriceList.selectedCount')}</Badge>
+          <Button variant="ghost" size="sm" onClick={selectAll}>{t('crmStepPriceList.selectAll')}</Button>
         </div>
 
         <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
-          {DEFAULT_SERVICES.map((cat) => (
-            <div key={cat.category}>
-              <h4 className="text-sm font-medium text-foreground mb-2">{cat.category}</h4>
+          {defaultServices.map((cat) => (
+            <div key={cat.categoryRu}>
+              <h4 className="text-sm font-medium text-foreground mb-2">{cat.label}</h4>
               <div className="flex flex-wrap gap-2">
                 {cat.services.map((service) => {
-                  const isSelected = selected.has(service);
+                  const isSelected = selected.has(service.nameRu);
                   return (
                     <button
-                      key={service}
-                      onClick={() => toggleService(service)}
+                      key={service.nameRu}
+                      onClick={() => toggleService(service.nameRu)}
                       className={cn(
                         "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm border transition-all",
                         isSelected
@@ -111,7 +108,7 @@ export function StepPriceList({ onNext, onBack, onSkip }: StepPriceListProps) {
                       )}
                     >
                       {isSelected && <Check className="w-3.5 h-3.5" />}
-                      {service}
+                      {service.label}
                     </button>
                   );
                 })}
@@ -121,11 +118,11 @@ export function StepPriceList({ onNext, onBack, onSkip }: StepPriceListProps) {
         </div>
 
         <div className="flex gap-2 pt-2">
-          <Button variant="outline" onClick={onBack} className="flex-1">Назад</Button>
-          <Button variant="ghost" onClick={onSkip} className="flex-1">Пропустить</Button>
+          <Button variant="outline" onClick={onBack} className="flex-1">{t('crmStepPriceList.back')}</Button>
+          <Button variant="ghost" onClick={onSkip} className="flex-1">{t('crmStepPriceList.skip')}</Button>
           <Button onClick={handleSave} className="flex-1" disabled={loading}>
             {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Добавить ({selected.size})
+            {t('crmStepPriceList.addCount')} ({selected.size})
           </Button>
         </div>
       </CardContent>

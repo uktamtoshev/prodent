@@ -8,6 +8,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { Search, Building2, MapPin, Loader2, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  cancelDoctorClinicRequest,
+  createDoctorClinicRequest,
+  hasPendingDoctorClinicRequest,
+  normalizeDoctorClinicRequestStatus,
+} from '@/lib/doctor-clinic-requests-api';
 
 interface JoinClinicDialogProps {
   open: boolean;
@@ -16,6 +23,7 @@ interface JoinClinicDialogProps {
 }
 
 export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDialogProps) {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [selectedClinic, setSelectedClinic] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -30,11 +38,11 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
         .select('id, name, address, city, phone')
         .eq('verified', true)
         .order('name');
-      
+
       if (search) {
         query = query.or(`name.ilike.%${search}%,city.ilike.%${search}%`);
       }
-      
+
       const { data, error } = await query.limit(10);
       if (error) throw error;
       return data;
@@ -53,7 +61,7 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
           clinic:clinics(name, city)
         `)
         .eq('doctor_id', doctorId);
-      
+
       if (error) throw error;
       return data;
     },
@@ -62,27 +70,17 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
 
   const sendRequestMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedClinic) throw new Error('Выберите клинику');
-      
-      const { error } = await supabase
-        .from('doctor_clinic_requests')
-        .insert({
-          doctor_id: doctorId,
-          clinic_id: selectedClinic,
-          request_type: 'doctor_to_clinic',
-          message: message || null,
-          status: 'pending',
-        });
-      
-      if (error) {
-        if (error.code === '23505') {
-          throw new Error('Вы уже отправили запрос в эту клинику');
-        }
-        throw error;
-      }
+      if (!selectedClinic) throw new Error(t('doctorJoinClinic.pickClinic'));
+
+      await createDoctorClinicRequest({
+        doctorId,
+        clinicId: selectedClinic,
+        requestType: 'doctor_to_clinic',
+        message: message || null,
+      });
     },
     onSuccess: () => {
-      toast.success('Запрос отправлен');
+      toast.success(t('doctorJoinClinic.requestSentToast'));
       queryClient.invalidateQueries({ queryKey: ['doctor-clinic-requests'] });
       setSelectedClinic(null);
       setMessage('');
@@ -93,54 +91,47 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
   });
 
   const cancelRequestMutation = useMutation({
-    mutationFn: async (requestId: string) => {
-      const { error } = await supabase
-        .from('doctor_clinic_requests')
-        .delete()
-        .eq('id', requestId);
-      
-      if (error) throw error;
-    },
+    mutationFn: cancelDoctorClinicRequest,
     onSuccess: () => {
-      toast.success('Запрос отменён');
+      toast.success(t('doctorJoinClinic.requestCancelled'));
       queryClient.invalidateQueries({ queryKey: ['doctor-clinic-requests'] });
     },
     onError: () => {
-      toast.error('Ошибка при отмене запроса');
+      toast.error(t('doctorJoinClinic.cancelError'));
     },
   });
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch (normalizeDoctorClinicRequestStatus(status)) {
       case 'pending':
-        return <Badge variant="outline" className="text-warning-amber border-warning-amber"><Clock className="w-3 h-3 mr-1" />Ожидает</Badge>;
+        return <Badge variant="outline" className="text-status-warning border-status-warning"><Clock className="w-3 h-3 mr-1" />{t('doctorJoinClinic.pending')}</Badge>;
       case 'approved':
-        return <Badge variant="outline" className="text-green-500 border-green-500"><CheckCircle className="w-3 h-3 mr-1" />Одобрено</Badge>;
+        return <Badge variant="outline" className="text-status-success border-status-success"><CheckCircle className="w-3 h-3 mr-1" />{t('doctorJoinClinic.approvedStatus')}</Badge>;
       case 'rejected':
-        return <Badge variant="outline" className="text-destructive border-destructive"><XCircle className="w-3 h-3 mr-1" />Отклонено</Badge>;
+        return <Badge variant="outline" className="text-destructive border-destructive"><XCircle className="w-3 h-3 mr-1" />{t('doctorJoinClinic.rejectedStatus')}</Badge>;
       default:
         return null;
     }
   };
 
   const hasRequestForClinic = (clinicId: string) => {
-    return existingRequests?.some(r => r.clinic_id === clinicId);
+    return hasPendingDoctorClinicRequest(existingRequests, clinicId);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Присоединиться к клинике</DialogTitle>
+          <DialogTitle>{t('doctorJoinClinic.joinClinic')}</DialogTitle>
           <DialogDescription>
-            Отправьте запрос на присоединение к клинике. Администратор клиники рассмотрит вашу заявку.
+            {t('doctorJoinClinic.joinDesc')}
           </DialogDescription>
         </DialogHeader>
 
         {/* Existing requests */}
         {existingRequests && existingRequests.length > 0 && (
           <div className="space-y-2 mb-4">
-            <h4 className="font-medium text-sm text-muted-foreground">Ваши запросы:</h4>
+            <h4 className="font-medium text-sm text-muted-foreground">{t('doctorJoinClinic.yourRequests')}</h4>
             <div className="space-y-2">
               {existingRequests.map((request) => (
                 <div key={request.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
@@ -148,19 +139,19 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
                     <p className="font-medium">{request.clinic?.name}</p>
                     <p className="text-sm text-muted-foreground">{request.clinic?.city}</p>
                     {request.rejection_reason && (
-                      <p className="text-sm text-destructive mt-1">Причина: {request.rejection_reason}</p>
+                      <p className="text-sm text-destructive mt-1">{t('doctorJoinClinic.reasonLabel')}: {request.rejection_reason}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
                     {getStatusBadge(request.status)}
-                    {request.status === 'pending' && (
+                    {normalizeDoctorClinicRequestStatus(request.status) === 'pending' && (
                       <Button
                         size="sm"
                         variant="ghost"
                         onClick={() => cancelRequestMutation.mutate(request.id)}
                         disabled={cancelRequestMutation.isPending}
                       >
-                        Отменить
+                        {t('doctorJoinClinic.cancel')}
                       </Button>
                     )}
                   </div>
@@ -175,7 +166,7 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Поиск клиники по названию или городу..."
+              placeholder={t('doctorJoinClinic.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10"
@@ -212,14 +203,14 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
                         </p>
                       </div>
                       {hasRequest && (
-                        <Badge variant="secondary" className="text-xs">Запрос отправлен</Badge>
+                        <Badge variant="secondary" className="text-xs">{t('doctorJoinClinic.requestSent')}</Badge>
                       )}
                     </div>
                   </div>
                 );
               })}
               {clinics?.length === 0 && (
-                <p className="text-center text-muted-foreground py-4">Клиники не найдены</p>
+                <p className="text-center text-muted-foreground py-4">{t('doctorJoinClinic.noClinicsFound')}</p>
               )}
             </div>
           )}
@@ -227,7 +218,7 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
           {selectedClinic && (
             <div className="space-y-3 pt-2 border-t">
               <Textarea
-                placeholder="Сообщение для администратора клиники (необязательно)"
+                placeholder={t('doctorJoinClinic.messagePlaceholder')}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={3}
@@ -240,7 +231,7 @@ export function JoinClinicDialog({ open, onOpenChange, doctorId }: JoinClinicDia
                 {sendRequestMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : null}
-                Отправить запрос
+                {t('doctorJoinClinic.sendRequest')}
               </Button>
             </div>
           )}

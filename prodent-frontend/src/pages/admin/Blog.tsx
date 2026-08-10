@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Trash2, Eye, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, ExternalLink } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -27,13 +27,34 @@ import {
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { Input } from "@/components/ui/input";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+interface BlogArticle {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  content: string | null;
+  cover_url: string | null;
+  is_published: boolean | null;
+  seo_title: string | null;
+  seo_description: string | null;
+  tags: string[] | null;
+  language?: string | null;
+  created_at?: string | null;
+}
 
 export default function Blog() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingArticle, setEditingArticle] = useState<any>(null);
+  const [editingArticle, setEditingArticle] = useState<BlogArticle | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const { t, language } = useLanguage();
+  const dateLocale =
+    ({ ru: "ru-RU", uz: "uz-UZ", uz_cyrl: "uz-UZ", kz: "kk-KZ", kg: "ky-KG", tj: "tg-TJ" } as Record<string, string>)[
+      language
+    ] || "ru-RU";
 
   const { data: posts, isLoading } = useQuery({
     queryKey: ["blog-posts"],
@@ -53,15 +74,15 @@ export default function Blog() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["blog-posts"] });
-      toast.success("Статья удалена");
+      toast.success(t("adminBlog.deleted"));
       setDeleteId(null);
     },
     onError: (error) => {
-      toast.error("Ошибка: " + error.message);
+      toast.error(t("adminArticleDialog.errorPrefix") + error.message);
     },
   });
 
-  const handleEdit = (article: any) => {
+  const handleEdit = (article: BlogArticle) => {
     setEditingArticle(article);
     setDialogOpen(true);
   };
@@ -77,14 +98,19 @@ export default function Blog() {
       post.slug.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const subtitle = t("adminBlog.subtitleCount").replace(
+    "{count}",
+    String(posts?.length || 0)
+  );
+
   return (
     <AdminLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-white">Блог и статьи</h1>
-            <p className="text-slate-400 mt-2">
-              Управление контентом блога ({posts?.length || 0} статей)
+            <h1 className="text-3xl font-bold text-foreground">{t("adminBlog.title")}</h1>
+            <p className="text-muted-foreground mt-2">
+              {subtitle}
             </p>
           </div>
           <Button
@@ -92,69 +118,69 @@ export default function Blog() {
             className="gap-2 bg-[#00C6BB] hover:bg-[#00C6BB]/90"
           >
             <Plus className="h-4 w-4" />
-            Создать статью
+            {t("adminBlog.createBtn")}
           </Button>
         </div>
 
         <div className="flex gap-4">
           <Input
-            placeholder="Поиск по заголовку или slug..."
+            placeholder={t("adminBlog.searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="max-w-md bg-slate-900 border-slate-700 text-white placeholder:text-slate-500"
+            className="max-w-md bg-card border-border text-foreground placeholder:text-muted-foreground"
           />
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
+        <div className="bg-card border border-border rounded-lg overflow-hidden">
           <Table>
             <TableHeader>
-              <TableRow className="border-slate-800 hover:bg-slate-800/50">
-                <TableHead className="text-slate-400">Заголовок</TableHead>
-                <TableHead className="text-slate-400">Slug</TableHead>
-                <TableHead className="text-slate-400">Статус</TableHead>
-                <TableHead className="text-slate-400">Дата</TableHead>
-                <TableHead className="text-slate-400 text-right">Действия</TableHead>
+              <TableRow className="border-border hover:bg-accent/50">
+                <TableHead className="text-muted-foreground">{t("adminBlog.colTitle")}</TableHead>
+                <TableHead className="text-muted-foreground">{t("adminBlog.colSlug")}</TableHead>
+                <TableHead className="text-muted-foreground">{t("adminBlog.colStatus")}</TableHead>
+                <TableHead className="text-muted-foreground">{t("adminBlog.colDate")}</TableHead>
+                <TableHead className="text-muted-foreground text-right">{t("adminBlog.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-slate-400 py-8">
-                    Загрузка...
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    {t("admin.loading")}
                   </TableCell>
                 </TableRow>
               ) : filteredPosts?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-slate-400 py-8">
-                    Статьи не найдены
+                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    {t("adminBlog.notFound")}
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredPosts?.map((post) => (
                   <TableRow
                     key={post.id}
-                    className="border-slate-800 hover:bg-slate-800/50"
+                    className="border-border hover:bg-accent/50"
                   >
-                    <TableCell className="text-white font-medium max-w-[300px] truncate">
+                    <TableCell className="text-foreground font-medium max-w-[300px] truncate">
                       {post.title}
                     </TableCell>
-                    <TableCell className="text-slate-300 font-mono text-sm max-w-[200px] truncate">
+                    <TableCell className="text-muted-foreground font-mono text-sm max-w-[200px] truncate">
                       {post.slug}
                     </TableCell>
                     <TableCell>
                       <Badge
-                        variant={post.published ? "default" : "secondary"}
+                        variant={post.is_published ? "default" : "secondary"}
                         className={
-                          post.published
+                          post.is_published
                             ? "bg-green-500/20 text-green-400 border-green-500/30"
                             : ""
                         }
                       >
-                        {post.published ? "Опубликовано" : "Черновик"}
+                        {post.is_published ? t("adminBlog.statusPublished") : t("adminBlog.statusDraft")}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-slate-300">
-                      {new Date(post.created_at).toLocaleDateString("ru-RU")}
+                    <TableCell className="text-muted-foreground">
+                      {new Date(post.created_at).toLocaleDateString(dateLocale)}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -162,7 +188,7 @@ export default function Blog() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-slate-400 hover:text-white"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground"
                           >
                             <ExternalLink className="h-4 w-4" />
                           </Button>
@@ -170,7 +196,7 @@ export default function Blog() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-slate-400 hover:text-white"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
                           onClick={() => handleEdit(post)}
                         >
                           <Pencil className="h-4 w-4" />
@@ -178,7 +204,7 @@ export default function Blog() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-slate-400 hover:text-red-400"
+                          className="h-8 w-8 text-muted-foreground hover:text-red-400"
                           onClick={() => setDeleteId(post.id)}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -202,18 +228,18 @@ export default function Blog() {
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить статью?</AlertDialogTitle>
+            <AlertDialogTitle>{t("adminBlog.deleteConfirm")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить. Статья будет удалена навсегда.
+              {t("adminBlog.deleteDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t("admin.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deleteId && deleteMutation.mutate(deleteId)}
               className="bg-red-500 hover:bg-red-600"
             >
-              Удалить
+              {t("admin.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

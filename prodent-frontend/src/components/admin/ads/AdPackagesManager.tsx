@@ -1,6 +1,29 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+
+// REST helper for the new ad-flow endpoints (POST/PATCH/DELETE require admin JWT).
+const ADS_API_BASE = '/api/v1/ads';
+const TOKEN_KEY = 'prodent_access_token';
+function authHeaders(): Record<string, string> {
+  const token = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+}
+async function adsFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${ADS_API_BASE}${path}`, {
+    ...init,
+    headers: { ...authHeaders(), ...(init.headers as Record<string, string> | undefined) },
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const body = await res.json(); msg = body?.message ?? body?.error ?? msg; } catch { /* */ }
+    throw new Error(msg);
+  }
+  if (res.status === 204) return undefined as unknown as T;
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : (undefined as unknown as T);
+}
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +36,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { Settings, Save, Package, Clock, DollarSign, Users, Building2, Plus, ChevronDown } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface AdPackage {
   id: string;
@@ -55,6 +79,7 @@ const defaultNewPackage: NewPackageForm = {
 
 export function AdPackagesManager() {
   const queryClient = useQueryClient();
+  const { t } = useLanguage();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Partial<AdPackage>>({});
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -64,67 +89,63 @@ export function AdPackagesManager() {
   const { data: packages, isLoading } = useQuery({
     queryKey: ['ad-packages-admin'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('ad_packages')
-        .select('*')
-        .order('target_type', { ascending: true })
-        .order('price', { ascending: true });
-      
-      if (error) throw error;
-      return data as AdPackage[];
+      // Admin view: get the FULL catalogue including inactive packages.
+      const data = await adsFetch<AdPackage[]>('/packages');
+      // Order by target_type then price to match the previous UI order.
+      return [...data].sort((a, b) => {
+        if (a.target_type !== b.target_type) return a.target_type < b.target_type ? -1 : 1;
+        return a.price - b.price;
+      });
     }
   });
 
   const updatePackage = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<AdPackage> }) => {
-      const { error } = await supabase
-        .from('ad_packages')
-        .update(updates)
-        .eq('id', id);
-      
-      if (error) throw error;
+      await adsFetch(`/packages/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(updates),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ad-packages-admin'] });
       queryClient.invalidateQueries({ queryKey: ['ad-packages'] });
-      toast.success('Пакет обновлён');
+      toast.success(t('adminAdPackages.packageUpdated'));
       setEditingId(null);
       setEditValues({});
     },
     onError: () => {
-      toast.error('Ошибка при обновлении пакета');
+      toast.error(t('adminAdPackages.updateError'));
     }
   });
 
   const createPackage = useMutation({
     mutationFn: async (pkg: NewPackageForm) => {
-      const { error } = await supabase
-        .from('ad_packages')
-        .insert({
+      await adsFetch('/packages', {
+        method: 'POST',
+        body: JSON.stringify({
           name: pkg.name,
           name_uz: pkg.name_uz || null,
-          name_en: pkg.name_en || null,
+          name_ru: pkg.name,
           description: pkg.description || null,
           package_type: pkg.package_type,
           target_type: pkg.target_type,
           price: pkg.price,
           duration_days: pkg.duration_days,
-          max_slots: pkg.max_slots,
+          max_slots: pkg.max_slots ?? 1,
           currency: 'UZS',
-          is_active: true
-        });
-      
-      if (error) throw error;
+          is_active: true,
+        }),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ad-packages-admin'] });
       queryClient.invalidateQueries({ queryKey: ['ad-packages'] });
-      toast.success('Пакет создан');
+      toast.success(t('adminAdPackages.packageCreated'));
       setIsCreateOpen(false);
       setNewPackage(defaultNewPackage);
     },
     onError: () => {
-      toast.error('Ошибка при создании пакета');
+      toast.error(t('adminAdPackages.createError'));
     }
   });
 
@@ -148,15 +169,15 @@ export function AdPackagesManager() {
   };
 
   const handleToggleActive = (pkg: AdPackage) => {
-    updatePackage.mutate({ 
-      id: pkg.id, 
-      updates: { is_active: !pkg.is_active } 
+    updatePackage.mutate({
+      id: pkg.id,
+      updates: { is_active: !pkg.is_active }
     });
   };
 
   const handleCreatePackage = () => {
     if (!newPackage.name.trim()) {
-      toast.error('Введите название пакета');
+      toast.error(t('adminAdPackages.enterName'));
       return;
     }
     createPackage.mutate(newPackage);
@@ -168,10 +189,10 @@ export function AdPackagesManager() {
 
   const getPackageTypeLabel = (type: string) => {
     switch (type) {
-      case 'top_day': return 'Топ дня';
-      case 'top_week': return 'Топ недели';
-      case 'top_month': return 'Топ месяца';
-      case 'banner': return 'Баннер';
+      case 'top_day': return t('adminAdPackages.pkgTopDay');
+      case 'top_week': return t('adminAdPackages.pkgTopWeek');
+      case 'top_month': return t('adminAdPackages.pkgTopMonth');
+      case 'banner': return t('adminAdPackages.pkgBanner');
       default: return type;
     }
   };
@@ -201,26 +222,26 @@ export function AdPackagesManager() {
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2 text-foreground">
                 <Settings className="h-5 w-5 text-primary" />
-                Настройка рекламных пакетов
+                {t('adminAdPackages.title')}
                 <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
               </CardTitle>
-              
+
               <div onClick={(e) => e.stopPropagation()}>
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                   <DialogTrigger asChild>
                     <Button size="sm">
                       <Plus className="h-4 w-4 mr-1" />
-                      Новый пакет
+                      {t('adminAdPackages.btnNew')}
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-md">
                     <DialogHeader>
-                      <DialogTitle>Создать рекламный пакет</DialogTitle>
+                      <DialogTitle>{t('adminAdPackages.dialogTitle')}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 pt-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Тип цели</Label>
+                          <Label>{t('adminAdPackages.labelTargetType')}</Label>
                           <Select
                             value={newPackage.target_type}
                             onValueChange={(v) => setNewPackage({ ...newPackage, target_type: v })}
@@ -229,13 +250,13 @@ export function AdPackagesManager() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="doctor">Врач</SelectItem>
-                              <SelectItem value="clinic">Клиника</SelectItem>
+                              <SelectItem value="doctor">{t('adminAdPackages.targetDoctor')}</SelectItem>
+                              <SelectItem value="clinic">{t('adminAdPackages.targetClinic')}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                         <div className="space-y-2">
-                          <Label>Тип пакета</Label>
+                          <Label>{t('adminAdPackages.labelPackageType')}</Label>
                           <Select
                             value={newPackage.package_type}
                             onValueChange={(v) => setNewPackage({ ...newPackage, package_type: v })}
@@ -244,56 +265,56 @@ export function AdPackagesManager() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="top_day">Топ дня</SelectItem>
-                              <SelectItem value="top_week">Топ недели</SelectItem>
-                              <SelectItem value="top_month">Топ месяца</SelectItem>
-                              <SelectItem value="banner">Баннер</SelectItem>
+                              <SelectItem value="top_day">{t('adminAdPackages.pkgTopDay')}</SelectItem>
+                              <SelectItem value="top_week">{t('adminAdPackages.pkgTopWeek')}</SelectItem>
+                              <SelectItem value="top_month">{t('adminAdPackages.pkgTopMonth')}</SelectItem>
+                              <SelectItem value="banner">{t('adminAdPackages.pkgBanner')}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Название (RU) *</Label>
+                        <Label>{t('adminAdPackages.labelNameRu')} *</Label>
                         <Input
                           value={newPackage.name}
                           onChange={(e) => setNewPackage({ ...newPackage, name: e.target.value })}
-                          placeholder="Топ врача на день"
+                          placeholder={t('adminAdPackages.placeholderNameRu')}
                         />
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Название (UZ)</Label>
+                          <Label>{t('adminAdPackages.labelNameUz')}</Label>
                           <Input
                             value={newPackage.name_uz}
                             onChange={(e) => setNewPackage({ ...newPackage, name_uz: e.target.value })}
-                            placeholder="Kunlik top shifokor"
+                            placeholder={t('adminAdPackages.placeholderNameUz')}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Название (EN)</Label>
+                          <Label>{t('adminAdPackages.labelNameEn')}</Label>
                           <Input
                             value={newPackage.name_en}
                             onChange={(e) => setNewPackage({ ...newPackage, name_en: e.target.value })}
-                            placeholder="Doctor of the Day"
+                            placeholder={t('adminAdPackages.placeholderNameEn')}
                           />
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Описание</Label>
+                        <Label>{t('adminAdPackages.labelDescription')}</Label>
                         <Textarea
                           value={newPackage.description}
                           onChange={(e) => setNewPackage({ ...newPackage, description: e.target.value })}
-                          placeholder="Описание пакета..."
+                          placeholder={t('adminAdPackages.placeholderDescription')}
                           rows={2}
                         />
                       </div>
 
                       <div className="grid grid-cols-3 gap-4">
                         <div className="space-y-2">
-                          <Label>Цена (UZS)</Label>
+                          <Label>{t('adminAdPackages.labelPrice')}</Label>
                           <Input
                             type="number"
                             value={newPackage.price}
@@ -301,7 +322,7 @@ export function AdPackagesManager() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Срок (дней)</Label>
+                          <Label>{t('adminAdPackages.labelDuration')}</Label>
                           <Input
                             type="number"
                             value={newPackage.duration_days}
@@ -309,7 +330,7 @@ export function AdPackagesManager() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Макс. слотов</Label>
+                          <Label>{t('adminAdPackages.labelMaxSlots')}</Label>
                           <Input
                             type="number"
                             value={newPackage.max_slots || ''}
@@ -321,10 +342,10 @@ export function AdPackagesManager() {
 
                       <div className="flex justify-end gap-2 pt-2">
                         <Button variant="ghost" onClick={() => setIsCreateOpen(false)}>
-                          Отмена
+                          {t('admin.cancel')}
                         </Button>
                         <Button onClick={handleCreatePackage} disabled={createPackage.isPending}>
-                          {createPackage.isPending ? 'Создание...' : 'Создать пакет'}
+                          {createPackage.isPending ? t('adminAdPackages.btnCreating') : t('adminAdPackages.btnCreate')}
                         </Button>
                       </div>
                     </div>
@@ -340,7 +361,7 @@ export function AdPackagesManager() {
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                 <Users className="h-4 w-4 text-primary" />
-                Пакеты для врачей
+                {t('adminAdPackages.doctorPackages')}
               </h3>
               <div className="space-y-3">
                 {doctorPackages.map(pkg => (
@@ -360,7 +381,7 @@ export function AdPackagesManager() {
                   />
                 ))}
                 {doctorPackages.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">Нет пакетов для врачей</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">{t('adminAdPackages.noDoctorPackages')}</p>
                 )}
               </div>
             </div>
@@ -369,7 +390,7 @@ export function AdPackagesManager() {
             <div>
               <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-primary" />
-                Пакеты для клиник
+                {t('adminAdPackages.clinicPackages')}
               </h3>
               <div className="space-y-3">
                 {clinicPackages.map(pkg => (
@@ -389,7 +410,7 @@ export function AdPackagesManager() {
                   />
                 ))}
                 {clinicPackages.length === 0 && (
-                  <p className="text-sm text-muted-foreground text-center py-4">Нет пакетов для клиник</p>
+                  <p className="text-sm text-muted-foreground text-center py-4">{t('adminAdPackages.noClinicPackages')}</p>
                 )}
               </div>
             </div>
@@ -427,10 +448,11 @@ function PackageRow({
   getPackageTypeLabel,
   isSaving
 }: PackageRowProps) {
+  const { t } = useLanguage();
   return (
     <div className={`p-4 rounded-lg border transition-all ${
-      isEditing 
-        ? 'border-primary bg-primary/5' 
+      isEditing
+        ? 'border-primary bg-primary/5'
         : 'border-border bg-muted/30 hover:bg-muted/50'
     }`}>
       <div className="flex items-center justify-between gap-4">
@@ -446,7 +468,7 @@ function PackageRow({
               </Badge>
               {!pkg.is_active && (
                 <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                  Неактивен
+                  {t('adminAdPackages.packageInactive')}
                 </Badge>
               )}
             </div>
@@ -460,7 +482,7 @@ function PackageRow({
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Цена (UZS)</Label>
+                <Label className="text-[10px] text-muted-foreground">{t('adminAdPackages.labelEditPrice')}</Label>
                 <Input
                   type="number"
                   value={editValues.price || ''}
@@ -469,7 +491,7 @@ function PackageRow({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Дней</Label>
+                <Label className="text-[10px] text-muted-foreground">{t('adminAdPackages.labelEditDays')}</Label>
                 <Input
                   type="number"
                   value={editValues.duration_days || ''}
@@ -478,7 +500,7 @@ function PackageRow({
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Слотов</Label>
+                <Label className="text-[10px] text-muted-foreground">{t('adminAdPackages.labelEditSlots')}</Label>
                 <Input
                   type="number"
                   value={editValues.max_slots || ''}
@@ -491,10 +513,10 @@ function PackageRow({
             <div className="flex items-center gap-2">
               <Button size="sm" onClick={onSave} disabled={isSaving} className="h-8">
                 <Save className="h-3 w-3 mr-1" />
-                Сохранить
+                {t('adminAdPackages.btnSave')}
               </Button>
               <Button size="sm" variant="ghost" onClick={onCancel} className="h-8">
-                Отмена
+                {t('admin.cancel')}
               </Button>
             </div>
           </div>
@@ -507,11 +529,11 @@ function PackageRow({
               </div>
               <div className="flex items-center gap-1.5 text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" />
-                <span>{pkg.duration_days} дн.</span>
+                <span>{pkg.duration_days} {t('adminAdPackages.daysShort')}</span>
               </div>
               {pkg.max_slots && (
                 <div className="text-muted-foreground text-xs">
-                  макс. {pkg.max_slots} слотов
+                  {t('adminAdPackages.maxSlotsLabel')}{pkg.max_slots}{t('adminAdPackages.slotsLabel')}
                 </div>
               )}
             </div>
@@ -521,7 +543,7 @@ function PackageRow({
                 onCheckedChange={onToggleActive}
               />
               <Button size="sm" variant="ghost" onClick={onEdit} className="h-8">
-                Изменить
+                {t('adminAdPackages.btnEditAction')}
               </Button>
             </div>
           </div>

@@ -1,12 +1,10 @@
-import { AssistantLayout } from '@/components/assistant/AssistantLayout';
+import { AssistantLayout } from "@/components/assistant/AssistantLayout";
+import { MaterialsOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function AssistantMaterials() {
   return (
     <AssistantLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Материалы</h1>
-        <p className="text-muted-foreground">Управление медицинскими материалами</p>
-      </div>
+      <MaterialsOperations />
     </AssistantLayout>
   );
 }

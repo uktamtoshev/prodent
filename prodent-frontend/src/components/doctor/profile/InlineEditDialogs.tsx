@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,9 +17,17 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { X, Plus, Search, Locate } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { a11yLabel } from "@/lib/a11y-labels";
+
+type MutationError = { message?: string } | Error | unknown;
+type LeafletDefaultIcon = L.Icon.Default & { _getIconUrl?: () => string };
+type WorkingHour = { start: string; end: string; enabled: boolean };
+type WorkingHourField = keyof WorkingHour;
+type WorkingHourValue = string | boolean;
 
 // Fix for default marker icons in Leaflet with Vite
-delete (L.Icon.Default.prototype as any)._getIconUrl;
+delete (L.Icon.Default.prototype as LeafletDefaultIcon)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
@@ -34,6 +42,7 @@ interface EditBioDialogProps {
 }
 
 export function EditBioDialog({ open, onOpenChange, doctorId, currentBio }: EditBioDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [bio, setBio] = useState(currentBio || '');
 
@@ -47,12 +56,12 @@ export function EditBioDialog({ open, onOpenChange, doctorId, currentBio }: Edit
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -60,19 +69,19 @@ export function EditBioDialog({ open, onOpenChange, doctorId, currentBio }: Edit
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>О себе</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.bioTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <Textarea
             value={bio}
             onChange={(e) => setBio(e.target.value)}
-            placeholder="Расскажите о себе, своём опыте и подходе к работе..."
+            placeholder={t('doctorInlineEdit.bioPlaceholder')}
             className="min-h-[200px]"
           />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>
@@ -90,6 +99,7 @@ interface EditEducationDialogProps {
 }
 
 export function EditEducationDialog({ open, onOpenChange, doctorId, currentEducation }: EditEducationDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [education, setEducation] = useState(currentEducation || '');
 
@@ -103,12 +113,12 @@ export function EditEducationDialog({ open, onOpenChange, doctorId, currentEduca
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -116,19 +126,19 @@ export function EditEducationDialog({ open, onOpenChange, doctorId, currentEduca
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Образование</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.educationTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <Textarea
             value={education}
             onChange={(e) => setEducation(e.target.value)}
-            placeholder="Укажите учебные заведения, годы обучения, специальность..."
+            placeholder={t('doctorInlineEdit.educationPlaceholder')}
             className="min-h-[150px]"
           />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>
@@ -146,6 +156,7 @@ interface EditCertificationsDialogProps {
 }
 
 export function EditCertificationsDialog({ open, onOpenChange, doctorId, currentCertifications }: EditCertificationsDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [certifications, setCertifications] = useState<string[]>(currentCertifications || []);
   const [newCert, setNewCert] = useState('');
@@ -171,12 +182,12 @@ export function EditCertificationsDialog({ open, onOpenChange, doctorId, current
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -184,17 +195,17 @@ export function EditCertificationsDialog({ open, onOpenChange, doctorId, current
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Сертификаты</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.certificationsTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="flex gap-2">
             <Input
               value={newCert}
               onChange={(e) => setNewCert(e.target.value)}
-              placeholder="Добавить сертификат"
+              placeholder={t('doctorInlineEdit.certAddPlaceholder')}
               onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addCert())}
             />
-            <Button type="button" variant="outline" onClick={addCert}>
+            <Button type="button" variant="outline" onClick={addCert} aria-label={a11yLabel("add")}>
               <Plus className="w-4 h-4" />
             </Button>
           </div>
@@ -211,9 +222,9 @@ export function EditCertificationsDialog({ open, onOpenChange, doctorId, current
             </div>
           )}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>
@@ -231,6 +242,7 @@ interface EditExperienceDialogProps {
 }
 
 export function EditExperienceDialog({ open, onOpenChange, doctorId, currentData }: EditExperienceDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [experienceYears, setExperienceYears] = useState(currentData.experience_years || 0);
   const [specialty, setSpecialty] = useState(currentData.specialty || '');
@@ -254,12 +266,12 @@ export function EditExperienceDialog({ open, onOpenChange, doctorId, currentData
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -267,12 +279,12 @@ export function EditExperienceDialog({ open, onOpenChange, doctorId, currentData
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Опыт работы</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.experienceTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Стаж (лет)</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-1">{t('doctorInlineEdit.yearsLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-1"
               type="number"
               value={experienceYears}
               onChange={(e) => setExperienceYears(parseInt(e.target.value) || 0)}
@@ -280,25 +292,25 @@ export function EditExperienceDialog({ open, onOpenChange, doctorId, currentData
             />
           </div>
           <div className="space-y-2">
-            <Label>Специализация</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-2">{t('doctorInlineEdit.specialtyLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-2"
               value={specialty}
               onChange={(e) => setSpecialty(e.target.value)}
-              placeholder="Например: Стоматолог-терапевт"
+              placeholder={t('doctorInlineEdit.specialtyPlaceholder')}
             />
           </div>
           <div className="space-y-2">
-            <Label>Категория</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-3">{t('doctorInlineEdit.categoryLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-3"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              placeholder="Например: Высшая категория"
+              placeholder={t('doctorInlineEdit.categoryPlaceholder')}
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>
@@ -316,21 +328,22 @@ interface EditWorkingHoursDialogProps {
 }
 
 export function EditWorkingHoursDialog({ open, onOpenChange, doctorId, currentHours }: EditWorkingHoursDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
-  const daysMap: Record<string, string> = {
-    monday: 'Понедельник',
-    tuesday: 'Вторник',
-    wednesday: 'Среда',
-    thursday: 'Четверг',
-    friday: 'Пятница',
-    saturday: 'Суббота',
-    sunday: 'Воскресенье',
-  };
+  const daysMap = useMemo<Record<string, string>>(() => ({
+    monday: t('doctorInlineEdit.dayMonday'),
+    tuesday: t('doctorInlineEdit.dayTuesday'),
+    wednesday: t('doctorInlineEdit.dayWednesday'),
+    thursday: t('doctorInlineEdit.dayThursday'),
+    friday: t('doctorInlineEdit.dayFriday'),
+    saturday: t('doctorInlineEdit.daySaturday'),
+    sunday: t('doctorInlineEdit.daySunday'),
+  }), [t]);
 
-  const defaultHours = Object.keys(daysMap).reduce((acc, day) => {
+  const defaultHours = useMemo(() => Object.keys(daysMap).reduce((acc, day) => {
     acc[day] = { start: '09:00', end: '18:00', enabled: day !== 'sunday' };
     return acc;
-  }, {} as Record<string, { start: string; end: string; enabled: boolean }>);
+  }, {} as Record<string, WorkingHour>), [daysMap]);
 
   const [hours, setHours] = useState(defaultHours);
 
@@ -344,9 +357,9 @@ export function EditWorkingHoursDialog({ open, onOpenChange, doctorId, currentHo
       });
       setHours(merged);
     }
-  }, [open, currentHours]);
+  }, [open, currentHours, defaultHours]);
 
-  const updateDay = (day: string, field: string, value: any) => {
+  const updateDay = (day: string, field: WorkingHourField, value: WorkingHourValue) => {
     setHours((prev) => ({
       ...prev,
       [day]: { ...prev[day], [field]: value },
@@ -366,12 +379,12 @@ export function EditWorkingHoursDialog({ open, onOpenChange, doctorId, currentHo
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -379,7 +392,7 @@ export function EditWorkingHoursDialog({ open, onOpenChange, doctorId, currentHo
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>График работы</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.workingHoursTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 max-h-[60vh] overflow-y-auto">
           {Object.entries(daysMap).map(([key, label]) => (
@@ -408,9 +421,9 @@ export function EditWorkingHoursDialog({ open, onOpenChange, doctorId, currentHo
           ))}
         </div>
         <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
           <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+            {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
           </Button>
         </div>
       </DialogContent>
@@ -427,6 +440,7 @@ interface EditContactDialogProps {
 }
 
 export function EditContactDialog({ open, onOpenChange, profileId, currentData }: EditContactDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [phone, setPhone] = useState(currentData.phone || '');
   const [email, setEmail] = useState(currentData.email || '');
@@ -444,12 +458,12 @@ export function EditContactDialog({ open, onOpenChange, profileId, currentData }
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -457,32 +471,32 @@ export function EditContactDialog({ open, onOpenChange, profileId, currentData }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Контакты</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.contactsTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Телефон</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-4">{t('doctorInlineEdit.phoneLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-4"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              placeholder="+998 90 123 45 67"
+              placeholder={t('doctorInlineEdit.phonePlaceholder')}
             />
           </div>
           <div className="space-y-2">
-            <Label>Email</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-5">{t('doctorInlineEdit.emailLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-5"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="doctor@example.com"
+              placeholder={t('doctorInlineEdit.emailPlaceholder')}
               disabled
             />
-            <p className="text-xs text-muted-foreground">Email изменяется через настройки аккаунта</p>
+            <p className="text-xs text-muted-foreground">{t('doctorInlineEdit.emailHint')}</p>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>
@@ -500,6 +514,7 @@ interface EditVideoDialogProps {
 }
 
 export function EditVideoDialog({ open, onOpenChange, doctorId, currentVideoUrl }: EditVideoDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [videoUrl, setVideoUrl] = useState(currentVideoUrl || '');
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -536,13 +551,13 @@ export function EditVideoDialog({ open, onOpenChange, doctorId, currentVideoUrl 
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
+    onError: (error: MutationError) => {
       setUploading(false);
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -550,12 +565,12 @@ export function EditVideoDialog({ open, onOpenChange, doctorId, currentVideoUrl 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Видео-презентация</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.videoTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Загрузить видео</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-6">{t('doctorInlineEdit.uploadVideo')}</Label>
+            <Input id="inline-edit-dialogs-field-6"
               type="file"
               accept="video/*"
               onChange={(e) => {
@@ -564,25 +579,25 @@ export function EditVideoDialog({ open, onOpenChange, doctorId, currentVideoUrl 
               }}
             />
           </div>
-          <div className="text-center text-sm text-muted-foreground">или</div>
+          <div className="text-center text-sm text-muted-foreground">{t('doctorInlineEdit.orWord')}</div>
           <div className="space-y-2">
-            <Label>Ссылка на видео (YouTube или прямая ссылка)</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-7">{t('doctorInlineEdit.videoUrlLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-7"
               value={videoUrl}
               onChange={(e) => {
                 setVideoUrl(e.target.value);
                 setVideoFile(null);
               }}
-              placeholder="https://youtube.com/watch?v=... или https://youtu.be/..."
+              placeholder={t('doctorInlineEdit.videoUrlPlaceholder')}
             />
             <p className="text-xs text-muted-foreground">
-              Поддерживаются ссылки YouTube, YouTube Shorts и прямые ссылки на видео
+              {t('doctorInlineEdit.videoUrlHint')}
             </p>
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || uploading}>
-              {mutation.isPending || uploading ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending || uploading ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>
@@ -600,6 +615,7 @@ interface EditLocationDialogProps {
 }
 
 export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }: EditLocationDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [address, setAddress] = useState(currentData.address || '');
   const [latitude, setLatitude] = useState(currentData.latitude?.toString() || '');
@@ -616,7 +632,7 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
   // Get current location via Geolocation API
   const handleLocateMe = async () => {
     if (!navigator.geolocation) {
-      toast({ title: 'Ошибка', description: 'Геолокация не поддерживается браузером', variant: 'destructive' });
+      toast({ title: t('doctorInlineEdit.error'), description: t('doctorInlineEdit.geoNotSupported'), variant: 'destructive' });
       return;
     }
 
@@ -635,7 +651,7 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
           // Zoom based on accuracy
           const zoom = accuracy < 100 ? 17 : accuracy < 500 ? 15 : accuracy < 1000 ? 14 : 13;
           mapInstanceRef.current.setView([lat, lng], zoom);
-          
+
           // Update marker
           if (markerRef.current) {
             markerRef.current.setLatLng([lat, lng]);
@@ -672,19 +688,19 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
         }
 
         setLocating(false);
-        const accuracyText = accuracy < 100 ? 'высокая' : accuracy < 500 ? 'средняя' : 'низкая';
-        toast({ 
-          title: 'Местоположение определено', 
-          description: `Точность: ${Math.round(accuracy)} м (${accuracyText})` 
+        const accuracyText = accuracy < 100 ? t('doctorInlineEdit.accuracyHigh') : accuracy < 500 ? t('doctorInlineEdit.accuracyMedium') : t('doctorInlineEdit.accuracyLow');
+        toast({
+          title: t('doctorInlineEdit.locationDetected'),
+          description: `${t('doctorInlineEdit.accuracyHint')}: ${Math.round(accuracy)} ${t('doctorInlineEdit.meters')} (${accuracyText})`
         });
       },
       (error) => {
         setLocating(false);
-        let message = 'Не удалось определить местоположение';
-        if (error.code === 1) message = 'Доступ к геолокации запрещён. Разрешите доступ в настройках браузера.';
-        if (error.code === 2) message = 'Местоположение недоступно. Попробуйте с мобильного устройства с GPS.';
-        if (error.code === 3) message = 'Превышено время ожидания';
-        toast({ title: 'Ошибка', description: message, variant: 'destructive' });
+        let message = t('doctorInlineEdit.geoErrorGeneric');
+        if (error.code === 1) message = t('doctorInlineEdit.geoErrorDenied');
+        if (error.code === 2) message = t('doctorInlineEdit.geoErrorUnavailable');
+        if (error.code === 3) message = t('doctorInlineEdit.geoErrorTimeout');
+        toast({ title: t('doctorInlineEdit.error'), description: message, variant: 'destructive' });
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
@@ -794,7 +810,7 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
     }
 
     // Also try after delays as fallback
-    const timers = [300, 600, 1000].map(delay => 
+    const timers = [300, 600, 1000].map(delay =>
       setTimeout(() => {
         if (!mapInstanceRef.current) initMap();
         else mapInstanceRef.current?.invalidateSize();
@@ -825,7 +841,7 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
       setSearchResults(data);
     } catch (error) {
       console.error('Search error:', error);
-      toast({ title: 'Ошибка поиска', variant: 'destructive' });
+      toast({ title: t('doctorInlineEdit.searchError'), variant: 'destructive' });
     } finally {
       setSearching(false);
     }
@@ -862,12 +878,12 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Сохранено' });
+      toast({ title: t('doctorInlineEdit.saved') });
       queryClient.invalidateQueries({ queryKey: ['doctor-public-profile'] });
       onOpenChange(false);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorInlineEdit.error'), description: error instanceof Error ? error.message : undefined, variant: 'destructive' });
     },
   });
 
@@ -875,21 +891,21 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Локация</DialogTitle>
+          <DialogTitle>{t('doctorInlineEdit.locationTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           {/* Search */}
           <div className="space-y-2">
-            <Label>Поиск адреса</Label>
+            <Label>{t('doctorInlineEdit.addressSearchLabel')}</Label>
             <div className="flex gap-2">
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Введите адрес для поиска..."
+                placeholder={t('doctorInlineEdit.addressSearchPlaceholder')}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleSearch())}
               />
               <Button type="button" variant="outline" onClick={handleSearch} disabled={searching}>
-                {searching ? 'Поиск...' : 'Найти'}
+                {searching ? t('doctorInlineEdit.searching') : t('doctorInlineEdit.findBtn')}
               </Button>
             </div>
             {searchResults.length > 0 && (
@@ -910,8 +926,8 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
 
           {/* Map */}
           <div className="relative">
-            <div 
-              ref={mapRef} 
+            <div
+              ref={mapRef}
               className="h-64 rounded-lg border border-border overflow-hidden"
               style={{ zIndex: 0 }}
             />
@@ -924,28 +940,28 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
               disabled={locating}
             >
               <Locate className="w-4 h-4" />
-              {locating ? 'Определение...' : 'Моя локация'}
+              {locating ? t('doctorInlineEdit.locating') : t('doctorInlineEdit.myLocationBtn')}
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Кликните на карту для выбора локации или нажмите "Моя локация"
+            {t('doctorInlineEdit.mapHint')}
           </p>
 
           {/* Address */}
           <div className="space-y-2">
-            <Label>Адрес</Label>
-            <Input
+            <Label htmlFor="inline-edit-dialogs-field-8">{t('doctorInlineEdit.addressLabel')}</Label>
+            <Input id="inline-edit-dialogs-field-8"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="Город, улица, дом"
+              placeholder={t('doctorInlineEdit.addressPlaceholder')}
             />
           </div>
 
           {/* Coordinates */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Широта</Label>
-              <Input
+              <Label htmlFor="inline-edit-dialogs-field-9">{t('doctorInlineEdit.latitudeLabel')}</Label>
+              <Input id="inline-edit-dialogs-field-9"
                 type="number"
                 step="any"
                 value={latitude}
@@ -954,8 +970,8 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
               />
             </div>
             <div className="space-y-2">
-              <Label>Долгота</Label>
-              <Input
+              <Label htmlFor="inline-edit-dialogs-field-10">{t('doctorInlineEdit.longitudeLabel')}</Label>
+              <Input id="inline-edit-dialogs-field-10"
                 type="number"
                 step="any"
                 value={longitude}
@@ -966,9 +982,9 @@ export function EditLocationDialog({ open, onOpenChange, doctorId, currentData }
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Отмена</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>{t('doctorInlineEdit.cancel')}</Button>
             <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {mutation.isPending ? t('doctorInlineEdit.saving') : t('doctorInlineEdit.save')}
             </Button>
           </div>
         </div>

@@ -1,6 +1,8 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Smartphone, Mail } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface VerificationMethodSelectorProps {
   value: "phone" | "email";
@@ -8,22 +10,22 @@ interface VerificationMethodSelectorProps {
   disabled?: boolean;
 }
 
-const methods = [
-  {
-    value: "phone" as const,
-    label: "По телефону",
-    description: "SMS код",
-    icon: Smartphone,
-  },
-  {
-    value: "email" as const,
-    label: "По Email",
-    description: "Код на почту",
-    icon: Mail,
-  },
-];
-
 export function VerificationMethodSelector({ value, onChange, disabled }: VerificationMethodSelectorProps) {
+  const { t } = useLanguage();
+  const methods = useMemo(() => [
+    {
+      value: "phone" as const,
+      label: t("auth.methodPhone"),
+      description: t("auth.methodPhoneDesc"),
+      icon: Smartphone,
+    },
+    {
+      value: "email" as const,
+      label: t("auth.methodEmail"),
+      description: t("auth.methodEmailDesc"),
+      icon: Mail,
+    },
+  ], [t]);
   return (
     <div className="grid grid-cols-2 gap-4">
       {methods.map((method) => {

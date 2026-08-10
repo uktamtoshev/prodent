@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,22 +13,28 @@ import { supabase } from "@/integrations/supabase/client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { formatPrice } from "@/lib/utils";
-
-const categories = [
-  "Все",
-  "Гигиена",
-  "Ортодонтия",
-  "Эстетика",
-  "Имплантация",
-  "Лечение",
-  "Детская",
-  "Хирургия",
-  "Пародонтология",
-  "Протезирование",
-];
+import { useLanguage } from "@/contexts/LanguageContext";
+import { PageMeta } from "@/components/PageMeta";
+import { PROMO_CATEGORY_SLUGS, PROMO_CATEGORY_LABEL_KEY, promoCategoryLabel } from "@/lib/promo-categories";
+import { getPublicPromotionTarget, isPublicPromotionCurrent } from "@/lib/publicPromotion";
 
 const Promotions = () => {
-  const [selectedCategory, setSelectedCategory] = useState("Все");
+  const { t } = useLanguage();
+
+  // Categories use the canonical slug taxonomy (promotions.category) shared with the
+  // admin form — so admin-created promotions are actually filterable here.
+  const categories = useMemo(
+    () => [
+      { value: "all", label: t("promotions.categories.all") },
+      ...PROMO_CATEGORY_SLUGS.map((slug) => ({
+        value: slug,
+        label: t(PROMO_CATEGORY_LABEL_KEY[slug]),
+      })),
+    ],
+    [t]
+  );
+
+  const [selectedCategory, setSelectedCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("discount");
   const [showFilters, setShowFilters] = useState(true);
@@ -49,8 +55,9 @@ const Promotions = () => {
           )
         `)
         .eq('active', true)
+        .gte('valid_until', new Date().toISOString().slice(0, 10))
         .order('discount', { ascending: false });
-      
+
       if (error) throw error;
       return data || [];
     }
@@ -58,10 +65,10 @@ const Promotions = () => {
 
   // Filter and sort promotions
   let filteredPromotions = promotions.filter((promo) => {
-    const matchesCategory = selectedCategory === "Все" || promo.category === selectedCategory;
+    const matchesCategory = selectedCategory === "all" || promo.category === selectedCategory;
     const matchesSearch = promo.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          promo.description.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    return isPublicPromotionCurrent(promo) && matchesCategory && matchesSearch;
   });
 
   // Sort promotions
@@ -84,20 +91,25 @@ const Promotions = () => {
 
   return (
     <div className="min-h-screen bg-gradient-hero">
+      <PageMeta
+        title="Акции и скидки на стоматологию — PRODENT"
+        description="Актуальные акции и скидки стоматологических клиник и врачей Узбекистана: гигиена, имплантация, ортодонтия, эстетика. Запишитесь по выгодной цене."
+        canonical="https://prodent.uz/promotions"
+      />
       <Header />
-      
+
       <main className="pt-24 pb-12">
         <div className="container mx-auto px-4">
           {/* Page Header */}
           <div className="text-center mb-8 animate-fade-in">
             <h1 className="text-4xl md:text-5xl font-bold mb-4">
-              Специальные{" "}
+              {t("promotions.pageTitle")}{" "}
               <span className="bg-gradient-primary bg-clip-text text-transparent">
-                акции
+                {t("promotions.pageTitleHighlight")}
               </span>
             </h1>
             <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-              Лучшие предложения от стоматологических клиник Ташкента
+              {t("promotions.pageSubtitle")}
             </p>
           </div>
 
@@ -106,7 +118,7 @@ const Promotions = () => {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
               <Input
-                placeholder="Поиск акций..."
+                placeholder={t("promotions.searchPlaceholder")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="h-12 pl-10"
@@ -115,12 +127,12 @@ const Promotions = () => {
             <div className="flex gap-3">
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-[200px] h-12">
-                  <SelectValue placeholder="Сортировка" />
+                  <SelectValue placeholder={t("promotions.sort")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="discount">По скидке</SelectItem>
-                  <SelectItem value="price-asc">По цене (возрастание)</SelectItem>
-                  <SelectItem value="price-desc">По цене (убывание)</SelectItem>
+                  <SelectItem value="discount">{t("promotions.sortByDiscount")}</SelectItem>
+                  <SelectItem value="price-asc">{t("promotions.sortByPriceAsc")}</SelectItem>
+                  <SelectItem value="price-desc">{t("promotions.sortByPriceDesc")}</SelectItem>
                 </SelectContent>
               </Select>
               <Button
@@ -140,18 +152,18 @@ const Promotions = () => {
                 <CardContent className="p-6">
                   <h3 className="font-bold mb-4 flex items-center gap-2">
                     <Tag className="w-5 h-5 text-primary" />
-                    Категории
+                    {t("promotions.categoriesLabel")}
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {categories.map((category) => (
                       <Button
-                        key={category}
-                        variant={selectedCategory === category ? "default" : "outline"}
-                        onClick={() => setSelectedCategory(category)}
+                        key={category.value}
+                        variant={selectedCategory === category.value ? "default" : "outline"}
+                        onClick={() => setSelectedCategory(category.value)}
                         className="transition-all duration-300"
                         size="sm"
                       >
-                        {category}
+                        {category.label}
                       </Button>
                     ))}
                   </div>
@@ -164,7 +176,7 @@ const Promotions = () => {
           {error && (
             <Alert variant="destructive" className="mb-6">
               <AlertDescription>
-                Ошибка при загрузке акций. Попробуйте обновить страницу.
+                {t("promotions.errorLoading")}
               </AlertDescription>
             </Alert>
           )}
@@ -175,12 +187,12 @@ const Promotions = () => {
               {isLoading ? (
                 <Skeleton className="h-6 w-40" />
               ) : (
-                <>Найдено акций: <span className="font-bold text-foreground">{filteredPromotions.length}</span></>
+                <>{t("promotions.foundLabel")} <span className="font-bold text-foreground">{filteredPromotions.length}</span></>
               )}
             </p>
             <Badge variant="secondary" className="gap-2">
               <TrendingDown className="w-4 h-4" />
-              До 50% скидки
+              {t("promotions.upToDiscount")}
             </Badge>
           </div>
 
@@ -208,10 +220,14 @@ const Promotions = () => {
                   <CardContent className="p-0">
                     {/* Image */}
                     <div className="relative h-48 overflow-hidden">
-                      <img
-                        src={promo.image_url || '/promotions/cleaning.jpg'}
-                        alt={promo.title}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                       <img
+                         src={promo.image_url || '/promotions/cleaning.jpg'}
+                         alt={promo.title}
+                         loading="lazy"
+                         decoding="async"
+                         width={640}
+                         height={384}
+                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                       />
                       <Badge className="absolute top-4 right-4 bg-destructive text-white border-0 text-lg font-bold">
                         -{promo.discount}%
@@ -219,7 +235,7 @@ const Promotions = () => {
                       <div className="absolute top-4 left-4">
                         <Badge variant="secondary" className="bg-background/90 backdrop-blur-sm">
                           <Tag className="w-3 h-3 mr-1" />
-                          {promo.category}
+                          {promoCategoryLabel(t, promo.category)}
                         </Badge>
                       </div>
                     </div>
@@ -260,13 +276,13 @@ const Promotions = () => {
                       {/* Valid until */}
                       <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
                         <Calendar className="w-4 h-4" />
-                        <span>До {formatDate(promo.valid_until)}</span>
+                        <span>{t("promotions.validUntil")} {formatDate(promo.valid_until)}</span>
                       </div>
 
                       {/* CTA */}
-                      <Link to="/">
+                      <Link to={getPublicPromotionTarget(promo)}>
                         <Button className="w-full group/btn">
-                          Записаться
+                          {t("promotions.book")}
                           <ArrowRight className="w-4 h-4 ml-2 group-hover/btn:translate-x-1 transition-transform" />
                         </Button>
                       </Link>
@@ -278,18 +294,18 @@ const Promotions = () => {
               <div className="col-span-full text-center py-12">
                 <div className="max-w-md mx-auto">
                   <Search className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-xl font-bold mb-2">Акции не найдены</h3>
+                  <h3 className="text-xl font-bold mb-2">{t("promotions.notFoundTitle")}</h3>
                   <p className="text-muted-foreground mb-6">
-                    Попробуйте изменить параметры поиска или выбрать другую категорию
+                    {t("promotions.notFoundHint")}
                   </p>
                   <Button
                     variant="outline"
                     onClick={() => {
                       setSearchQuery("");
-                      setSelectedCategory("Все");
+                      setSelectedCategory("all");
                     }}
                   >
-                    Сбросить фильтры
+                    {t("promotions.resetFiltersBtn")}
                   </Button>
                 </div>
               </div>

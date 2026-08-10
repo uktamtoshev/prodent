@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -15,6 +14,13 @@ import {
 import { toast } from 'sonner';
 import { UserPlus, Check, User } from 'lucide-react';
 import { cn, formatPrice } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { useModulePermissions } from '@/hooks/useModulePermissions';
+import {
+  invalidateClinicServiceAssignmentQueries,
+  listClinicServiceDoctorAssignments,
+  syncClinicServiceDoctorAssignments,
+} from '@/lib/clinic-service-assignments-api';
 
 interface Service {
   id: string;
@@ -50,28 +56,18 @@ export function AssignServiceDialog({
   clinicId,
   doctors,
 }: AssignServiceDialogProps) {
+  const { t } = useLanguage();
+  const { canEdit } = useModulePermissions();
   const queryClient = useQueryClient();
   const [selectedDoctor, setSelectedDoctor] = useState<string>('');
 
   // Fetch existing assignments for this service
   const { data: assignments } = useQuery({
-    queryKey: ['service-assignments', service?.id],
+    queryKey: ['service-assignments', clinicId, service?.id],
     queryFn: async () => {
       if (!service?.id) return [];
-      
-      const { data, error } = await supabase
-        .from('clinic_doctor_services')
-        .select(`
-          id,
-          doctor_id,
-          custom_price,
-          is_active
-        `)
-        .eq('service_id', service.id)
-        .eq('clinic_id', clinicId);
 
-      if (error) throw error;
-      return data;
+      return listClinicServiceDoctorAssignments(clinicId, service.id);
     },
     enabled: !!service?.id && open,
   });
@@ -84,42 +80,32 @@ export function AssignServiceDialog({
 
   const assignMutation = useMutation({
     mutationFn: async (doctorId: string) => {
-      // Check if already assigned
-      const existing = assignments?.find(a => a.doctor_id === doctorId);
-      
-      if (existing) {
-        // Toggle active state
-        const { error } = await supabase
-          .from('clinic_doctor_services')
-          .update({ is_active: !existing.is_active })
-          .eq('id', existing.id);
-        if (error) throw error;
-      } else {
-        // Create new assignment
-        const { error } = await supabase
-          .from('clinic_doctor_services')
-          .insert({
-            service_id: service!.id,
-            doctor_id: doctorId,
-            clinic_id: clinicId,
-            is_active: true,
-          });
-        if (error) throw error;
-      }
+      if (!service) throw new Error(t('crmServiceDialogs.noServicesSelected'));
+      if (!canEdit('services')) throw new Error(t('crm.accessDenied'));
+      const active = (assignments ?? []).filter((item) => item.isActive);
+      const existing = active.find((item) => item.doctorId === doctorId);
+      const desired = existing
+        ? active.filter((item) => item.doctorId !== doctorId)
+        : [...active, { doctorId, customPrice: null }];
+      await syncClinicServiceDoctorAssignments(
+        clinicId,
+        service.id,
+        desired.map((item) => ({ doctorId: item.doctorId, customPrice: item.customPrice })),
+      );
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['service-assignments', service?.id] });
-      toast.success('Назначение обновлено');
+    onSuccess: async () => {
+      await invalidateClinicServiceAssignmentQueries(queryClient);
+      toast.success(t('managerRole.assignmentUpdated'));
     },
     onError: () => {
-      toast.error('Ошибка при назначении');
+      toast.error(t('managerRole.assignError'));
     },
   });
 
   if (!service) return null;
 
   const assignedDoctorIds = new Set(
-    assignments?.filter(a => a.is_active).map(a => a.doctor_id) || []
+    assignments?.filter(a => a.isActive).map(a => a.doctorId) || []
   );
 
   return (
@@ -128,7 +114,7 @@ export function AssignServiceDialog({
         <DialogHeader>
           <DialogTitle className="font-heading flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-primary" />
-            Назначить врачам
+            {t('managerRole.assignTitle')}
           </DialogTitle>
         </DialogHeader>
 
@@ -145,7 +131,7 @@ export function AssignServiceDialog({
           <div className="flex gap-2">
             <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
               <SelectTrigger className="flex-1">
-                <SelectValue placeholder="Выберите врача для назначения" />
+                <SelectValue placeholder={t('managerRole.assignSelectPlaceholder')} />
               </SelectTrigger>
               <SelectContent>
                 {doctors.map((d) => (
@@ -162,9 +148,13 @@ export function AssignServiceDialog({
                   setSelectedDoctor('');
                 }
               }}
-              disabled={!selectedDoctor || assignMutation.isPending}
+              disabled={
+                !selectedDoctor
+                || assignMutation.isPending
+                || !canEdit('services')
+              }
             >
-              Назначить
+              {t('managerRole.assignBtn')}
             </Button>
           </div>
 
@@ -173,16 +163,17 @@ export function AssignServiceDialog({
             <div className="space-y-2">
               {doctors.map((doctor) => {
                 const isAssigned = assignedDoctorIds.has(doctor.doctor_id);
-                
+
                 return (
                   <button
                     key={doctor.doctor_id}
                     onClick={() => assignMutation.mutate(doctor.doctor_id)}
-                    disabled={assignMutation.isPending}
+                    disabled={assignMutation.isPending || !canEdit('services')}
+                    title={!canEdit('services') ? t('crm.accessDenied') : undefined}
                     className={cn(
                       "w-full flex items-center gap-3 p-3 rounded-lg border transition-all",
-                      isAssigned 
-                        ? "border-primary bg-primary/5 hover:bg-primary/10" 
+                      isAssigned
+                        ? "border-primary bg-primary/5 hover:bg-primary/10"
                         : "border-border/50 hover:border-border hover:bg-muted/30"
                     )}
                   >
@@ -195,13 +186,13 @@ export function AssignServiceDialog({
                     <div className="flex-1 text-left">
                       <div className="font-medium">{doctor.doctors.profiles.full_name}</div>
                       <div className="text-sm text-muted-foreground">
-                        {doctor.doctors.specialty || 'Стоматолог'}
+                        {doctor.doctors.specialty || t('managerRole.assignDefaultSpecialty')}
                       </div>
                     </div>
                     {isAssigned && (
                       <div className="flex items-center gap-1 text-primary text-sm">
                         <Check className="w-4 h-4" />
-                        Назначена
+                        {t('managerRole.assignAssigned')}
                       </div>
                     )}
                   </button>
@@ -210,7 +201,7 @@ export function AssignServiceDialog({
 
               {doctors.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
-                  Нет врачей для назначения
+                  {t('managerRole.assignNoDoctors')}
                 </div>
               )}
             </div>
@@ -218,7 +209,7 @@ export function AssignServiceDialog({
 
           <div className="flex justify-end pt-4 border-t">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Готово
+              {t('managerRole.assignDoneBtn')}
             </Button>
           </div>
         </div>

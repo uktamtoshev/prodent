@@ -23,6 +23,9 @@ import {
 } from '@/components/ui/select';
 import { SingleImageUploader } from './MediaUploader';
 import { X, Plus, ArrowLeftRight, Video, FileText, Award } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { TablesInsert } from '@/integrations/supabase/types';
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface AddPortfolioDialogProps {
   open: boolean;
@@ -35,6 +38,7 @@ export function AddPortfolioDialog({
   onOpenChange,
   doctorId,
 }: AddPortfolioDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [type, setType] = useState<string>('before_after');
   const [title, setTitle] = useState('');
@@ -77,7 +81,7 @@ export function AddPortfolioDialog({
         }
       }
 
-      const portfolioData: any = {
+      const portfolioData: TablesInsert<'doctor_portfolio'> = {
         doctor_id: doctorId,
         type,
         title,
@@ -101,16 +105,16 @@ export function AddPortfolioDialog({
     },
     onSuccess: () => {
       toast({
-        title: 'Добавлено в портфолио',
-        description: 'Элемент успешно добавлен в ваше портфолио',
+        title: t('doctorAddPortfolio.addedToPortfolio'),
+        description: t('doctorAddPortfolio.addedDescription'),
       });
       queryClient.invalidateQueries({ queryKey: ['doctor-portfolio', doctorId] });
       handleClose();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
-        title: 'Ошибка',
-        description: error.message || 'Не удалось добавить элемент',
+        title: t('doctorAddPortfolio.errorTitle'),
+        description: error instanceof Error ? error.message : t('doctorAddPortfolio.addItemError'),
         variant: 'destructive',
       });
     },
@@ -160,13 +164,13 @@ export function AddPortfolioDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Добавить в портфолио</DialogTitle>
+          <DialogTitle>{t('doctorAddPortfolio.title')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Type Selection */}
           <div className="space-y-2">
-            <Label>Тип</Label>
+            <Label>{t('doctorAddPortfolio.typeLabel')}</Label>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger>
                 <SelectValue />
@@ -175,25 +179,25 @@ export function AddPortfolioDialog({
                 <SelectItem value="before_after">
                   <div className="flex items-center gap-2">
                     <ArrowLeftRight className="w-4 h-4" />
-                    До/После
+                    {t('doctorAddPortfolio.typeBeforeAfter')}
                   </div>
                 </SelectItem>
                 <SelectItem value="video">
                   <div className="flex items-center gap-2">
                     <Video className="w-4 h-4" />
-                    Видео
+                    {t('doctorAddPortfolio.typeVideo')}
                   </div>
                 </SelectItem>
                 <SelectItem value="case">
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4" />
-                    Кейс
+                    {t('doctorAddPortfolio.typeCase')}
                   </div>
                 </SelectItem>
                 <SelectItem value="certificate">
                   <div className="flex items-center gap-2">
                     <Award className="w-4 h-4" />
-                    Сертификат
+                    {t('doctorAddPortfolio.typeCertificate')}
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -202,9 +206,9 @@ export function AddPortfolioDialog({
 
           {/* Title */}
           <div className="space-y-2">
-            <Label>Название *</Label>
-            <Input
-              placeholder="Введите название"
+            <Label htmlFor="add-portfolio-dialog-field-1">{t('doctorAddPortfolio.titleRequired')}</Label>
+            <Input id="add-portfolio-dialog-field-1"
+              placeholder={t('doctorAddPortfolio.titlePh')}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -212,9 +216,9 @@ export function AddPortfolioDialog({
 
           {/* Description */}
           <div className="space-y-2">
-            <Label>Описание</Label>
-            <Textarea
-              placeholder="Опишите работу..."
+            <Label htmlFor="add-portfolio-dialog-field-2">{t('doctorAddPortfolio.descriptionLabel')}</Label>
+            <Textarea id="add-portfolio-dialog-field-2"
+              placeholder={t('doctorAddPortfolio.descriptionPh')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="min-h-[80px]"
@@ -228,13 +232,13 @@ export function AddPortfolioDialog({
                 doctorId={doctorId}
                 value={beforeImage}
                 onChange={setBeforeImage}
-                label="Фото ДО *"
+                label={t('doctorAddPortfolio.photoBefore')}
               />
               <SingleImageUploader
                 doctorId={doctorId}
                 value={afterImage}
                 onChange={setAfterImage}
-                label="Фото ПОСЛЕ *"
+                label={t('doctorAddPortfolio.photoAfter')}
               />
             </div>
           )}
@@ -242,9 +246,9 @@ export function AddPortfolioDialog({
           {type === 'video' && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Ссылка на видео (YouTube)</Label>
-                <Input
-                  placeholder="https://youtube.com/watch?v=... или https://youtu.be/..."
+                <Label htmlFor="add-portfolio-dialog-field-3">{t('doctorAddPortfolio.videoLink')}</Label>
+                <Input id="add-portfolio-dialog-field-3"
+                  placeholder={t('doctorAddPortfolio.videoLinkPh')}
                   value={videoUrl}
                   onChange={(e) => {
                     setVideoUrl(e.target.value);
@@ -252,12 +256,12 @@ export function AddPortfolioDialog({
                   }}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Поддерживаются ссылки YouTube, YouTube Shorts и прямые ссылки на видео
+                  {t('doctorAddPortfolio.videoLinksHint')}
                 </p>
               </div>
-              <div className="text-center text-sm text-muted-foreground">или</div>
+              <div className="text-center text-sm text-muted-foreground">{t('doctorAddPortfolio.orLabel')}</div>
               <div className="space-y-2">
-                <Label>Загрузить видеофайл</Label>
+                <Label>{t('doctorAddPortfolio.uploadVideo')}</Label>
                 <div className="border-2 border-dashed border-border rounded-lg p-4">
                   <input
                     type="file"
@@ -270,7 +274,7 @@ export function AddPortfolioDialog({
                   />
                   {videoFile && (
                     <p className="text-sm text-muted-foreground mt-2">
-                      Выбран: {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(2)} MB)
+                      {t('doctorAddPortfolio.videoSelected')} {videoFile.name} ({(videoFile.size / 1024 / 1024).toFixed(2)} MB)
                     </p>
                   )}
                 </div>
@@ -283,22 +287,22 @@ export function AddPortfolioDialog({
               doctorId={doctorId}
               value={mediaUrl}
               onChange={setMediaUrl}
-              label="Изображение *"
+              label={t('doctorAddPortfolio.imageRequired')}
               aspectRatio="aspect-video"
             />
           )}
 
           {/* Tags */}
           <div className="space-y-2">
-            <Label>Теги</Label>
+            <Label>{t('doctorAddPortfolio.tags')}</Label>
             <div className="flex gap-2">
               <Input
-                placeholder="Добавить тег"
+                placeholder={t('doctorAddPortfolio.addTag')}
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
               />
-              <Button type="button" variant="outline" onClick={addTag}>
+              <Button type="button" variant="outline" onClick={addTag} aria-label={a11yLabel("add")}>
                 <Plus className="w-4 h-4" />
               </Button>
             </div>
@@ -318,20 +322,20 @@ export function AddPortfolioDialog({
 
           {/* Featured */}
           <div className="flex items-center justify-between">
-            <Label>Избранное</Label>
+            <Label>{t('doctorAddPortfolio.featured')}</Label>
             <Switch checked={isFeatured} onCheckedChange={setIsFeatured} />
           </div>
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="outline" onClick={handleClose}>
-              Отмена
+              {t('doctorAddPortfolio.cancel')}
             </Button>
             <Button
               onClick={() => addPortfolio.mutate()}
               disabled={!canSubmit() || addPortfolio.isPending || isUploading}
             >
-              {addPortfolio.isPending || isUploading ? 'Сохранение...' : 'Добавить'}
+              {addPortfolio.isPending || isUploading ? t('doctorAddPortfolio.saving') : t('doctorAddPortfolio.add')}
             </Button>
           </div>
         </div>

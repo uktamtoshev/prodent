@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["vite/client", "vitest/globals"]
+  },
+  "include": [
+    "src/tooth-anatomy.ts",
+    "src/data/toothAnatomy.ts",
+    "src/viewer/**/*.ts",
+    "src/ui/**/*.ts",
+    "tests/unit/**/*.ts"
+  ]
+}

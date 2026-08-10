@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,46 +11,75 @@ import { Shield, Users, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  type ClinicMemberPermission,
+  listClinicMemberPermissions,
+  isPermissionManagedMemberRole,
+  setClinicMemberPermission,
+} from "@/lib/clinic-member-permissions-api";
 
-const MODULES = [
-  { key: "finance", label: "Финансы", icon: "💰" },
-  { key: "schedule", label: "Расписание", icon: "📅" },
-  { key: "patients", label: "Пациенты", icon: "👥" },
-  { key: "medical_records", label: "Медкарты", icon: "📋" },
-  { key: "treatment_plans", label: "Планы лечения", icon: "📝" },
-  { key: "tasks", label: "Задачи", icon: "✅" },
-  { key: "reports", label: "Отчёты", icon: "📊" },
-  { key: "inventory", label: "Склад", icon: "📦" },
-  { key: "laboratory", label: "Лаборатория", icon: "🔬" },
-  { key: "services", label: "Услуги", icon: "🦷" },
-  { key: "settings", label: "Настройки", icon: "⚙️" },
-  { key: "team", label: "Команда", icon: "👤" },
+const MODULE_KEYS = [
+  "finance",
+  "schedule",
+  "patients",
+  "medical_records",
+  "treatment_plans",
+  "tasks",
+  "reports",
+  "inventory",
+  "laboratory",
+  "services",
+  "settings",
+  "team",
 ] as const;
 
-const ROLE_LABELS: Record<string, string> = {
-  clinic_admin: "Администратор",
-  clinic_manager: "Менеджер",
-  doctor: "Врач",
-  assistant: "Ассистент",
-  accountant: "Бухгалтер",
-  patient: "Пациент",
+const MODULE_ICONS: Record<string, string> = {
+  finance: "💰",
+  schedule: "📅",
+  patients: "👥",
+  medical_records: "📋",
+  treatment_plans: "📝",
+  tasks: "✅",
+  reports: "📊",
+  inventory: "📦",
+  laboratory: "🔬",
+  services: "🦷",
+  settings: "⚙️",
+  team: "👤",
 };
 
-interface MemberPermission {
-  id: string;
-  module: string;
-  can_view: boolean;
-  can_edit: boolean;
-  can_manage: boolean;
+interface ClinicMemberRow {
   user_id: string;
-  clinic_id: string;
+  role: string;
+  profiles: {
+    full_name?: string | null;
+    avatar_url?: string | null;
+    phone?: string | null;
+  } | null;
 }
 
 export function PermissionsManager() {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
+
+  const MODULES = useMemo(() => MODULE_KEYS.map((k) => ({
+    key: k,
+    label: t(`crmPermissionsManager.module_${k}`),
+    icon: MODULE_ICONS[k],
+  })), [t]);
+
+  const ROLE_LABELS: Record<string, string> = useMemo(() => ({
+    clinic_admin: t('crmPermissionsManager.roleAdmin'),
+    clinic_manager: t('crmPermissionsManager.roleManager'),
+    doctor: t('crmPermissionsManager.roleDoctor'),
+    assistant: t('crmPermissionsManager.roleAssistant'),
+    accountant: t('crmPermissionsManager.roleAccountant'),
+    patient: t('crmPermissionsManager.rolePatient'),
+  }), [t]);
 
   // Fetch clinic members (non-admin, non-patient)
   const { data: members, isLoading: membersLoading } = useQuery({
@@ -61,8 +90,12 @@ export function PermissionsManager() {
         .from("clinic_members")
         .select("user_id, role, profiles:user_id(full_name, avatar_url, phone)")
         .eq("clinic_id", currentClinic.id)
-        .neq("role", "patient");
-      return data || [];
+        .eq("is_active", true)
+        .not("role", "in", ["patient", "PATIENT"]);
+      const rows = (data || []) as unknown as ClinicMemberRow[];
+      return rows.filter((member) =>
+        isPermissionManagedMemberRole(member.role),
+      );
     },
     enabled: !!currentClinic?.id,
   });
@@ -72,12 +105,10 @@ export function PermissionsManager() {
     queryKey: ["member-permissions", selectedMember, currentClinic?.id],
     queryFn: async () => {
       if (!selectedMember || !currentClinic?.id) return [];
-      const { data } = await supabase
-        .from("clinic_member_permissions")
-        .select("*")
-        .eq("clinic_id", currentClinic.id)
-        .eq("user_id", selectedMember);
-      return (data as MemberPermission[]) || [];
+      return (await listClinicMemberPermissions(
+        currentClinic.id,
+        selectedMember,
+      )) as ClinicMemberPermission[];
     },
     enabled: !!selectedMember && !!currentClinic?.id,
   });
@@ -96,75 +127,50 @@ export function PermissionsManager() {
     }) => {
       if (!currentClinic?.id) throw new Error("No clinic");
 
-      // Upsert permission
       const existing = permissions?.find((p) => p.module === module);
-      if (existing) {
-        const updates: any = { [field]: value };
-        // If disabling view, disable edit and manage too
-        if (field === "can_view" && !value) {
-          updates.can_edit = false;
-          updates.can_manage = false;
-        }
-        // If enabling edit, enable view too
-        if (field === "can_edit" && value) {
-          updates.can_view = true;
-        }
-        // If enabling manage, enable view and edit too
-        if (field === "can_manage" && value) {
-          updates.can_view = true;
-          updates.can_edit = true;
-        }
-        // If disabling edit, disable manage too
-        if (field === "can_edit" && !value) {
-          updates.can_manage = false;
-        }
-
-        const { error } = await supabase
-          .from("clinic_member_permissions")
-          .update(updates)
-          .eq("id", existing.id);
-        if (error) throw error;
-      } else {
-        const row: any = {
-          clinic_id: currentClinic.id,
-          user_id: userId,
-          module,
-          can_view: false,
-          can_edit: false,
-          can_manage: false,
-          [field]: value,
-        };
-        if (field === "can_manage" && value) {
-          row.can_view = true;
-          row.can_edit = true;
-        }
-        if (field === "can_edit" && value) {
-          row.can_view = true;
-        }
-
-        const { error } = await supabase
-          .from("clinic_member_permissions")
-          .insert(row);
-        if (error) throw error;
+      const next = {
+        can_view: existing?.can_view ?? false,
+        can_edit: existing?.can_edit ?? false,
+        can_manage: existing?.can_manage ?? false,
+        [field]: value,
+      };
+      if (field === "can_view" && !value) {
+        next.can_edit = false;
+        next.can_manage = false;
       }
+      if (field === "can_edit" && value) next.can_view = true;
+      if (field === "can_manage" && value) {
+        next.can_view = true;
+        next.can_edit = true;
+      }
+      if (field === "can_edit" && !value) next.can_manage = false;
+
+      await setClinicMemberPermission({
+        clinicId: currentClinic.id,
+        userId,
+        module,
+        canView: next.can_view,
+        canEdit: next.can_edit,
+        canManage: next.can_manage,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["member-permissions", selectedMember] });
       queryClient.invalidateQueries({ queryKey: ["module-permissions"] });
-      toast.success("Права обновлены");
+      toast.success(t('crmPermissionsManager.permissionsUpdated'));
     },
-    onError: () => toast.error("Ошибка обновления прав"),
+    onError: () => toast.error(t('crmPermissionsManager.permissionsUpdateError')),
   });
 
   // Initialize permissions for member if they don't have any
   const initPermissions = useMutation({
     mutationFn: async (userId: string) => {
       if (!currentClinic?.id) throw new Error("No clinic");
-      const member = members?.find((m: any) => m.user_id === userId);
+      const member = members?.find((candidate) => candidate.user_id === userId);
       if (!member) return;
 
-      const role = (member as any).role;
-      const modules = MODULES.map((m) => m.key);
+      const role = member.role.toLowerCase();
+      const modules = MODULE_KEYS;
 
       for (const mod of modules) {
         let v = false, e = false, mg = false;
@@ -191,27 +197,29 @@ export function PermissionsManager() {
             break;
         }
 
-        await supabase
-          .from("clinic_member_permissions")
-          .upsert(
-            { clinic_id: currentClinic.id, user_id: userId, module: mod, can_view: v, can_edit: e, can_manage: mg },
-            { onConflict: "clinic_id,user_id,module" }
-          );
+        await setClinicMemberPermission({
+          clinicId: currentClinic.id,
+          userId,
+          module: mod,
+          canView: v,
+          canEdit: e,
+          canManage: mg,
+        });
       }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["member-permissions", selectedMember] });
-      toast.success("Права инициализированы по роли");
+      toast.success(t('crmPermissionsManager.permissionsInitialized'));
     },
   });
 
-  const filteredMembers = members?.filter((m: any) => {
-    const name = (m.profiles as any)?.full_name || "";
+  const filteredMembers = members?.filter((member) => {
+    const name = member.profiles?.full_name || "";
     return name.toLowerCase().includes(search.toLowerCase());
   }) || [];
 
-  const selectedMemberData = members?.find((m: any) => m.user_id === selectedMember);
-  const isAdmin = (selectedMemberData as any)?.role === "clinic_admin";
+  const selectedMemberData = members?.find((member) => member.user_id === selectedMember);
+  const isAdmin = selectedMemberData?.role.toLowerCase() === "clinic_admin";
 
   const getPermForModule = (mod: string) => permissions?.find((p) => p.module === mod);
 
@@ -219,21 +227,21 @@ export function PermissionsManager() {
     <div className="space-y-6">
       <Card className="border-border/50 bg-card/80">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-foreground">
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-foreground">
             <Shield className="w-5 h-5 text-primary" />
-            Управление правами доступа
+            {t('crmPermissionsManager.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-4">
-            Настройте, какие модули CRM доступны каждому сотруднику. Администраторы клиники всегда имеют полный доступ.
+            {t('crmPermissionsManager.description')}
           </p>
 
           <div className="flex flex-col md:flex-row gap-4 mb-6">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Поиск сотрудника..."
+                placeholder={t('crmPermissionsManager.searchEmployee')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -241,15 +249,15 @@ export function PermissionsManager() {
             </div>
             <Select value={selectedMember || ""} onValueChange={(v) => setSelectedMember(v)}>
               <SelectTrigger className="w-full md:w-[280px]">
-                <SelectValue placeholder="Выберите сотрудника" />
+                <SelectValue placeholder={t('crmPermissionsManager.selectEmployee')} />
               </SelectTrigger>
               <SelectContent>
-                {filteredMembers.map((m: any) => (
-                  <SelectItem key={m.user_id} value={m.user_id}>
+                {filteredMembers.map((member) => (
+                  <SelectItem key={member.user_id} value={member.user_id}>
                     <div className="flex items-center gap-2">
-                      <span>{(m.profiles as any)?.full_name || "Без имени"}</span>
+                      <span>{member.profiles?.full_name || t('crmPermissionsManager.noName')}</span>
                       <Badge variant="outline" className="text-xs">
-                        {ROLE_LABELS[m.role] || m.role}
+                        {ROLE_LABELS[member.role.toLowerCase()] || member.role}
                       </Badge>
                     </div>
                   </SelectItem>
@@ -271,15 +279,15 @@ export function PermissionsManager() {
                 <div className="flex items-center gap-3">
                   <Avatar className="w-10 h-10">
                     <AvatarFallback className="bg-primary/10 text-primary text-sm">
-                      {((selectedMemberData as any)?.profiles as any)?.full_name?.[0] || "?"}
+                      {selectedMemberData?.profiles?.full_name?.[0] || "?"}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <p className="font-medium text-foreground">
-                      {((selectedMemberData as any)?.profiles as any)?.full_name || "Без имени"}
+                      {selectedMemberData?.profiles?.full_name || t('crmPermissionsManager.noName')}
                     </p>
                     <Badge variant="outline" className="text-xs">
-                      {ROLE_LABELS[(selectedMemberData as any)?.role] || ""}
+                      {ROLE_LABELS[selectedMemberData?.role.toLowerCase() || ""] || ""}
                     </Badge>
                   </div>
                 </div>
@@ -288,7 +296,7 @@ export function PermissionsManager() {
                     onClick={() => initPermissions.mutate(selectedMember)}
                     className="text-sm text-primary hover:underline"
                   >
-                    Инициализировать по роли
+                    {t('crmPermissionsManager.initializeByRole')}
                   </button>
                 )}
               </div>
@@ -296,7 +304,7 @@ export function PermissionsManager() {
               {isAdmin ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Shield className="w-10 h-10 mx-auto mb-3 text-primary opacity-50" />
-                  <p>Администраторы клиники имеют полный доступ ко всем модулям</p>
+                  <p>{t('crmPermissionsManager.adminFullAccess')}</p>
                 </div>
               ) : permsLoading ? (
                 <div className="space-y-2">
@@ -308,10 +316,10 @@ export function PermissionsManager() {
                 <div className="border border-border/50 rounded-lg overflow-hidden">
                   {/* Table header */}
                   <div className="grid grid-cols-[1fr_80px_80px_100px] gap-2 p-3 bg-muted/30 text-xs font-medium text-muted-foreground border-b border-border/50">
-                    <span>Модуль</span>
-                    <span className="text-center">Просмотр</span>
-                    <span className="text-center">Редакт.</span>
-                    <span className="text-center">Управление</span>
+                    <span>{t('crmPermissionsManager.module')}</span>
+                    <span className="text-center">{t('crmPermissionsManager.view')}</span>
+                    <span className="text-center">{t('crmPermissionsManager.edit')}</span>
+                    <span className="text-center">{t('crmPermissionsManager.manage')}</span>
                   </div>
 
                   {MODULES.map((mod) => {
@@ -373,7 +381,7 @@ export function PermissionsManager() {
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p>Выберите сотрудника для настройки прав</p>
+              <p>{t('crmPermissionsManager.selectEmployeeForPermissions')}</p>
             </div>
           )}
         </CardContent>

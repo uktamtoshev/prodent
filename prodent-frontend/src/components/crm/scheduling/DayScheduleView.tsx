@@ -1,16 +1,33 @@
-import { useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { format, startOfDay, addHours, setHours, setMinutes } from "date-fns";
 import { ru } from "date-fns/locale";
-import { DndContext, DragEndEvent, DragOverlay, pointerWithin } from "@dnd-kit/core";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  pointerWithin,
+} from "@dnd-kit/core";
 import { supabase } from "@/integrations/supabase/client";
 import { useClinic } from "@/contexts/ClinicContext";
 import { fetchClinicDoctors } from "@/hooks/useClinicDoctors";
 import { toast } from "sonner";
 import { DraggableAppointmentCard } from "../calendar/DraggableAppointmentCard";
 import { DroppableTimeSlot } from "../calendar/DroppableTimeSlot";
-import { AppointmentModal } from "../calendar/AppointmentModal";
-import { AppointmentData, AppointmentStatus } from "../calendar/appointmentConstants";
+import {
+  AppointmentData,
+  AppointmentStatus,
+  appointmentMatchesStatus,
+  getAppointmentHour,
+} from "../calendar/appointmentConstants";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { placeAppointment } from "@/lib/appointment-api";
+
+const AppointmentModal = lazy(() =>
+  import("../calendar/AppointmentModal").then((module) => ({
+    default: module.AppointmentModal,
+  })),
+);
 
 interface Doctor {
   id: string;
@@ -34,24 +51,19 @@ export const DayScheduleView = ({
   selectedDoctor,
   selectedStatus,
 }: DayScheduleViewProps) => {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [appointments, setAppointments] = useState<AppointmentData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentData | null>(null);
+  const [selectedAppointment, setSelectedAppointment] =
+    useState<AppointmentData | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 8:00 - 20:00
   const currentHour = new Date().getHours();
-
-  useEffect(() => {
-    if (currentClinic) {
-      loadDoctors();
-      loadAppointments();
-    }
-  }, [currentClinic, selectedDate]);
 
   // Scroll to current time on mount
   useEffect(() => {
@@ -60,18 +72,18 @@ export const DayScheduleView = ({
       const rowHeight = 100; // Approximate height per hour row
       scrollRef.current.scrollTop = Math.max(0, hourIndex * rowHeight - 100);
     }
-  }, [loading]);
+  }, [currentHour, loading]);
 
-  const loadDoctors = async () => {
+  const loadDoctors = useCallback(async () => {
     try {
       const data = await fetchClinicDoctors(currentClinic!.id);
       setDoctors(data as Doctor[]);
     } catch (error) {
       console.error("Error loading doctors:", error);
     }
-  };
+  }, [currentClinic]);
 
-  const loadAppointments = async () => {
+  const loadAppointments = useCallback(async () => {
     try {
       setLoading(true);
       const startOfDayDate = startOfDay(selectedDate);
@@ -84,20 +96,25 @@ export const DayScheduleView = ({
         .eq("role", "patient")
         .not("assigned_doctor_id", "is", null);
 
-      const personalPatientIds = new Set(personalPatients?.map(p => p.user_id) || []);
+      const personalPatientIds = new Set(
+        personalPatients?.map((p) => p.user_id) || [],
+      );
 
       const { data, error } = await supabase
         .from("appointments")
-        .select(`
+        .select(
+          `
           id,
           appointment_date,
+          start_time,
+          room_id,
           service,
           status,
           notes,
           doctor_id,
           patient_id,
           guest_patient_id,
-          price,
+          total_price,
           profiles:patient_id (
             full_name,
             phone
@@ -111,7 +128,8 @@ export const DayScheduleView = ({
           doctors:doctor_id (
             cooperation_type
           )
-        `)
+        `,
+        )
         .eq("clinic_id", currentClinic!.id)
         .gte("appointment_date", startOfDayDate.toISOString())
         .lt("appointment_date", endOfDayDate.toISOString())
@@ -119,11 +137,12 @@ export const DayScheduleView = ({
 
       if (error) throw error;
 
-      const appointmentsWithType = (data || []).map(apt => ({
+      const appointmentsWithType = (data || []).map((apt) => ({
         ...apt,
-        isPersonalPatient: personalPatientIds.has(apt.patient_id || '') ||
-          (apt.doctors as any)?.cooperation_type === 'chair_rental',
-        isGuestPatient: !!apt.guest_patient_id
+        isPersonalPatient:
+          personalPatientIds.has(apt.patient_id || "") ||
+          apt.doctors?.cooperation_type === "chair_rental",
+        isGuestPatient: !!apt.guest_patient_id,
       }));
 
       setAppointments(appointmentsWithType);
@@ -132,7 +151,14 @@ export const DayScheduleView = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentClinic, selectedDate]);
+
+  useEffect(() => {
+    if (currentClinic) {
+      loadDoctors();
+      loadAppointments();
+    }
+  }, [currentClinic, loadAppointments, loadDoctors]);
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -144,42 +170,46 @@ export const DayScheduleView = ({
     const [doctorId, hourStr] = (over.id as string).split("-");
     const hour = parseInt(hourStr);
 
-    const appointment = appointments.find(a => a.id === appointmentId);
+    const appointment = appointments.find((a) => a.id === appointmentId);
     if (!appointment) return;
 
     const newDate = setMinutes(setHours(new Date(selectedDate), hour), 0);
 
     try {
-      const { error } = await supabase
-        .from("appointments")
-        .update({
-          doctor_id: doctorId,
-          appointment_date: newDate.toISOString(),
-        })
-        .eq("id", appointmentId);
+      await placeAppointment({
+        appointmentId,
+        doctorId,
+        roomId: appointment.room_id ?? null,
+        appointmentDate: format(newDate, "yyyy-MM-dd"),
+        startTime: format(newDate, "HH:mm"),
+      });
 
-      if (error) throw error;
-
-      toast.success("Запись перенесена");
+      toast.success(t("crmDayView.apptMoved"));
       loadAppointments();
     } catch (error) {
       console.error("Error moving appointment:", error);
-      toast.error("Ошибка переноса записи");
+      toast.error(t("crmDayView.moveApptError"));
     }
   };
 
-  const filteredDoctors = selectedDoctor === "all"
-    ? doctors
-    : doctors.filter(d => d.id === selectedDoctor);
+  const filteredDoctors =
+    selectedDoctor === "all"
+      ? doctors
+      : doctors.filter((d) => d.id === selectedDoctor);
 
   const getFilteredAppointments = (doctorId: string, hour: number) => {
     return appointments.filter((apt) => {
-      const aptDate = new Date(apt.appointment_date);
       const matchesDoctor = apt.doctor_id === doctorId;
-      const matchesHour = aptDate.getHours() === hour;
-      const matchesStatus = selectedStatus === "all" || apt.status === selectedStatus;
-      const matchesSearch = !searchQuery || 
-        apt.profiles?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      const matchesHour = getAppointmentHour(apt) === hour;
+      const matchesStatus = appointmentMatchesStatus(
+        apt.status,
+        selectedStatus,
+      );
+      const matchesSearch =
+        !searchQuery ||
+        apt.profiles?.full_name
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
         apt.service?.toLowerCase().includes(searchQuery.toLowerCase());
       return matchesDoctor && matchesHour && matchesStatus && matchesSearch;
     });
@@ -187,10 +217,15 @@ export const DayScheduleView = ({
 
   const isCurrentHour = (hour: number) => {
     const now = new Date();
-    return startOfDay(selectedDate).getTime() === startOfDay(now).getTime() && hour === currentHour;
+    return (
+      startOfDay(selectedDate).getTime() === startOfDay(now).getTime() &&
+      hour === currentHour
+    );
   };
 
-  const activeAppointment = activeId ? appointments.find(a => a.id === activeId) : null;
+  const activeAppointment = activeId
+    ? appointments.find((a) => a.id === activeId)
+    : null;
 
   return (
     <DndContext
@@ -198,72 +233,88 @@ export const DayScheduleView = ({
       onDragEnd={handleDragEnd}
       collisionDetection={pointerWithin}
     >
-      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 overflow-hidden shadow-sm">
-        {/* Header with doctors */}
-        <div
-          className="grid bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-700"
-          style={{ gridTemplateColumns: `80px repeat(${filteredDoctors.length || 1}, minmax(180px, 1fr))` }}
-        >
-          <div className="p-3 font-medium text-xs text-muted-foreground uppercase tracking-wide">
-            Время
-          </div>
-          {filteredDoctors.length > 0 ? (
-            filteredDoctors.map((doctor) => (
-              <div key={doctor.id} className="p-3 font-medium text-sm text-center border-l border-neutral-200 dark:border-neutral-700">
-                {doctor.profiles?.full_name || "Врач"}
-              </div>
-            ))
-          ) : (
-            <div className="p-3 font-medium text-sm text-center text-muted-foreground">
-              Нет врачей
-            </div>
-          )}
-        </div>
-
-        {/* Time slots */}
-        <div ref={scrollRef} className="max-h-[calc(100vh-350px)] overflow-y-auto">
-          {hours.map((hour) => (
+      <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/90 shadow-soft">
+        <div className="overflow-x-auto">
+          <div className="min-w-[720px]">
+            {/* Header with doctors */}
             <div
-              key={hour}
-              className={cn(
-                "grid border-t border-neutral-100 dark:border-neutral-700",
-                isCurrentHour(hour) && "bg-primary/5"
-              )}
-              style={{ gridTemplateColumns: `80px repeat(${filteredDoctors.length || 1}, minmax(180px, 1fr))` }}
+              className="sticky top-0 z-10 grid border-b border-border/60 bg-muted/80 backdrop-blur-sm"
+              style={{
+                gridTemplateColumns: `80px repeat(${filteredDoctors.length || 1}, minmax(180px, 1fr))`,
+              }}
             >
-              <div className={cn(
-                "p-3 text-sm font-medium",
-                isCurrentHour(hour) ? "text-primary" : "text-muted-foreground"
-              )}>
-                {`${hour}:00`}
+              <div className="p-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {t("crmDayView.time")}
               </div>
               {filteredDoctors.length > 0 ? (
                 filteredDoctors.map((doctor) => (
-                  <DroppableTimeSlot
-                    key={`${doctor.id}-${hour}`}
-                    id={`${doctor.id}-${hour}`}
-                    className="border-l border-neutral-100 dark:border-neutral-700 min-h-[100px]"
+                  <div
+                    key={doctor.id}
+                    className="border-l border-border/60 p-3 text-center text-sm font-semibold"
                   >
-                    {getFilteredAppointments(doctor.id, hour).map((apt) => (
-                      <DraggableAppointmentCard
-                        key={apt.id}
-                        appointment={apt}
-                        onUpdate={loadAppointments}
-                        onClick={() => {
-                          setSelectedAppointment(apt);
-                          setIsModalOpen(true);
-                        }}
-                      />
-                    ))}
-                  </DroppableTimeSlot>
+                    {doctor.profiles?.full_name ||
+                      t("crmDayView.doctorFallback")}
+                  </div>
                 ))
               ) : (
-                <div className="border-l border-neutral-100 dark:border-neutral-700 min-h-[100px] p-2 text-center text-muted-foreground text-sm flex items-center justify-center">
-                  —
+                <div className="p-3 text-center text-sm font-medium text-muted-foreground">
+                  {t("crmDayView.allDoctors")}
                 </div>
               )}
             </div>
-          ))}
+
+            {/* Time slots */}
+            <div ref={scrollRef} className="max-h-[calc(100vh-350px)] overflow-y-auto bg-background/30">
+              {hours.map((hour) => (
+                <div
+                  key={hour}
+                  className={cn(
+                    "grid border-t border-border/40 transition-colors",
+                    isCurrentHour(hour) && "bg-primary/5",
+                  )}
+                  style={{
+                    gridTemplateColumns: `80px repeat(${filteredDoctors.length || 1}, minmax(180px, 1fr))`,
+                  }}
+                >
+                  <div
+                    className={cn(
+                      "bg-card/45 p-3 text-sm font-medium",
+                      isCurrentHour(hour)
+                        ? "text-primary"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    {`${hour}:00`}
+                  </div>
+                  {filteredDoctors.length > 0 ? (
+                    filteredDoctors.map((doctor) => (
+                      <DroppableTimeSlot
+                        key={`${doctor.id}-${hour}`}
+                        id={`${doctor.id}-${hour}`}
+                        className="min-h-[104px] border-l border-border/40 p-1.5 transition-colors hover:bg-muted/30"
+                      >
+                        {getFilteredAppointments(doctor.id, hour).map((apt) => (
+                          <DraggableAppointmentCard
+                            key={apt.id}
+                            appointment={apt}
+                            onUpdate={loadAppointments}
+                            onClick={() => {
+                              setSelectedAppointment(apt);
+                              setIsModalOpen(true);
+                            }}
+                          />
+                        ))}
+                      </DroppableTimeSlot>
+                    ))
+                  ) : (
+                    <div className="flex min-h-[104px] items-center justify-center border-l border-border/40 p-2 text-center text-sm text-muted-foreground">
+                      —
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -278,12 +329,16 @@ export const DayScheduleView = ({
         )}
       </DragOverlay>
 
-      <AppointmentModal
-        appointment={selectedAppointment}
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
-        onUpdate={loadAppointments}
-      />
+      {isModalOpen && selectedAppointment && (
+        <Suspense fallback={null}>
+          <AppointmentModal
+            appointment={selectedAppointment}
+            open={isModalOpen}
+            onOpenChange={setIsModalOpen}
+            onUpdate={loadAppointments}
+          />
+        </Suspense>
+      )}
     </DndContext>
   );
 };

@@ -1,29 +1,31 @@
-import { useState } from "react";
-import { Check, Building2, Users, ListChecks, Calendar, UserPlus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, Users, ListChecks, Calendar, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useClinic } from "@/contexts/ClinicContext";
-import { StepClinicSetup } from "./steps/StepClinicSetup";
 import { StepTeam } from "./steps/StepTeam";
 import { StepPriceList } from "./steps/StepPriceList";
 import { StepSchedule } from "./steps/StepSchedule";
 import { StepFirstAppointment } from "./steps/StepFirstAppointment";
 import { StepComplete } from "./steps/StepComplete";
-import { supabase } from "@/integrations/supabase/client";
-import type { Json } from "@/integrations/supabase/types";
-
-const STEPS = [
-  { id: "clinic", title: "Клиника", icon: Building2, description: "Основные данные" },
-  { id: "team", title: "Команда", icon: Users, description: "Добавьте врачей" },
-  { id: "services", title: "Прайс-лист", icon: ListChecks, description: "Настройте услуги" },
-  { id: "schedule", title: "Расписание", icon: Calendar, description: "Рабочие часы" },
-  { id: "appointment", title: "Первая запись", icon: UserPlus, description: "Запишите пациента" },
-];
+import { useLanguage } from "@/contexts/LanguageContext";
+import { saveClinicSetting } from "@/lib/clinic-settings";
+import { toast } from "sonner";
 
 interface OnboardingWizardProps {
   onComplete: () => void;
 }
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+  const { t } = useLanguage();
+  // The clinic's own details (name, phone, region/district, address, map point,
+  // description) come from the application the admin approved — asking for them
+  // again here was a duplicate, and the clinic cannot edit verified data itself.
+  const STEPS = useMemo(() => [
+    { id: "team", title: t('crmOnboarding.stepTeam'), icon: Users, description: t('crmOnboarding.stepTeamDesc') },
+    { id: "services", title: t('crmOnboarding.stepServices'), icon: ListChecks, description: t('crmOnboarding.stepServicesDesc') },
+    { id: "schedule", title: t('crmOnboarding.stepSchedule'), icon: Calendar, description: t('crmOnboarding.stepScheduleDesc') },
+    { id: "appointment", title: t('crmOnboarding.stepAppt'), icon: UserPlus, description: t('crmOnboarding.stepApptDesc') },
+  ], [t]);
   const [currentStep, setCurrentStep] = useState(0);
   const [completed, setCompleted] = useState(false);
   const { currentClinic } = useClinic();
@@ -45,18 +47,14 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   };
 
   const markOnboardingComplete = async () => {
-    if (currentClinic?.id) {
-      await supabase.from("clinic_settings").upsert(
-        [{
-          clinic_id: currentClinic.id,
-          key: "onboarding_completed",
-          value: true as unknown as Json,
-          description: "Онбординг завершён",
-        }],
-        { onConflict: "clinic_id,key" }
-      );
+    try {
+      if (currentClinic?.id) {
+        await saveClinicSetting(currentClinic.id, "onboarding_completed", true);
+      }
+      setCompleted(true);
+    } catch {
+      toast.error(t('crmStepSchedule.saveError'));
     }
-    setCompleted(true);
   };
 
   if (completed) {
@@ -107,18 +105,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           })}
         </div>
         <p className="text-center text-sm text-muted-foreground mt-4">
-          Шаг {currentStep + 1} из {STEPS.length}: {STEPS[currentStep].description}
+          {t('crmOnboarding.stepLabel')} {currentStep + 1} {t('crmOnboarding.stepOf')} {STEPS.length}: {STEPS[currentStep].description}
         </p>
       </div>
 
       {/* Step content */}
       <div className="flex-1 px-4 lg:px-8 pb-8">
         <div className="max-w-2xl mx-auto">
-          {currentStep === 0 && <StepClinicSetup onNext={handleNext} />}
-          {currentStep === 1 && <StepTeam onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
-          {currentStep === 2 && <StepPriceList onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
-          {currentStep === 3 && <StepSchedule onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
-          {currentStep === 4 && <StepFirstAppointment onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
+          {currentStep === 0 && <StepTeam onNext={handleNext} onSkip={handleSkip} />}
+          {currentStep === 1 && <StepPriceList onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
+          {currentStep === 2 && <StepSchedule onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
+          {currentStep === 3 && <StepFirstAppointment onNext={handleNext} onBack={handleBack} onSkip={handleSkip} />}
         </div>
       </div>
     </div>

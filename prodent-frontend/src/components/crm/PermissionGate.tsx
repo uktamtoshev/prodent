@@ -1,6 +1,7 @@
 import { useModulePermissions, ModuleName, PermissionLevel } from "@/hooks/useModulePermissions";
 import { ShieldAlert } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface PermissionGateProps {
   module: ModuleName;
@@ -17,6 +18,7 @@ export function PermissionGate({
   fallback,
   silent = false,
 }: PermissionGateProps) {
+  const { t } = useLanguage();
   const { hasPermission, isLoading } = useModulePermissions();
 
   if (isLoading) return null;
@@ -29,8 +31,8 @@ export function PermissionGate({
       <Card className="border-border/50 bg-card/80">
         <CardContent className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <ShieldAlert className="w-12 h-12 mb-4 opacity-50 text-destructive" />
-          <p className="text-lg font-medium text-foreground mb-1">Доступ ограничен</p>
-          <p className="text-sm">У вас нет прав для просмотра этого раздела</p>
+          <p className="text-lg font-medium text-foreground mb-1">{t('crmTopLevel.accessRestricted')}</p>
+          <p className="text-sm">{t('crmTopLevel.noPermission')}</p>
         </CardContent>
       </Card>
     );

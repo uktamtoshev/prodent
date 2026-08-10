@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { lazy, Suspense, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -12,19 +12,33 @@ import { Loader2, Upload, CheckCircle, ImagePlus, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { DoctorPartnershipAgreement } from "./DoctorPartnershipAgreement";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { AvatarCropper } from "@/components/ui/avatar-cropper";
 import { LocationSelector } from "./LocationSelector";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+const AvatarCropper = lazy(() =>
+  import("@/components/ui/avatar-cropper").then((module) => ({ default: module.AvatarCropper })),
+);
 
 export function DoctorApplicationForm() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [agreementAccepted, setAgreementAccepted] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const clearError = (field: string) =>
+    setErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
   const [formData, setFormData] = useState({
     specialty: "",
     experienceYears: "",
     education: "",
     bio: "",
-    country: "Узбекистан",
+    country: t("auth.uzbekistan"),
     region: "",
     district: "",
     address: "",
@@ -57,9 +71,10 @@ export function DoctorApplicationForm() {
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(croppedBlob));
     setTempImageSrc(null);
+    clearError("photo");
   };
 
-  const handleFileUpload = async (file: File, folder: string) => {
+  const handleFileUpload = async (file: File, bucket: string, folder: string) => {
     const user = (await supabase.auth.getUser()).data.user;
     if (!user) throw new Error("User not authenticated");
 
@@ -67,44 +82,49 @@ export function DoctorApplicationForm() {
     const fileName = `${user.id}/${folder}/${Date.now()}.${fileExt}`;
 
     const { error: uploadError } = await supabase.storage
-      .from("application-documents")
+      .from(bucket)
       .upload(fileName, file);
 
     if (uploadError) throw uploadError;
 
     const { data } = supabase.storage
-      .from("application-documents")
+      .from(bucket)
       .getPublicUrl(fileName);
 
     return data.publicUrl;
   };
 
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.specialty.trim()) newErrors.specialty = t("auth.fieldRequired");
+    if (!formData.experienceYears.trim()) newErrors.experienceYears = t("auth.fieldRequired");
+    if (!formData.education.trim()) newErrors.education = t("auth.fieldRequired");
+    if (!formData.region) newErrors.region = t("auth.errRegion");
+    if (!formData.address.trim()) newErrors.address = t("auth.errAddress");
+    if (!photoFile) newErrors.photo = t("auth.uploadProfilePhoto");
+    if (!licenseFile) newErrors.license = t("auth.fieldRequired");
+    if (!diplomaFile) newErrors.diploma = t("auth.fieldRequired");
+    if (!agreementAccepted) newErrors.agreement = t("auth.partnershipAcceptRequired");
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!validate()) {
+      toast.error(t("auth.fillRequiredFields"));
+      return;
+    }
+
     setLoading(true);
 
     try {
-      if (!agreementAccepted) {
-        toast.error("Необходимо принять условия партнёрского соглашения");
-        setLoading(false);
-        return;
-      }
-
-      if (!photoFile) {
-        toast.error("Загрузите фото профиля");
-        setLoading(false);
-        return;
-      }
-
-      if (!licenseFile || !diplomaFile) {
-        toast.error("Загрузите все обязательные документы");
-        setLoading(false);
-        return;
-      }
-
       const user = (await supabase.auth.getUser()).data.user;
       if (!user) {
-        toast.error("Пользователь не авторизован");
+        toast.error(t("auth.userNotAuthed"));
         return;
       }
 
@@ -113,15 +133,17 @@ export function DoctorApplicationForm() {
         const meta = user.user_metadata;
         if (meta?.full_name) return meta.full_name;
         const parts = [meta?.last_name, meta?.first_name, meta?.middle_name].filter(Boolean);
-        return parts.join(" ") || "Врач";
+        return parts.join(" ") || t("auth.doctorFallbackName");
       };
 
       // Get or create profile
-      let { data: profileData, error: profileError } = await supabase
+      const profileResult = await supabase
         .from("profiles")
         .select("*")
         .eq("id", user.id)
         .single();
+      let profileData = profileResult.data;
+      const profileError = profileResult.error;
 
       const fullName = buildFullName();
 
@@ -139,7 +161,7 @@ export function DoctorApplicationForm() {
         
         if (createError) {
           console.error("Error creating profile:", createError);
-          toast.error("Ошибка создания профиля");
+          toast.error(t("auth.profileCreationError"));
           return;
         }
         profileData = newProfile;
@@ -152,10 +174,10 @@ export function DoctorApplicationForm() {
         profileData.full_name = fullName;
       }
 
-      // Upload documents and photo
-      const licenseUrl = await handleFileUpload(licenseFile, "licenses");
-      const diplomaUrl = await handleFileUpload(diplomaFile, "diplomas");
-      const photoUrl = await handleFileUpload(photoFile!, "photos");
+      // Upload documents (private) and photo (public so it renders on doctor cards)
+      const licenseUrl = await handleFileUpload(licenseFile, "documents", "doctor-licenses");
+      const diplomaUrl = await handleFileUpload(diplomaFile, "documents", "doctor-diplomas");
+      const photoUrl = await handleFileUpload(photoFile!, "doctor-photos", "photos");
 
       // Update profile with photo
       await supabase
@@ -169,10 +191,10 @@ export function DoctorApplicationForm() {
         specialty: formData.specialty,
         experience_years: parseInt(formData.experienceYears),
         education: formData.education,
-        certifications: certifications.filter((c) => c.trim() !== ""),
+        // The doctors table column is `certificates` (jsonb), not `certifications`.
+        certificates: certifications.filter((c) => c.trim() !== ""),
         bio: formData.bio,
         price_from: 100000,
-        verified: false,
         images: photoUrl ? [photoUrl] : null,
         address: `${formData.region}, ${formData.district}, ${formData.address}`,
         latitude: formData.latitude,
@@ -184,7 +206,7 @@ export function DoctorApplicationForm() {
       // Add doctor role to user_roles
       await supabase.from("user_roles").insert({
         user_id: user.id,
-        role: "doctor" as any,
+        role: "doctor",
       });
 
       // Create application for verification tracking
@@ -207,14 +229,14 @@ export function DoctorApplicationForm() {
 
       if (error) throw error;
 
-      toast.success("Заявка отправлена на проверку!", {
-        description: "Мы проверим ваши документы в течение 1-2 рабочих дней",
+      toast.success(t("auth.applicationSent"), {
+        description: t("auth.applicationSentDesc"),
       });
 
       setTimeout(() => navigate("/"), 2000);
-    } catch (error: any) {
-      toast.error("Ошибка отправки заявки", {
-        description: error.message,
+    } catch (error: unknown) {
+      toast.error(t("auth.applicationError"), {
+        description: error instanceof Error ? error.message : t("auth.applicationError"),
       });
     } finally {
       setLoading(false);
@@ -222,7 +244,7 @@ export function DoctorApplicationForm() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" data-testid="application-form-doctor">
       <Header />
       
       <main className="flex-1 container mx-auto px-4 py-12">
@@ -230,17 +252,17 @@ export function DoctorApplicationForm() {
           <CardHeader>
             <CardTitle className="text-2xl flex items-center gap-2">
               <CheckCircle className="h-6 w-6 text-primary" />
-              Заявка на регистрацию врача
+              {t("auth.doctorAppTitle")}
             </CardTitle>
             <CardDescription>
-              Заполните все поля и загрузите необходимые документы. Ваша заявка будет проверена администратором в течение 1-2 рабочих дней.
+              {t("auth.doctorAppDesc")}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               {/* Photo upload section */}
               <div className="space-y-3">
-                <Label>Фото профиля *</Label>
+                <Label>{t("auth.profilePhotoLbl")}</Label>
                 <div className="flex items-center gap-4">
                   <div className="relative group">
                     <Avatar className="h-24 w-24 border-2 border-dashed border-muted-foreground/50">
@@ -267,74 +289,80 @@ export function DoctorApplicationForm() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-muted-foreground">
-                      Загрузите качественное фото для вашего профиля. Это первое, что увидят пациенты.
+                      {t("auth.photoQualityHint")}
                     </p>
                     {photoFile && (
                       <p className="text-sm text-green-600 flex items-center gap-1 mt-1">
-                        <CheckCircle className="h-4 w-4" /> Фото выбрано
+                        <CheckCircle className="h-4 w-4" /> {t("auth.photoSelectedShort")}
                       </p>
                     )}
+                    {errors.photo && <p className="text-sm text-destructive mt-1">{errors.photo}</p>}
                   </div>
                 </div>
               </div>
 
               {/* Avatar Cropper Dialog */}
               {tempImageSrc && (
-                <AvatarCropper
-                  open={cropperOpen}
-                  onClose={() => {
-                    setCropperOpen(false);
-                    setTempImageSrc(null);
-                    if (fileInputRef.current) {
-                      fileInputRef.current.value = "";
-                    }
-                  }}
-                  imageSrc={tempImageSrc}
-                  onCropComplete={handleCropComplete}
-                />
+                <Suspense fallback={null}>
+                  <AvatarCropper
+                    open={cropperOpen}
+                    onClose={() => {
+                      setCropperOpen(false);
+                      setTempImageSrc(null);
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = "";
+                      }
+                    }}
+                    imageSrc={tempImageSrc}
+                    onCropComplete={handleCropComplete}
+                  />
+                </Suspense>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="specialty">Специализация *</Label>
+                <Label htmlFor="specialty">{t("auth.specializationLbl")}</Label>
                 <Input
                   id="specialty"
-                  placeholder="Например: Стоматолог-терапевт"
+                  placeholder={t("auth.specializationPh")}
                   value={formData.specialty}
-                  onChange={(e) => setFormData({ ...formData, specialty: e.target.value })}
-                  required
+                  onChange={(e) => { setFormData({ ...formData, specialty: e.target.value }); if (e.target.value.trim()) clearError("specialty"); }}
+                  className={errors.specialty ? "border-destructive" : ""}
                 />
+                {errors.specialty && <p className="text-sm text-destructive">{errors.specialty}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="experience">Опыт работы (лет) *</Label>
+                <Label htmlFor="experience">{t("auth.experienceLbl")}</Label>
                 <Input
                   id="experience"
                   type="number"
                   min="0"
                   value={formData.experienceYears}
-                  onChange={(e) => setFormData({ ...formData, experienceYears: e.target.value })}
-                  required
+                  onChange={(e) => { setFormData({ ...formData, experienceYears: e.target.value }); if (e.target.value.trim()) clearError("experienceYears"); }}
+                  className={errors.experienceYears ? "border-destructive" : ""}
                 />
+                {errors.experienceYears && <p className="text-sm text-destructive">{errors.experienceYears}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="education">Образование *</Label>
+                <Label htmlFor="education">{t("auth.educationDetailLbl")}</Label>
                 <Textarea
                   id="education"
-                  placeholder="Укажите учебное заведение, год окончания, специальность"
+                  placeholder={t("auth.educationDetailPh")}
                   value={formData.education}
-                  onChange={(e) => setFormData({ ...formData, education: e.target.value })}
-                  required
+                  onChange={(e) => { setFormData({ ...formData, education: e.target.value }); if (e.target.value.trim()) clearError("education"); }}
                   rows={3}
+                  className={errors.education ? "border-destructive" : ""}
                 />
+                {errors.education && <p className="text-sm text-destructive">{errors.education}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label>Сертификаты и курсы повышения квалификации</Label>
+                <Label>{t("auth.certificatesAndCourses")}</Label>
                 {certifications.map((cert, index) => (
                   <Input
                     key={index}
-                    placeholder="Название сертификата"
+                    placeholder={t("auth.certificateNamePh")}
                     value={cert}
                     onChange={(e) => {
                       const newCerts = [...certifications];
@@ -349,15 +377,15 @@ export function DoctorApplicationForm() {
                   size="sm"
                   onClick={() => setCertifications([...certifications, ""])}
                 >
-                  Добавить сертификат
+                  {t("auth.addCertificate")}
                 </Button>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="bio">О себе</Label>
+                <Label htmlFor="bio">{t("auth.aboutSelfLbl")}</Label>
                 <Textarea
                   id="bio"
-                  placeholder="Расскажите о своем опыте и достижениях"
+                  placeholder={t("auth.aboutSelfPh")}
                   value={formData.bio}
                   onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
                   rows={4}
@@ -366,7 +394,7 @@ export function DoctorApplicationForm() {
 
               {/* Location Selection */}
               <div className="space-y-4 pt-4 border-t">
-                <h3 className="font-semibold">Местоположение</h3>
+                <h3 className="font-semibold">{t("auth.location")}</h3>
                 <LocationSelector
                   country={formData.country}
                   region={formData.region}
@@ -374,57 +402,61 @@ export function DoctorApplicationForm() {
                   address={formData.address}
                   latitude={formData.latitude}
                   longitude={formData.longitude}
-                  onCountryChange={(value) => setFormData({ ...formData, country: value, region: "", district: "" })}
-                  onRegionChange={(value) => setFormData({ ...formData, region: value, district: "" })}
-                  onDistrictChange={(value) => setFormData({ ...formData, district: value })}
-                  onAddressChange={(value) => setFormData({ ...formData, address: value })}
-                  onLocationChange={(lat, lng) => setFormData({ ...formData, latitude: lat, longitude: lng })}
+                  onCountryChange={(value) => { setFormData((p) => ({ ...p, country: value, region: "", district: "" })); clearError("country"); clearError("region"); }}
+                  onRegionChange={(value) => { setFormData((p) => ({ ...p, region: value, district: "" })); clearError("region"); }}
+                  onDistrictChange={(value) => setFormData((p) => ({ ...p, district: value }))}
+                  onAddressChange={(value) => { setFormData((p) => ({ ...p, address: value })); if (value.trim()) clearError("address"); }}
+                  onLocationChange={(lat, lng) => setFormData((p) => ({ ...p, latitude: lat, longitude: lng }))}
                   disabled={loading}
+                  errors={{ region: errors.region, address: errors.address }}
                 />
               </div>
 
               <div className="space-y-4 pt-4 border-t">
-                <h3 className="font-semibold">Загрузка документов</h3>
-                
+                <h3 className="font-semibold">{t("auth.docsUploadHeading")}</h3>
+
                 <div className="space-y-2">
-                  <Label htmlFor="license-file">Лицензия (скан) *</Label>
+                  <Label htmlFor="license-file">{t("auth.licenseLbl")}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="license-file"
                       type="file"
                       accept="image/*,application/pdf"
-                      onChange={(e) => setLicenseFile(e.target.files?.[0] || null)}
-                      required
+                      onChange={(e) => { setLicenseFile(e.target.files?.[0] || null); if (e.target.files?.[0]) clearError("license"); }}
+                      className={errors.license ? "border-destructive" : ""}
                     />
                     {licenseFile && <CheckCircle className="h-5 w-5 text-green-500" />}
                   </div>
+                  {errors.license && <p className="text-sm text-destructive">{errors.license}</p>}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="diploma-file">Диплом (скан) *</Label>
+                  <Label htmlFor="diploma-file">{t("auth.diplomaLbl2")}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="diploma-file"
                       type="file"
                       accept="image/*,application/pdf"
-                      onChange={(e) => setDiplomaFile(e.target.files?.[0] || null)}
-                      required
+                      onChange={(e) => { setDiplomaFile(e.target.files?.[0] || null); if (e.target.files?.[0]) clearError("diploma"); }}
+                      className={errors.diploma ? "border-destructive" : ""}
                     />
                     {diplomaFile && <CheckCircle className="h-5 w-5 text-green-500" />}
                   </div>
+                  {errors.diploma && <p className="text-sm text-destructive">{errors.diploma}</p>}
                 </div>
               </div>
 
               <div className="pt-4 border-t">
                 <DoctorPartnershipAgreement
                   accepted={agreementAccepted}
-                  onAcceptChange={setAgreementAccepted}
+                  onAcceptChange={(v) => { setAgreementAccepted(v); if (v) clearError("agreement"); }}
                 />
+                {errors.agreement && <p className="text-sm text-destructive mt-2">{errors.agreement}</p>}
               </div>
 
-              <Button type="submit" className="w-full" disabled={loading || !agreementAccepted}>
+              <Button type="submit" className="w-full" disabled={loading}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Отправить заявку
+                {t("auth.submitApp")}
               </Button>
             </form>
           </CardContent>

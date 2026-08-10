@@ -52,7 +52,6 @@ export const BadgeDisplay: React.FC<BadgeDisplayProps> = ({
 
   const getBadgeName = (badge: ActiveBadge) => {
     if (language === "uz" && badge.name_uz) return badge.name_uz;
-    if (language === "en" && badge.name_en) return badge.name_en;
     return badge.name;
   };
 
@@ -101,7 +100,6 @@ export const SingleBadge: React.FC<SingleBadgeProps> = ({ badge, size = "md" }) 
 
   const getBadgeName = () => {
     if (language === "uz" && badge.name_uz) return badge.name_uz;
-    if (language === "en" && badge.name_en) return badge.name_en;
     return badge.name;
   };
 

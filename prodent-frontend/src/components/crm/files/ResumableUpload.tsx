@@ -5,17 +5,39 @@ import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Upload, X, Pause, Play, FileImage, FileText, Box, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface ResumableUploadProps {
   bucketName: string;
   folderPath: string;
-  onUploadComplete: (publicUrl: string, fileName: string) => void;
+  onUploadComplete: (
+    privateUrl: string,
+    fileName: string,
+  ) => void | Promise<void>;
   onCancel?: () => void;
   accept?: string;
   maxSize?: number; // in MB
 }
 
 type UploadStatus = 'idle' | 'uploading' | 'paused' | 'complete' | 'error';
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+const cleanupUploadedFile = async (bucket: string, path: string) => {
+  try {
+    const { error } = await supabase.storage.from(bucket).remove([path]);
+    if (error) {
+      console.error('Patient file cleanup failed; manual storage cleanup is required.');
+      return false;
+    }
+    return true;
+  } catch {
+    console.error('Patient file cleanup failed; manual storage cleanup is required.');
+    return false;
+  }
+};
 
 export function ResumableUpload({
   bucketName,
@@ -25,11 +47,17 @@ export function ResumableUpload({
   accept = '*',
   maxSize = 500,
 }: ResumableUploadProps) {
+  const { t } = useLanguage();
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<UploadStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [uploadSpeed, setUploadSpeed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [pendingCleanup, setPendingCleanup] = useState<{
+    bucket: string;
+    path: string;
+  } | null>(null);
+  const [cleanupRetrying, setCleanupRetrying] = useState(false);
   
   const uploadRef = useRef<tus.Upload | null>(null);
   const lastProgressRef = useRef<{ time: number; bytes: number }>({ time: 0, bytes: 0 });
@@ -50,7 +78,7 @@ export function ResumableUpload({
 
   const getFileIcon = (file: File) => {
     if (file.name.toLowerCase().endsWith('.stl')) return <Box className="w-8 h-8 text-primary" />;
-    if (file.type.startsWith('image/')) return <FileImage className="w-8 h-8 text-blue-500" />;
+    if (file.type.startsWith('image/')) return <FileImage className="w-8 h-8 text-status-info" />;
     return <FileText className="w-8 h-8 text-muted-foreground" />;
   };
 
@@ -60,7 +88,7 @@ export function ResumableUpload({
 
     // Check file size
     if (selectedFile.size > maxSize * 1024 * 1024) {
-      toast.error(`Файл слишком большой. Максимум ${maxSize} MB`);
+      toast.error(`${t('crmResumableUpload.fileTooLarge')} ${maxSize} MB`);
       return;
     }
 
@@ -68,10 +96,10 @@ export function ResumableUpload({
     setStatus('idle');
     setProgress(0);
     setError(null);
-  }, [maxSize]);
+  }, [maxSize, t]);
 
   const startUpload = useCallback(async () => {
-    if (!file) return;
+    if (!file || pendingCleanup) return;
 
     setStatus('uploading');
     setError(null);
@@ -81,7 +109,7 @@ export function ResumableUpload({
       // Get session for auth
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        throw new Error('Необходима авторизация');
+        throw new Error(t('crmResumableUpload.authRequired'));
       }
 
       const fileName = `${folderPath}/${Date.now()}_${file.name}`;
@@ -105,10 +133,10 @@ export function ResumableUpload({
         },
         chunkSize: 6 * 1024 * 1024, // 6MB chunks
         onError: (err) => {
-          console.error('Upload error:', err);
+          console.error('Patient resumable upload failed.');
           setStatus('error');
-          setError(err.message || 'Ошибка загрузки');
-          toast.error('Ошибка загрузки файла');
+          setError(err.message || t('crmResumableUpload.uploadError'));
+          toast.error(t('crmResumableUpload.uploadFileError'));
         },
         onProgress: (bytesUploaded, bytesTotal) => {
           const percentage = Math.round((bytesUploaded / bytesTotal) * 100);
@@ -124,14 +152,23 @@ export function ResumableUpload({
             lastProgressRef.current = { time: now, bytes: bytesUploaded };
           }
         },
-        onSuccess: () => {
-          setStatus('complete');
-          setProgress(100);
-          
-          // Get public URL
-          const { data } = supabase.storage.from(bucketName).getPublicUrl(fileName);
-          onUploadComplete(data.publicUrl, fileName);
-          toast.success('Файл успешно загружен');
+        onSuccess: async () => {
+          const privateUrl = `/api/v1/storage/${bucketName}/${fileName}`;
+          try {
+            await onUploadComplete(privateUrl, fileName);
+            setStatus('complete');
+            setProgress(100);
+            toast.success(t('crmResumableUpload.uploadSuccess'));
+          } catch {
+            const cleanedUp = await cleanupUploadedFile(bucketName, fileName);
+            if (!cleanedUp) {
+              setPendingCleanup({ bucket: bucketName, path: fileName });
+              toast.warning(t('crmResumableUpload.errorOccurred'));
+            }
+            setStatus('error');
+            setError(t('crmResumableUpload.uploadFileError'));
+            toast.error(t('crmResumableUpload.uploadFileError'));
+          }
         },
       });
 
@@ -144,13 +181,29 @@ export function ResumableUpload({
       }
 
       upload.start();
-    } catch (err: any) {
-      console.error('Upload setup error:', err);
+    } catch (err: unknown) {
+      console.error('Patient resumable upload setup failed.');
       setStatus('error');
-      setError(err.message);
-      toast.error('Ошибка настройки загрузки');
+      setError(getErrorMessage(err));
+      toast.error(t('crmResumableUpload.uploadSetupError'));
     }
-  }, [file, bucketName, folderPath, onUploadComplete]);
+  }, [file, bucketName, folderPath, onUploadComplete, pendingCleanup, t]);
+
+  const retryCleanup = useCallback(async () => {
+    if (!pendingCleanup || cleanupRetrying) return;
+
+    setCleanupRetrying(true);
+    const cleanedUp = await cleanupUploadedFile(
+      pendingCleanup.bucket,
+      pendingCleanup.path,
+    );
+    if (cleanedUp) {
+      setPendingCleanup(null);
+    } else {
+      toast.warning(t('crmResumableUpload.errorOccurred'));
+    }
+    setCleanupRetrying(false);
+  }, [cleanupRetrying, pendingCleanup, t]);
 
   const pauseUpload = useCallback(() => {
     if (uploadRef.current) {
@@ -204,9 +257,9 @@ export function ResumableUpload({
         >
           <div className="flex flex-col items-center gap-2 text-muted-foreground">
             <Upload className="w-10 h-10" />
-            <p className="font-medium">Нажмите для выбора файла</p>
+            <p className="font-medium">{t('crmResumableUpload.clickToSelect')}</p>
             <p className="text-xs">
-              Поддерживается до {maxSize} MB • STL, изображения, PDF
+              {t('crmResumableUpload.supportsUpTo')} {maxSize} MB • {t('crmResumableUpload.stlImagesPdf')}
             </p>
           </div>
         </label>
@@ -225,7 +278,7 @@ export function ResumableUpload({
               </p>
             </div>
             {status === 'idle' && (
-              <Button variant="ghost" size="icon" onClick={removeFile}>
+              <Button variant="ghost" size="icon" onClick={removeFile} aria-label={a11yLabel("close")}>
                 <X className="w-4 h-4" />
               </Button>
             )}
@@ -238,14 +291,14 @@ export function ResumableUpload({
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">
                   {status === 'complete' ? (
-                    <span className="flex items-center gap-1 text-green-600">
+                    <span className="flex items-center gap-1 text-status-success">
                       <CheckCircle className="w-4 h-4" />
-                      Загружено
+                      {t('crmResumableUpload.uploaded')}
                     </span>
                   ) : status === 'paused' ? (
-                    'Приостановлено'
+                    t('crmResumableUpload.paused')
                   ) : (
-                    'Загрузка...'
+                    t('crmResumableUpload.uploading')
                   )}
                 </span>
                 <span className="font-medium">{progress}%</span>
@@ -257,7 +310,7 @@ export function ResumableUpload({
           {status === 'error' && (
             <div className="flex items-center gap-2 text-destructive text-sm">
               <AlertCircle className="w-4 h-4" />
-              {error || 'Произошла ошибка'}
+              {error || t('crmResumableUpload.errorOccurred')}
             </div>
           )}
 
@@ -267,53 +320,68 @@ export function ResumableUpload({
               <>
                 <Button onClick={startUpload} className="flex-1">
                   <Upload className="w-4 h-4 mr-2" />
-                  Начать загрузку
+                  {t('crmResumableUpload.startUpload')}
                 </Button>
                 <Button variant="outline" onClick={cancelUpload}>
-                  Отмена
+                  {t('crmResumableUpload.cancel')}
                 </Button>
               </>
             )}
-            
+
             {status === 'uploading' && (
               <>
                 <Button variant="outline" onClick={pauseUpload} className="flex-1">
                   <Pause className="w-4 h-4 mr-2" />
-                  Пауза
+                  {t('crmResumableUpload.pauseBtn')}
                 </Button>
                 <Button variant="destructive" onClick={cancelUpload}>
-                  Отмена
+                  {t('crmResumableUpload.cancel')}
                 </Button>
               </>
             )}
-            
+
             {status === 'paused' && (
               <>
                 <Button onClick={resumeUpload} className="flex-1">
                   <Play className="w-4 h-4 mr-2" />
-                  Продолжить
+                  {t('crmResumableUpload.resumeBtn')}
                 </Button>
                 <Button variant="destructive" onClick={cancelUpload}>
-                  Отмена
+                  {t('crmResumableUpload.cancel')}
                 </Button>
               </>
             )}
-            
+
             {status === 'error' && (
               <>
-                <Button onClick={startUpload} className="flex-1">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Повторить
+                <Button
+                  onClick={pendingCleanup ? retryCleanup : startUpload}
+                  className="flex-1"
+                  disabled={cleanupRetrying}
+                  aria-label={
+                    pendingCleanup
+                      ? `${t('crmResumableUpload.retry')}: ${t('crmResumableUpload.errorOccurred')}`
+                      : undefined
+                  }
+                >
+                  {cleanupRetrying ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4 mr-2" />
+                  )}
+                  {t('crmResumableUpload.retry')}
                 </Button>
-                <Button variant="outline" onClick={cancelUpload}>
-                  Отмена
-                </Button>
+                {!pendingCleanup && (
+                  <Button variant="outline" onClick={cancelUpload}>
+                    {t('crmResumableUpload.cancel')}
+                  </Button>
+                )}
               </>
             )}
-            
+
             {status === 'complete' && (
               <Button variant="outline" onClick={cancelUpload} className="w-full">
-                Загрузить ещё
+                {t('crmResumableUpload.uploadMore')}
               </Button>
             )}
           </div>

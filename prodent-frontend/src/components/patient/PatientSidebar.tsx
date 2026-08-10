@@ -1,121 +1,89 @@
-import { Link, useLocation } from "react-router-dom";
-import { cn } from "@/lib/utils";
-import { useAuth } from "@/contexts/AuthContext";
-import { useProfile } from "@/hooks/useProfile";
-import { useTheme } from "next-themes";
-import { useLanguage } from "@/contexts/LanguageContext";
-import { 
-  LayoutDashboard, 
-  CalendarDays, 
-  FileHeart, 
+import { useMemo } from "react";
+import {
+  Bell,
+  CalendarDays,
   CreditCard,
-  Users,
-  MessageCircle,
+  FileHeart,
   FolderOpen,
   Heart,
-  Bell,
-  LogOut,
-  Moon,
-  Sun,
+  MessageCircle,
+  Plus,
   Shield,
+  LayoutDashboard,
+  Users,
+  UserRound,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useLanguage, Language } from "@/contexts/LanguageContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import { usePatientAccessRequests } from "@/hooks/useMedicalAccess";
-import prodentLogo from "@/assets/prodent-logo.png";
+import {
+  RoleSidebar,
+  RoleSidebarNavGroup,
+} from "@/components/shared/RoleSidebar";
+
+const GROUP_LABELS: Record<Language, { health: string; comm: string; personal: string }> = {
+  ru:      { health: "Здоровье",  comm: "Общение",    personal: "Личное" },
+  uz:      { health: "Sog‘liq",   comm: "Aloqalar",   personal: "Shaxsiy" },
+  uz_cyrl: { health: "Соғлиқ",    comm: "Алоқалар",   personal: "Шахсий" },
+  kz:      { health: "Денсаулық", comm: "Хабарласу",  personal: "Жеке" },
+  kg:      { health: "Ден соолук", comm: "Байланыш",  personal: "Жеке" },
+  tj:      { health: "Саломатӣ",  comm: "Алоқа",      personal: "Шахсӣ" },
+};
 
 export function PatientSidebar() {
-  const location = useLocation();
-  const { signOut, user } = useAuth();
-  const { displayName } = useProfile();
-  const { theme, setTheme } = useTheme();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { unreadCount } = useNotifications();
   const { data: accessRequests } = usePatientAccessRequests();
-  
-  const pendingAccessCount = accessRequests?.filter(r => r.status === 'pending').length || 0;
 
-  const navigation = [
-    { name: t('patient.dashboard'), href: "/patient/dashboard", icon: LayoutDashboard },
-    { name: t('patient.appointments'), href: "/patient/appointments", icon: CalendarDays },
-    { name: t('patient.medical'), href: "/patient/medical", icon: FileHeart },
-    { name: "Доступ к медкарте", href: "/patient/access", icon: Shield, badge: pendingAccessCount },
-    { name: t('patient.payments'), href: "/patient/billing", icon: CreditCard },
-    { name: t('patient.doctors'), href: "/patient/my-doctors", icon: Users },
-    { name: t('patient.messages'), href: "/patient/messages", icon: MessageCircle },
-    { name: "Уведомления", href: "/patient/notifications", icon: Bell, badge: unreadCount },
-    { name: t('patient.files'), href: "/patient/files", icon: FolderOpen },
-    { name: t('patient.family'), href: "/patient/family", icon: Heart },
-  ];
+  const pendingAccess =
+    accessRequests?.filter((r) => r.status === "pending").length || 0;
+  const L = GROUP_LABELS[language];
+
+  const groups: RoleSidebarNavGroup[] = useMemo(
+    () => [
+      // Overview — landing + the primary CTA "book appointment".
+      {
+        items: [
+          { title: t("patient.dashboard"),       path: "/patient/dashboard",    icon: LayoutDashboard, end: true },
+          { title: t("patient.bookAppointment"), path: "/patient/book",         icon: Plus },
+        ],
+      },
+      // Здоровье — everything medical-records / clinical.
+      {
+        label: L.health,
+        items: [
+          { title: t("patient.appointments"), path: "/patient/appointments", icon: CalendarDays },
+          { title: t("patient.medical"),      path: "/patient/medical",      icon: FileHeart },
+          { title: t("patient.access"),       path: "/patient/access",       icon: Shield, badge: pendingAccess },
+          { title: t("patient.doctors"),      path: "/patient/my-doctors",   icon: Users },
+        ],
+      },
+      // Общение — chats and pings.
+      {
+        label: L.comm,
+        items: [
+          { title: t("patient.messages"),      path: "/patient/messages",      icon: MessageCircle },
+          { title: t("patient.notifications"), path: "/patient/notifications", icon: Bell, badge: unreadCount },
+        ],
+      },
+      // Личное — money / files / family.
+      {
+        label: L.personal,
+        items: [
+          { title: t("patient.payments"), path: "/patient/billing", icon: CreditCard },
+          { title: t("patient.files"),    path: "/patient/files",   icon: FolderOpen },
+          { title: t("patient.family"),   path: "/patient/family",  icon: Heart },
+          { title: t("patient.profile"),  path: "/profile",         icon: UserRound },
+        ],
+      },
+    ],
+    [t, L, unreadCount, pendingAccess]
+  );
 
   return (
-    <div className="flex flex-col h-full bg-card/50 backdrop-blur-xl border-r border-border/50">
-      <div className="p-6 border-b border-border/50">
-        <Link to="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <img 
-            src={prodentLogo} 
-            alt="PRODENT" 
-            className="h-10 object-contain"
-          />
-        </Link>
-      </div>
-
-      <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {navigation.map((item) => {
-          const isActive = location.pathname === item.href;
-          return (
-            <Link
-              key={item.name}
-              to={item.href}
-              className={cn(
-                "flex items-center justify-between gap-3 px-4 py-3 rounded-prodent-btn text-[15px] font-medium transition-all duration-150",
-                isActive
-                  ? "bg-primary text-primary-foreground shadow-medium hover:bg-primary/90"
-                  : "text-foreground/80 hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              <div className="flex items-center gap-3">
-                <item.icon className="w-5 h-5" />
-                {item.name}
-              </div>
-              {item.badge && item.badge > 0 && (
-                <Badge variant={isActive ? "secondary" : "destructive"} className="h-5 min-w-5 px-1.5 text-xs">
-                  {item.badge > 99 ? "99+" : item.badge}
-                </Badge>
-              )}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div className="p-4 border-t border-border/50 space-y-2">
-        <div className="flex items-center justify-between px-2">
-          <span className="text-xs text-muted-foreground truncate max-w-[150px]">
-            {displayName}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-        <Button
-          variant="ghost"
-          className="w-full justify-start gap-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-          onClick={signOut}
-        >
-          <LogOut className="w-4 h-4" />
-          {t('nav.logout')}
-        </Button>
-      </div>
-    </div>
+    <RoleSidebar
+      roleLabel={t("patient.patientLabel")}
+      items={groups}
+    />
   );
 }

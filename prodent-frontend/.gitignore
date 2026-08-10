@@ -1,0 +1,64 @@
+# ===== OS =====
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.iml
+.project
+.settings/
+.classpath
+
+# ===== Claude Code =====
+.claude/settings.local.json
+TASKS.md
+dashboard.html
+
+# ===== Secrets / Env =====
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ===== Runtime / Logs =====
+.logs/
+*.log
+*.pid
+dump.rdb
+redis_data/
+postgres_data/
+uploads/
+
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+*.war
+!prodent-backend/.mvn/wrapper/maven-wrapper.jar
+build/
+.gradle/
+
+# ===== Node / Vite =====
+node_modules/
+dist/
+dist-tooth/
+dist-ssr/
+.vite/
+.cache/
+coverage/
+playwright-report/
+test-results/
+public/decoders/
+# Generated development-only dental model; never ship it in the production bundle.
+public/models/tooth.demo.glb
+*.tsbuildinfo
+eslint-current.json
+
+# ===== Archive (local reference only) =====
+# Contains legacy Supabase project (dental-pro-project) and old frontend (prodent-frontend-new).
+# To share with the team, remove this line and add a release tag.
+archive/

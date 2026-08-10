@@ -3,138 +3,276 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { LanguageProvider } from "@/contexts/LanguageContext";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useParams } from "react-router-dom";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { analytics } from "@/lib/analytics";
+import { getAppTranslationNamespaces } from "@/i18n/route-namespaces";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { AdminProvider } from "@/contexts/AdminContext";
 import { ClinicProvider } from "@/contexts/ClinicContext";
-import Index from "./pages/Index";
-import Search from "./pages/Search";
-import Landing from "./pages/Landing";
-import Clinics from "./pages/Clinics";
-import ClinicProfile from "./pages/ClinicProfile";
-import Auth from "./pages/Auth";
-import Profile from "./pages/Profile";
-import DoctorPublicProfile from "./pages/doctor/DoctorPublicProfile";
-import Appointments from "./pages/Appointments";
-import Promotions from "./pages/Promotions";
-import NotFound from "./pages/NotFound";
-import Dashboard from "./pages/admin/Dashboard";
-import AdminDoctors from "./pages/admin/Doctors";
-import AdminClinics from "./pages/admin/Clinics";
-import AdminPatients from "./pages/admin/Patients";
-import AdminAppointments from "./pages/admin/Appointments";
-import AdminPayments from "./pages/admin/Payments";
-import Ads from "./pages/admin/Ads";
-import Moderation from "./pages/admin/Moderation";
-import AdminReviews from "./pages/admin/Reviews";
-import Promo from "./pages/admin/Promo";
-import Blog from "./pages/admin/Blog";
-import AdminUsers from "./pages/admin/Users";
-import AdminSettings from "./pages/admin/Settings";
-import AdminVerification from "./pages/admin/Verification";
-import AdminBadges from "./pages/admin/Badges";
-import AdminPromotions from "./pages/admin/Promotions";
-import CRMDashboard from "./pages/crm/Dashboard";
-import Schedule from "./pages/crm/Schedule";
-import CRMAppointments from "./pages/crm/Appointments";
-import Patients from "./pages/crm/Patients";
-import PatientDetail from "./pages/crm/PatientDetail";
-import MedicalRecords from "./pages/crm/MedicalRecords";
-import Queue from "./pages/crm/Queue";
-import Finance from "./pages/crm/Finance";
-import CRMProfile from "./pages/crm/CRMProfile";
-import CRMNotifications from "./pages/crm/Notifications";
-import CRMSettings from "./pages/crm/CRMSettings";
-import CRMInventory from "./pages/crm/Inventory";
-import CRMLaboratory from "./pages/crm/Laboratory";
-import CRMReports from "./pages/crm/Reports";
-import DoctorRequests from "./pages/crm/DoctorRequests";
-import CRMMessages from "./pages/crm/Messages";
-import CRMServices from "./pages/crm/Services";
-import CRMTasks from "./pages/crm/Tasks";
-import ClinicBalance from "./pages/crm/ClinicBalance";
-import CRMBilling from "./pages/crm/Billing";
-import PublicBooking from "./pages/PublicBooking";
-import Articles from "./pages/Articles";
-import ArticleDetail from "./pages/ArticleDetail";
-import About from "./pages/About";
-import Terms from "./pages/Terms";
-import Privacy from "./pages/Privacy";
-import Contacts from "./pages/Contacts";
-import Pricing from "./pages/Pricing";
+// Standalone marketplace (own shell, outside the cabinet) — see ops/marketplace-standalone-plan.md
+// The old in-cabinet DoctorMarket is retired; /doctor/market now redirects to /market.
+import { MarketCartProvider } from "./contexts/MarketCartContext";
+import { MarketLayout } from "./components/market/MarketLayout";
+import { MARKET_ROUTES } from "./lib/market-routes";
 
-// Clinic Admin Pages
-import ClinicAdminSchedule from "./pages/clinic-admin/ClinicAdminSchedule";
-import ClinicAdminAppointments from "./pages/clinic-admin/ClinicAdminAppointments";
-import ClinicAdminPatients from "./pages/clinic-admin/ClinicAdminPatients";
-import ClinicAdminPayments from "./pages/clinic-admin/ClinicAdminPayments";
-import ClinicAdminPromotions from "./pages/clinic-admin/ClinicAdminPromotions";
-import ClinicAdminNotifications from "./pages/clinic-admin/ClinicAdminNotifications";
-import ClinicAdminSettings from "./pages/clinic-admin/ClinicAdminSettings";
-import ClinicAdminMessages from "./pages/clinic-admin/ClinicAdminMessages";
+// Standalone Jobs module (own shell, outside the cabinet) — see ops/jobs-module-spec.md
+// Doctors-and-clinics-only labour marketplace. Future: work.prodent.uz.
+import { JobsLayout } from "./components/jobs/JobsLayout";
+import { JOBS_ROUTES } from "./lib/jobs-routes";
 
-// Doctor Pages
-import DoctorCalendar from "./pages/doctor/DoctorCalendar";
-import DoctorPatients from "./pages/doctor/DoctorPatients";
-import DoctorPatientProfile from "./pages/doctor/DoctorPatientProfile";
-import DoctorMedicalRecords from "./pages/doctor/DoctorMedicalRecords";
-import DoctorTreatmentPlans from "./pages/doctor/DoctorTreatmentPlans";
-import DoctorMedia from "./pages/doctor/DoctorMedia";
-import DoctorLaboratory from "./pages/doctor/DoctorLaboratory";
-import DoctorMessages from "./pages/doctor/DoctorMessages";
-import DoctorBalance from "./pages/doctor/DoctorBalance";
-import DoctorBilling from "./pages/doctor/DoctorBilling";
+// Standalone Склад module (own shell, outside the cabinet) — see ops/sklad-module-spec.md
+// Warehouse/inventory: clinic-staff space + doctor personal space. Future: sklad.prodent.uz.
+import { SkladLayout } from "./components/sklad/SkladLayout";
+import { SKLAD_ROUTES } from "./lib/sklad-routes";
 
-// Assistant Pages
-import AssistantSchedule from "./pages/assistant/AssistantSchedule";
-import AssistantRooms from "./pages/assistant/AssistantRooms";
-import AssistantMaterials from "./pages/assistant/AssistantMaterials";
-import AssistantAppointments from "./pages/assistant/AssistantAppointments";
+// Standalone Лаборатория module (own shell, outside the cabinet) — clinic/doctor
+// order lab work from technicians. Заказы + каталог лабораторий. Future: lab.prodent.uz.
+import { LabLayout } from "./components/lab/LabLayout";
+import { LAB_ROUTES } from "./lib/lab-routes";
+import ErrorBoundary from "./components/ErrorBoundary";
+import { RouteAccessibility } from "./components/system/RouteAccessibility";
+import { accountantRouteElements } from "./routes/accountant-routes";
+import { assistantRouteElements } from "./routes/assistant-routes";
+import { clinicAdminRouteElements } from "./routes/clinic-admin-routes";
+import { crmRouteElements } from "./routes/crm-routes";
+import { doctorRouteElements } from "./routes/doctor-routes";
+import { managerRouteElements } from "./routes/manager-routes";
+import { AdminRouteBoundary } from "./routes/AdminRouteBoundary";
 
-// Accountant Pages
-import AccountantInvoices from "./pages/accountant/AccountantInvoices";
-import AccountantPayments from "./pages/accountant/AccountantPayments";
-import AccountantReports from "./pages/accountant/AccountantReports";
-import AccountantSalaries from "./pages/accountant/AccountantSalaries";
+// Each page is downloaded only when its route is opened. Keeping providers and
+// route shells eager preserves navigation behaviour while removing unrelated
+// product areas from the initial bundle.
+const Search = lazy(() => import("./pages/Search"));
+const Landing = lazy(() => import("./pages/Landing"));
+const Clinics = lazy(() => import("./pages/Clinics"));
+const ClinicProfile = lazy(() => import("./pages/ClinicProfile"));
+const Auth = lazy(() => import("./pages/Auth"));
+const AuthCallback = lazy(() => import("./pages/AuthCallback"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Appointments = lazy(() => import("./pages/Appointments"));
+const Promotions = lazy(() => import("./pages/Promotions"));
+const PublicBooking = lazy(() => import("./pages/PublicBooking"));
+const Articles = lazy(() => import("./pages/Articles"));
+const ArticleDetail = lazy(() => import("./pages/ArticleDetail"));
+const About = lazy(() => import("./pages/About"));
+const Terms = lazy(() => import("./pages/Terms"));
+const Privacy = lazy(() => import("./pages/Privacy"));
+const Contacts = lazy(() => import("./pages/Contacts"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const TreatmentPlanPublic = lazy(() => import("./pages/TreatmentPlanPublic"));
+const StaffInvitationDecision = lazy(() => import("./pages/StaffInvitationDecision"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
-// Manager Pages
-import ManagerDashboard from "./pages/manager/ManagerDashboard";
-import ManagerKPI from "./pages/manager/ManagerKPI";
-import ManagerAnalytics from "./pages/manager/ManagerAnalytics";
-import ManagerStaff from "./pages/manager/ManagerStaff";
-import ManagerServices from "./pages/manager/ManagerServices";
+const SellerOverview = lazy(() => import("./pages/seller/SellerOverview"));
+const SellerWarehouse = lazy(() => import("./pages/seller/SellerWarehouse"));
+const SellerProducts = lazy(() => import("./pages/seller/SellerProducts"));
+const SellerOrders = lazy(() => import("./pages/seller/SellerOrders"));
+const SellerProfile = lazy(() => import("./pages/seller/SellerProfile"));
+const SellerFinance = lazy(() => import("./pages/seller/SellerStubs").then((module) => ({ default: module.SellerFinance })));
+const SellerPromo = lazy(() => import("./pages/seller/SellerStubs").then((module) => ({ default: module.SellerPromo })));
+const SellerReviews = lazy(() => import("./pages/seller/SellerStubs").then((module) => ({ default: module.SellerReviews })));
+const SellerSettings = lazy(() => import("./pages/seller/SellerStubs").then((module) => ({ default: module.SellerSettings })));
 
-// Patient Pages
-import PatientDashboardPage from "./pages/patient/PatientDashboardPage";
-import PatientBook from "./pages/patient/PatientBook";
-import PatientAppointments from "./pages/patient/PatientAppointments";
-import PatientHistory from "./pages/patient/PatientHistory";
-import PatientReminders from "./pages/patient/PatientReminders";
-import PatientNotifications from "./pages/patient/PatientNotifications";
-import PatientDoctorsPage from "./pages/patient/PatientDoctorsPage";
-import PatientPaymentsPage from "./pages/patient/PatientPaymentsPage";
-import PatientMedical from "./pages/patient/PatientMedical";
-import PatientMessages from "./pages/patient/PatientMessages";
-import PatientFiles from "./pages/patient/PatientFiles";
-import PatientFamily from "./pages/patient/PatientFamily";
-import PatientAccessHistory from "./pages/patient/PatientAccessHistory";
-import DoctorNotifications from "./pages/doctor/DoctorNotifications";
-import TreatmentPlanPublic from "./pages/TreatmentPlanPublic";
+const TechnicianOrders = lazy(() => import("./pages/technician/TechnicianOrders"));
+const TechnicianOrder = lazy(() => import("./pages/technician/TechnicianOrder"));
+const TechnicianProduction = lazy(() => import("./pages/technician/TechnicianProduction"));
+const TechnicianArchive = lazy(() => import("./pages/technician/TechnicianArchive"));
+const TechnicianMessages = lazy(() => import("./pages/technician/TechnicianMessages"));
+const TechnicianMaterials = lazy(() => import("./pages/technician/TechnicianMaterials"));
+const TechnicianFinance = lazy(() => import("./pages/technician/TechnicianFinance"));
+const TechnicianSettlements = lazy(() => import("./pages/technician/TechnicianSettlements"));
+const TechnicianProfile = lazy(() => import("./pages/technician/TechnicianProfile"));
 
-const queryClient = new QueryClient();
+const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
+const AdminDoctors = lazy(() => import("./pages/admin/Doctors"));
+const AdminClinics = lazy(() => import("./pages/admin/Clinics"));
+const AdminPatients = lazy(() => import("./pages/admin/Patients"));
+const AdminAppointments = lazy(() => import("./pages/admin/Appointments"));
+const AdminPayments = lazy(() => import("./pages/admin/Payments"));
+const Ads = lazy(() => import("./pages/admin/Ads"));
+const Moderation = lazy(() => import("./pages/admin/Moderation"));
+const AdminReviews = lazy(() => import("./pages/admin/Reviews"));
+const Promo = lazy(() => import("./pages/admin/Promo"));
+const Blog = lazy(() => import("./pages/admin/Blog"));
+const AdminUsers = lazy(() => import("./pages/admin/Users"));
+const AdminSettings = lazy(() => import("./pages/admin/Settings"));
+const AdminIntegrations = lazy(() => import("./pages/admin/Integrations"));
+const AdminVerification = lazy(() => import("./pages/admin/Verification"));
+const AdminBadges = lazy(() => import("./pages/admin/Badges"));
+const AdminPromotions = lazy(() => import("./pages/admin/Promotions"));
+const AdminLab = lazy(() => import("./pages/admin/Lab"));
+const AdminReferrals = lazy(() => import("./pages/admin/Referrals"));
+const AdminMarketOrders = lazy(() => import("./pages/admin/MarketOrders"));
+const AdminMarketSellers = lazy(() => import("./pages/admin/MarketSellers"));
+const AdminMarketProducts = lazy(() => import("./pages/admin/MarketProducts"));
+const AdminMarketReviews = lazy(() => import("./pages/admin/MarketReviews"));
+const AdminMarketDisputes = lazy(() => import("./pages/admin/MarketDisputes"));
+const AdminJobReports = lazy(() => import("./pages/admin/JobReports"));
+const AdminBroadcast = lazy(() => import("./pages/admin/Broadcast"));
+
+const DoctorPublicProfile = lazy(() => import("./pages/doctor/DoctorPublicProfile"));
+
+const MarketCatalog = lazy(() => import("./pages/market/MarketCatalog"));
+const MarketCart = lazy(() => import("./pages/market/MarketCart"));
+const MarketOrders = lazy(() => import("./pages/market/MarketOrders"));
+const MarketProductDetail = lazy(() => import("./pages/market/MarketProductDetail"));
+const MarketSupplierProfile = lazy(() => import("./pages/market/MarketSupplierProfile"));
+const JobsFeed = lazy(() => import("./pages/jobs/JobsFeed"));
+const JobListingDetail = lazy(() => import("./pages/jobs/JobListingDetail"));
+const ResumesFeed = lazy(() => import("./pages/jobs/ResumesFeed"));
+const ResumeDetail = lazy(() => import("./pages/jobs/ResumeDetail"));
+const JobsMy = lazy(() => import("./pages/jobs/JobsMy"));
+const JobPostForm = lazy(() => import("./pages/jobs/JobPostForm"));
+const JobsModeration = lazy(() => import("./pages/jobs/JobsModeration"));
+const SkladItems = lazy(() => import("./pages/sklad/SkladItems"));
+const SkladTransactions = lazy(() => import("./pages/sklad/SkladTransactions"));
+const SkladCategories = lazy(() => import("./pages/sklad/SkladCategories"));
+const SkladSuppliers = lazy(() => import("./pages/sklad/SkladSuppliers"));
+const LabOrders = lazy(() => import("./pages/lab/LabOrders"));
+const LabLabs = lazy(() => import("./pages/lab/LabLabs"));
+const LabFinance = lazy(() => import("./pages/lab/LabFinance"));
+
+const PatientDashboardPage = lazy(() => import("./pages/patient/PatientDashboardPage"));
+const PatientBook = lazy(() => import("./pages/patient/PatientBook"));
+const PatientAppointments = lazy(() => import("./pages/patient/PatientAppointments"));
+const PatientHistory = lazy(() => import("./pages/patient/PatientHistory"));
+const PatientReminders = lazy(() => import("./pages/patient/PatientReminders"));
+const PatientNotifications = lazy(() => import("./pages/patient/PatientNotifications"));
+const PatientDoctorsPage = lazy(() => import("./pages/patient/PatientDoctorsPage"));
+const PatientPaymentsPage = lazy(() => import("./pages/patient/PatientPaymentsPage"));
+const PatientMedical = lazy(() => import("./pages/patient/PatientMedical"));
+const PatientMessages = lazy(() => import("./pages/patient/PatientMessages"));
+const PatientFiles = lazy(() => import("./pages/patient/PatientFiles"));
+const PatientFamily = lazy(() => import("./pages/patient/PatientFamily"));
+const PatientAccessHistory = lazy(() => import("./pages/patient/PatientAccessHistory"));
+
+// Fires a GA4/Metrika page_view on every client-side route change. Without this
+// only the initial document load was tracked (SPA navigations were invisible).
+function RouteTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    analytics.pageView(location.pathname + location.search);
+  }, [location.pathname, location.search]);
+  return null;
+}
+
+function LegacyBookingRedirect() {
+  const { doctorId } = useParams<{ doctorId: string }>();
+  const { search } = useLocation();
+  return <Navigate replace to={`/book/${doctorId ?? ""}${search}`} />;
+}
+
+function RouteLoadingFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background" role="status" aria-live="polite">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" aria-hidden="true" />
+      <span className="sr-only">Loading</span>
+    </div>
+  );
+}
+
+function I18nNamespaceGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const { ensureAppTranslations, language } = useLanguage();
+  const routeNamespaces = useMemo(
+    () => getAppTranslationNamespaces(location.pathname),
+    [location.pathname],
+  );
+  const routeNeedsAppTranslations = routeNamespaces.length > 0;
+  const readyKey = useMemo(
+    () =>
+      `${language}:${
+        routeNeedsAppTranslations ? routeNamespaces.join("+") : "base"
+      }`,
+    [language, routeNeedsAppTranslations, routeNamespaces],
+  );
+  const [loadedKey, setLoadedKey] = useState(routeNeedsAppTranslations ? "" : readyKey);
+  const [loadedPathname, setLoadedPathname] = useState(
+    routeNeedsAppTranslations ? "" : location.pathname,
+  );
+
+  useEffect(() => {
+    let active = true;
+
+    if (!routeNeedsAppTranslations) {
+      setLoadedKey(readyKey);
+      setLoadedPathname(location.pathname);
+      return () => {
+        active = false;
+      };
+    }
+
+    setLoadedKey("");
+    void ensureAppTranslations(routeNamespaces)
+      .catch((error) => {
+        console.error("Could not load app locale namespace", error);
+      })
+      .finally(() => {
+        if (active) {
+          setLoadedKey(readyKey);
+          setLoadedPathname(location.pathname);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    ensureAppTranslations,
+    location.pathname,
+    readyKey,
+    routeNeedsAppTranslations,
+    routeNamespaces,
+  ]);
+
+  // A language switch on the same route must not remount forms and erase
+  // unsaved input while the new route namespace is loading.
+  if (loadedKey !== readyKey && loadedPathname !== location.pathname) {
+    return <RouteLoadingFallback />;
+  }
+
+  return <>{children}</>;
+}
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Sensible defaults (was unconfigured → aggressive refetch/retry storms).
+      retry: 1,
+      staleTime: 30_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    {/* Dark mode is enabled globally. Legacy pages with fixed light colors are
+        migrated page by page; Sprint 2 reference routes and shared components
+        are required to support both themes. */}
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
       <LanguageProvider>
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+          <a
+            href="#main-content"
+            className="fixed left-3 top-3 z-[1000] -translate-y-[200%] rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-lg transition-transform focus:translate-y-0 focus:outline-none focus:ring-4 focus:ring-teal-200"
+          >
+            Перейти к содержимому
+          </a>
+          <RouteTracker />
+          <RouteAccessibility />
           <AuthProvider>
           <ClinicProvider>
             <AdminProvider>
+              <ErrorBoundary>
+              <div id="main-content" tabIndex={-1}>
+              <I18nNamespaceGate>
+              <Suspense fallback={<RouteLoadingFallback />}>
               <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/home" element={<Navigate to="/" replace />} />
@@ -146,91 +284,124 @@ const App = () => (
             <Route path="/articles/:slug" element={<ArticleDetail />} />
             <Route path="/about" element={<About />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/doctor/:id" element={<DoctorPublicProfile />} />
             <Route path="/book/:doctorId" element={<PublicBooking />} />
-            <Route path="/treatment-plan/:token" element={<TreatmentPlanPublic />} />
+            <Route path="/booking/:doctorId" element={<LegacyBookingRedirect />} />
+            <Route path="/treatment-plan" element={<TreatmentPlanPublic />} />
+            <Route path="/staff-invitations/:token" element={<StaffInvitationDecision />} />
             <Route path="/appointments" element={<Appointments />} />
-            <Route path="/admin" element={<Dashboard />} />
-            <Route path="/admin/doctors" element={<AdminDoctors />} />
-            <Route path="/admin/clinics" element={<AdminClinics />} />
-            <Route path="/admin/patients" element={<AdminPatients />} />
-            <Route path="/admin/appointments" element={<AdminAppointments />} />
-            <Route path="/admin/payments" element={<AdminPayments />} />
-            <Route path="/admin/ads" element={<Ads />} />
-            <Route path="/admin/moderation" element={<Moderation />} />
-            <Route path="/admin/reviews" element={<AdminReviews />} />
-            <Route path="/admin/promo" element={<Promo />} />
-            <Route path="/admin/blog" element={<Blog />} />
-            <Route path="/admin/users" element={<AdminUsers />} />
-            <Route path="/admin/settings" element={<AdminSettings />} />
-            <Route path="/admin/verification" element={<AdminVerification />} />
-            <Route path="/admin/badges" element={<AdminBadges />} />
-            <Route path="/admin/promotions" element={<AdminPromotions />} />
-            <Route path="/crm" element={<CRMDashboard />} />
-            <Route path="/crm/schedule" element={<Schedule />} />
-            <Route path="/crm/appointments" element={<CRMAppointments />} />
-            <Route path="/crm/patients" element={<Patients />} />
-            <Route path="/crm/patients/:id" element={<PatientDetail />} />
-            <Route path="/crm/medical-records" element={<MedicalRecords />} />
-            <Route path="/crm/medical/:patientId" element={<MedicalRecords />} />
-            <Route path="/crm/messages" element={<CRMMessages />} />
-            <Route path="/crm/queue" element={<Queue />} />
-            <Route path="/crm/inventory" element={<CRMInventory />} />
-            <Route path="/crm/finance" element={<Finance />} />
-            <Route path="/crm/laboratory" element={<CRMLaboratory />} />
-            <Route path="/crm/reports" element={<CRMReports />} />
-            <Route path="/crm/profile" element={<CRMProfile />} />
-            <Route path="/crm/notifications" element={<CRMNotifications />} />
-            <Route path="/crm/settings" element={<CRMSettings />} />
-            <Route path="/crm/services" element={<CRMServices />} />
-            <Route path="/crm/doctor-requests" element={<DoctorRequests />} />
-            <Route path="/crm/balance" element={<ClinicBalance />} />
-            <Route path="/crm/billing" element={<CRMBilling />} />
-            <Route path="/crm/tasks" element={<CRMTasks />} />
+            <Route path="/seller" element={<SellerOverview />} />
+            <Route path="/seller/products" element={<SellerProducts />} />
+            <Route path="/seller/warehouse" element={<SellerWarehouse />} />
+            <Route path="/seller/orders" element={<SellerOrders />} />
+            <Route path="/seller/finance" element={<SellerFinance />} />
+            <Route path="/seller/promo" element={<SellerPromo />} />
+            <Route path="/seller/reviews" element={<SellerReviews />} />
+            <Route path="/seller/profile" element={<SellerProfile />} />
+            <Route path="/seller/settings" element={<SellerSettings />} />
+            <Route path="/technician" element={<TechnicianOrders />} />
+            <Route path="/technician/production" element={<TechnicianProduction />} />
+            <Route path="/technician/order" element={<TechnicianOrder />} />
+            <Route path="/technician/archive" element={<TechnicianArchive />} />
+            <Route path="/technician/messages" element={<TechnicianMessages />} />
+            <Route path="/technician/materials" element={<TechnicianMaterials />} />
+            <Route path="/technician/finance" element={<TechnicianFinance />} />
+            <Route path="/technician/settlements" element={<TechnicianSettlements />} />
+            <Route path="/technician/profile" element={<TechnicianProfile />} />
+            <Route element={<AdminRouteBoundary />}>
+              <Route path="/admin" element={<Dashboard />} />
+              <Route path="/admin/doctors" element={<AdminDoctors />} />
+              <Route path="/admin/clinics" element={<AdminClinics />} />
+              <Route path="/admin/patients" element={<AdminPatients />} />
+              <Route path="/admin/appointments" element={<AdminAppointments />} />
+              <Route path="/admin/payments" element={<AdminPayments />} />
+              <Route path="/admin/integrations" element={<AdminIntegrations />} />
+              <Route path="/admin/ads" element={<Ads />} />
+              <Route path="/admin/moderation" element={<Moderation />} />
+              <Route path="/admin/reviews" element={<AdminReviews />} />
+              <Route path="/admin/promo" element={<Promo />} />
+              <Route path="/admin/blog" element={<Blog />} />
+              <Route path="/admin/users" element={<AdminUsers />} />
+              <Route path="/admin/settings" element={<AdminSettings />} />
+              <Route path="/admin/verification" element={<AdminVerification />} />
+              <Route path="/admin/badges" element={<AdminBadges />} />
+              <Route path="/admin/promotions" element={<AdminPromotions />} />
+              <Route path="/admin/lab" element={<AdminLab />} />
+              <Route path="/admin/referrals" element={<AdminReferrals />} />
+              <Route path="/admin/market/orders" element={<AdminMarketOrders />} />
+              <Route path="/admin/market/sellers" element={<AdminMarketSellers />} />
+              <Route path="/admin/market/products" element={<AdminMarketProducts />} />
+              <Route path="/admin/market/reviews" element={<AdminMarketReviews />} />
+              <Route path="/admin/market/disputes" element={<AdminMarketDisputes />} />
+              <Route path="/admin/job-reports" element={<AdminJobReports />} />
+              <Route path="/admin/broadcast" element={<AdminBroadcast />} />
+            </Route>
+            {/* Staff pages keep their existing layouts as a second guard. */}
+            {crmRouteElements}
+            {/* Склад moved to its own standalone shell (/sklad). */}
+            {/* Лаборатория moved to its own standalone shell (/lab). */}
+            {clinicAdminRouteElements}
+            {doctorRouteElements}
+            {/* Лаборатория moved to its own standalone shell (/lab). */}
 
-            {/* Clinic Admin Routes */}
-            <Route path="/clinic-admin/schedule" element={<ClinicAdminSchedule />} />
-            <Route path="/clinic-admin/appointments" element={<ClinicAdminAppointments />} />
-            <Route path="/clinic-admin/patients" element={<ClinicAdminPatients />} />
-            <Route path="/clinic-admin/messages" element={<ClinicAdminMessages />} />
-            <Route path="/clinic-admin/payments" element={<ClinicAdminPayments />} />
-            <Route path="/clinic-admin/promotions" element={<ClinicAdminPromotions />} />
-            <Route path="/clinic-admin/notifications" element={<ClinicAdminNotifications />} />
-            <Route path="/clinic-admin/settings" element={<ClinicAdminSettings />} />
+            {/* Standalone marketplace — own shell (MarketLayout) outside the cabinet,
+                cart shared via MarketCartProvider. Future: market.prodent.uz. */}
+            <Route
+              element={
+                <MarketCartProvider>
+                  <MarketLayout />
+                </MarketCartProvider>
+              }
+            >
+              <Route path={MARKET_ROUTES.catalog()} element={<MarketCatalog />} />
+              <Route path={MARKET_ROUTES.product(":id")} element={<MarketProductDetail />} />
+              <Route path={MARKET_ROUTES.supplier(":id")} element={<MarketSupplierProfile />} />
+              <Route path={MARKET_ROUTES.cart()} element={<MarketCart />} />
+              <Route path={MARKET_ROUTES.orders()} element={<MarketOrders />} />
+            </Route>
 
-            {/* Doctor Routes */}
-            <Route path="/doctor" element={<Navigate to="/doctor/calendar" replace />} />
-            <Route path="/doctor/calendar" element={<DoctorCalendar />} />
-            <Route path="/doctor/patients" element={<DoctorPatients />} />
-            <Route path="/doctor/patients/:patientId" element={<DoctorPatientProfile />} />
-            <Route path="/doctor/messages" element={<DoctorMessages />} />
-            <Route path="/doctor/notifications" element={<DoctorNotifications />} />
-            <Route path="/doctor/medical-records" element={<DoctorMedicalRecords />} />
-            <Route path="/doctor/treatment-plans" element={<DoctorTreatmentPlans />} />
-            <Route path="/doctor/media" element={<DoctorMedia />} />
-            <Route path="/doctor/laboratory" element={<DoctorLaboratory />} />
-            <Route path="/doctor/balance" element={<DoctorBalance />} />
-            <Route path="/doctor/billing" element={<DoctorBilling />} />
+            {/* Standalone Jobs module — own shell (JobsLayout) outside the cabinet,
+                doctors-and-clinics only. Future: work.prodent.uz. */}
+            <Route element={<JobsLayout />}>
+              <Route path={JOBS_ROUTES.feed()} element={<JobsFeed />} />
+              <Route path={JOBS_ROUTES.listing(":id")} element={<JobListingDetail />} />
+              <Route path={JOBS_ROUTES.resumes()} element={<ResumesFeed />} />
+              <Route path={JOBS_ROUTES.resume(":id")} element={<ResumeDetail />} />
+              <Route path={JOBS_ROUTES.my()} element={<JobsMy />} />
+              <Route path={JOBS_ROUTES.post()} element={<JobPostForm />} />
+              <Route path={JOBS_ROUTES.edit(":id")} element={<JobPostForm />} />
+              <Route path={JOBS_ROUTES.moderation()} element={<JobsModeration />} />
+            </Route>
+
+            {/* Standalone Склад module — own shell (SkladLayout) outside the cabinet.
+                Clinic staff see the clinic warehouse; a doctor sees their personal
+                one (server decides scope by role). Future: sklad.prodent.uz. */}
+            <Route element={<SkladLayout />}>
+              <Route path={SKLAD_ROUTES.items()} element={<SkladItems />} />
+              <Route path={SKLAD_ROUTES.transactions()} element={<SkladTransactions />} />
+              <Route path={SKLAD_ROUTES.categories()} element={<SkladCategories />} />
+              <Route path={SKLAD_ROUTES.suppliers()} element={<SkladSuppliers />} />
+            </Route>
+
+            {/* Standalone Лаборатория module — own shell (LabLayout) outside the
+                cabinet. Clinic staff / doctors order lab work; the server scopes
+                by role. Menu: Заказы + Лаборатории. Future: lab.prodent.uz. */}
+            <Route element={<LabLayout />}>
+              <Route path={LAB_ROUTES.orders()} element={<LabOrders />} />
+              <Route path={LAB_ROUTES.labs()} element={<LabLabs />} />
+              <Route path={LAB_ROUTES.finance()} element={<LabFinance />} />
+            </Route>
 
             {/* Assistant Routes */}
-            <Route path="/assistant/schedule" element={<AssistantSchedule />} />
-            <Route path="/assistant/rooms" element={<AssistantRooms />} />
-            <Route path="/assistant/materials" element={<AssistantMaterials />} />
-            <Route path="/assistant/appointments" element={<AssistantAppointments />} />
+            {assistantRouteElements}
 
             {/* Accountant Routes */}
-            <Route path="/accountant/invoices" element={<AccountantInvoices />} />
-            <Route path="/accountant/payments" element={<AccountantPayments />} />
-            <Route path="/accountant/reports" element={<AccountantReports />} />
-            <Route path="/accountant/salaries" element={<AccountantSalaries />} />
+            {accountantRouteElements}
 
             {/* Manager Routes */}
-            <Route path="/manager/dashboard" element={<ManagerDashboard />} />
-            <Route path="/manager/kpi" element={<ManagerKPI />} />
-            <Route path="/manager/analytics" element={<ManagerAnalytics />} />
-            <Route path="/manager/staff" element={<ManagerStaff />} />
-            <Route path="/manager/services" element={<ManagerServices />} />
+            {managerRouteElements}
 
             {/* Patient Routes */}
             <Route path="/patient" element={<PatientDashboardPage />} />
@@ -257,6 +428,10 @@ const App = () => (
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
+              </Suspense>
+              </I18nNamespaceGate>
+              </div>
+              </ErrorBoundary>
               </AdminProvider>
             </ClinicProvider>
           </AuthProvider>

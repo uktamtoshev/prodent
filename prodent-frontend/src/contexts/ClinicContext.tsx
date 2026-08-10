@@ -18,9 +18,30 @@ interface ClinicContextType {
   refreshClinics: () => Promise<void>;
 }
 
+interface ClinicRelation {
+  id: string;
+  name: string;
+}
+
+interface ClinicMembershipRow {
+  role: string;
+  clinics: ClinicRelation | ClinicRelation[] | null;
+}
+
+interface DoctorClinicAffiliationRow {
+  clinics: ClinicRelation | ClinicRelation[] | null;
+}
+
 const ClinicContext = createContext<ClinicContextType | undefined>(undefined);
 
 const STORAGE_KEY = 'prodent_current_clinic';
+
+const firstClinic = (clinic: ClinicRelation | ClinicRelation[] | null): ClinicRelation | null => {
+  if (Array.isArray(clinic)) {
+    return clinic[0] ?? null;
+  }
+  return clinic;
+};
 
 export const ClinicProvider = ({ children }: { children: ReactNode }) => {
   const [currentClinic, setCurrentClinicState] = useState<Clinic | null>(null);
@@ -85,15 +106,21 @@ export const ClinicProvider = ({ children }: { children: ReactNode }) => {
               name
             )
           `)
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .eq('is_active', true);
 
-        const clinicsList = memberships
-          ?.filter(m => m.clinics)
-          .map(m => ({
-            id: (m.clinics as any).id,
-            name: (m.clinics as any).name,
-            role: m.role
-          })) || [];
+        const clinicsList = ((memberships || []) as ClinicMembershipRow[])
+          .map(m => {
+            const clinic = firstClinic(m.clinics);
+            return clinic
+              ? {
+                  id: clinic.id,
+                  name: clinic.name,
+                  role: m.role
+                }
+              : null;
+          })
+          .filter((clinic): clinic is Clinic => clinic !== null);
 
         // Also check doctor_clinic_affiliations for independent doctors
         const { data: doctor } = await supabase
@@ -115,11 +142,12 @@ export const ClinicProvider = ({ children }: { children: ReactNode }) => {
             .eq('doctor_id', doctor.id)
             .eq('is_active', true);
 
-          affiliations?.forEach(aff => {
-            if (aff.clinics && !clinicsList.some(c => c.id === (aff.clinics as any).id)) {
+          ((affiliations || []) as DoctorClinicAffiliationRow[]).forEach(aff => {
+            const clinic = firstClinic(aff.clinics);
+            if (clinic && !clinicsList.some(c => c.id === clinic.id)) {
               clinicsList.push({
-                id: (aff.clinics as any).id,
-                name: (aff.clinics as any).name,
+                id: clinic.id,
+                name: clinic.name,
                 role: 'doctor'
               });
             }

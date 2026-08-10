@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -8,19 +8,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { format, differenceInDays, isPast } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { MoreVertical, Play, Pause, XCircle, Eye, BarChart3, Building2, User } from 'lucide-react';
-import { useAdCampaigns, useUpdateCampaignStatus, useAllCampaignsAnalytics } from '@/hooks/useAdCampaigns';
+import { MoreVertical, Play, Pause, XCircle, Eye, BarChart3, Building2, User, RefreshCw } from 'lucide-react';
+import { useAdCampaigns, useUpdateCampaignStatus, useAllCampaignsAnalytics, useRenewCampaign } from '@/hooks/useAdCampaigns';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
-import { CampaignAnalyticsDialog } from './CampaignAnalyticsDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
 
-const statusLabels: Record<string, string> = {
-  pending: 'Ожидает',
-  active: 'Активна',
-  paused: 'Приостановлена',
-  completed: 'Завершена',
-  cancelled: 'Отменена',
-};
+const CampaignAnalyticsDialog = lazy(() =>
+  import('./CampaignAnalyticsDialog').then((module) => ({
+    default: module.CampaignAnalyticsDialog,
+  })),
+);
 
 const statusColors: Record<string, string> = {
   pending: 'bg-yellow-500/10 text-yellow-500',
@@ -30,19 +28,29 @@ const statusColors: Record<string, string> = {
   cancelled: 'bg-red-500/10 text-red-500',
 };
 
-const packageTypeLabels: Record<string, string> = {
-  top_day: 'Топ дня',
-  top_week: 'Топ недели',
-  top_month: 'Топ месяца',
-  banner: 'Баннер',
-};
-
 export function CampaignsList() {
+  const { t } = useLanguage();
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const { data: campaigns, isLoading } = useAdCampaigns(statusFilter === 'all' ? undefined : statusFilter);
   const { data: analytics } = useAllCampaignsAnalytics();
   const updateStatus = useUpdateCampaignStatus();
+  const renewCampaign = useRenewCampaign();
+
+  const statusLabels: Record<string, string> = useMemo(() => ({
+    pending: t('adminAds.statusPending'),
+    active: t('adminAds.statusActive'),
+    paused: t('adminAds.statusPaused'),
+    completed: t('adminAds.statusCompleted'),
+    cancelled: t('adminAds.statusCancelled'),
+  }), [t]);
+
+  const packageTypeLabels: Record<string, string> = useMemo(() => ({
+    top_day: t('adminAds.packageDay'),
+    top_week: t('adminAds.packageWeek'),
+    top_month: t('adminAds.packageMonth'),
+    banner: t('adminAds.packageBanner'),
+  }), [t]);
 
   const selectedCampaign = campaigns?.find(c => c.id === selectedCampaignId);
 
@@ -50,7 +58,7 @@ export function CampaignsList() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Активные кампании</CardTitle>
+          <CardTitle>{t('adminAds.activeCampaignsTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -67,36 +75,36 @@ export function CampaignsList() {
     <>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Рекламные кампании</CardTitle>
+          <CardTitle>{t('adminAds.campaignsTitle')}</CardTitle>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40">
-              <SelectValue placeholder="Все статусы" />
+              <SelectValue placeholder={t('adminAds.filterAll')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Все статусы</SelectItem>
-              <SelectItem value="active">Активные</SelectItem>
-              <SelectItem value="pending">Ожидающие</SelectItem>
-              <SelectItem value="paused">Приостановленные</SelectItem>
-              <SelectItem value="completed">Завершённые</SelectItem>
-              <SelectItem value="cancelled">Отменённые</SelectItem>
+              <SelectItem value="all">{t('adminAds.filterAll')}</SelectItem>
+              <SelectItem value="active">{t('adminAds.filterActive')}</SelectItem>
+              <SelectItem value="pending">{t('adminAds.filterPending')}</SelectItem>
+              <SelectItem value="paused">{t('adminAds.filterPaused')}</SelectItem>
+              <SelectItem value="completed">{t('adminAds.filterCompleted')}</SelectItem>
+              <SelectItem value="cancelled">{t('adminAds.filterCancelled')}</SelectItem>
             </SelectContent>
           </Select>
         </CardHeader>
         <CardContent>
           {!campaigns?.length ? (
             <div className="text-center py-8 text-muted-foreground">
-              Нет рекламных кампаний
+              {t('adminAds.noCampaigns')}
             </div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Объект</TableHead>
-                  <TableHead>Пакет</TableHead>
-                  <TableHead>Период</TableHead>
-                  <TableHead>Статус</TableHead>
-                  <TableHead>Аналитика</TableHead>
-                  <TableHead className="text-right">Сумма</TableHead>
+                  <TableHead>{t('adminAds.colTarget')}</TableHead>
+                  <TableHead>{t('adminAds.colPackage')}</TableHead>
+                  <TableHead>{t('adminAds.colPeriod')}</TableHead>
+                  <TableHead>{t('adminAds.colStatus')}</TableHead>
+                  <TableHead>{t('adminAds.colAnalytics')}</TableHead>
+                  <TableHead className="text-right">{t('adminAds.colAmount')}</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
@@ -130,7 +138,7 @@ export function CampaignsList() {
                               </div>
                               <div>
                                 <p className="font-medium">{campaign.clinic.name}</p>
-                                <p className="text-xs text-muted-foreground">Клиника</p>
+                                <p className="text-xs text-muted-foreground">{t('adminAds.clinicLabel')}</p>
                               </div>
                             </>
                           ) : null}
@@ -148,7 +156,7 @@ export function CampaignsList() {
                             "text-xs",
                             isExpired ? "text-red-500" : daysLeft <= 3 ? "text-yellow-500" : "text-muted-foreground"
                           )}>
-                            {isExpired ? 'Истёк' : `${daysLeft} дн. осталось`}
+                            {isExpired ? t('adminAds.expired') : `${daysLeft} ${t('adminAds.daysLeft')}`}
                           </p>
                         </div>
                       </TableCell>
@@ -166,17 +174,17 @@ export function CampaignsList() {
                         >
                           {stats ? (
                             <>
-                              <span className="flex items-center gap-1" title="Показы">
+                              <span className="flex items-center gap-1" title={t('adminAds.tooltipImpressions')}>
                                 <Eye className="w-3.5 h-3.5 text-muted-foreground" />
                                 {stats.impressions}
                               </span>
-                              <span className="flex items-center gap-1" title="Просмотры профиля">
+                              <span className="flex items-center gap-1" title={t('adminAds.tooltipProfileViews')}>
                                 <BarChart3 className="w-3.5 h-3.5 text-muted-foreground" />
                                 {stats.profile_views}
                               </span>
                             </>
                           ) : (
-                            <span className="text-muted-foreground text-sm">Подробнее</span>
+                            <span className="text-muted-foreground text-sm">{t('adminAds.detailsLink')}</span>
                           )}
                         </Button>
                       </TableCell>
@@ -193,33 +201,42 @@ export function CampaignsList() {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => setSelectedCampaignId(campaign.id)}>
                               <BarChart3 className="w-4 h-4 mr-2" />
-                              Аналитика
+                              {t('adminAds.menuAnalytics')}
                             </DropdownMenuItem>
                             {campaign.status === 'active' && (
                               <DropdownMenuItem onClick={() => updateStatus.mutate({ id: campaign.id, status: 'paused' })}>
                                 <Pause className="w-4 h-4 mr-2" />
-                                Приостановить
+                                {t('adminAds.menuPause')}
                               </DropdownMenuItem>
                             )}
                             {campaign.status === 'paused' && (
                               <DropdownMenuItem onClick={() => updateStatus.mutate({ id: campaign.id, status: 'active' })}>
                                 <Play className="w-4 h-4 mr-2" />
-                                Возобновить
+                                {t('adminAds.menuResume')}
                               </DropdownMenuItem>
                             )}
                             {campaign.status === 'pending' && (
                               <DropdownMenuItem onClick={() => updateStatus.mutate({ id: campaign.id, status: 'active' })}>
                                 <Play className="w-4 h-4 mr-2" />
-                                Активировать
+                                {t('adminAds.menuActivate')}
+                              </DropdownMenuItem>
+                            )}
+                            {['completed', 'cancelled'].includes(campaign.status) && (
+                              <DropdownMenuItem
+                                onClick={() => renewCampaign.mutate(campaign.id)}
+                                disabled={renewCampaign.isPending}
+                              >
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                {t('adminAds.menuRenew')}
                               </DropdownMenuItem>
                             )}
                             {!['completed', 'cancelled'].includes(campaign.status) && (
-                              <DropdownMenuItem 
+                              <DropdownMenuItem
                                 className="text-red-500"
                                 onClick={() => updateStatus.mutate({ id: campaign.id, status: 'cancelled' })}
                               >
                                 <XCircle className="w-4 h-4 mr-2" />
-                                Отменить
+                                {t('adminAds.menuCancel')}
                               </DropdownMenuItem>
                             )}
                           </DropdownMenuContent>
@@ -235,12 +252,14 @@ export function CampaignsList() {
       </Card>
 
       {selectedCampaign && (
-        <CampaignAnalyticsDialog
-          campaignId={selectedCampaignId!}
-          isOpen={!!selectedCampaignId}
-          onClose={() => setSelectedCampaignId(null)}
-          campaign={selectedCampaign}
-        />
+        <Suspense fallback={null}>
+          <CampaignAnalyticsDialog
+            campaignId={selectedCampaignId!}
+            isOpen={!!selectedCampaignId}
+            onClose={() => setSelectedCampaignId(null)}
+            campaign={selectedCampaign}
+          />
+        </Suspense>
       )}
     </>
   );

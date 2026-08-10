@@ -42,6 +42,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { CreatePostDialog } from './CreatePostDialog';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface DoctorTimelineProps {
   doctorId: string;
@@ -50,7 +52,57 @@ interface DoctorTimelineProps {
 
 const MAX_CONTENT_LENGTH = 280;
 
+type DoctorPostRow = {
+  id: string;
+  doctor_id?: string | null;
+  user_id?: string | null;
+  content?: string | null;
+  post_type?: string | null;
+  created_at?: string | null;
+  is_published?: boolean | null;
+};
+
+type DoctorPostMediaRow = {
+  id: string;
+  post_id: string;
+  media_url?: string | null;
+  media_type?: string | null;
+  order_index?: number | null;
+};
+
+type DoctorPostLikeRow = {
+  post_id: string;
+  user_id: string;
+};
+
+type CommentProfile = {
+  id: string;
+  full_name?: string | null;
+  avatar_url?: string | null;
+};
+
+type DoctorPostCommentRow = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content?: string | null;
+  created_at?: string | null;
+};
+
+type DoctorPostComment = DoctorPostCommentRow & {
+  user?: CommentProfile;
+};
+
+type DoctorPost = DoctorPostRow & {
+  media: DoctorPostMediaRow[];
+  likes: DoctorPostLikeRow[];
+  comments: DoctorPostComment[];
+};
+
+type MutationError = { message?: string } | Error | unknown;
+
 export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
+  const { t } = useLanguage();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [commentContent, setCommentContent] = useState<Record<string, string>>({});
@@ -63,25 +115,42 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
   const { data: posts, isLoading } = useQuery({
     queryKey: ['doctor-posts', doctorId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // The data-shim cannot resolve has-many / nested embeds (it joins the wrong
+      // direction → 500), so fetch flat and merge client-side.
+      const { data: rawPosts, error } = await supabase
         .from('doctor_posts')
-        .select(`
-          *,
-          media:doctor_post_media(*),
-          likes:doctor_post_likes(user_id),
-          comments:doctor_post_comments(
-            id,
-            content,
-            created_at,
-            user:profiles(full_name, avatar_url)
-          )
-        `)
+        .select('*')
         .eq('doctor_id', doctorId)
         .eq('is_published', true)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
-      return data;
+      const ids = (rawPosts || []).map((p) => p.id);
+      if (!ids.length) return [];
+
+      const [{ data: media }, { data: likes }, { data: comments }] = await Promise.all([
+        supabase.from('doctor_post_media').select('*').in('post_id', ids),
+        supabase.from('doctor_post_likes').select('post_id, user_id').in('post_id', ids),
+        supabase.from('doctor_post_comments').select('id, post_id, user_id, content, created_at').in('post_id', ids).order('created_at', { ascending: true }),
+      ]);
+
+      const commenterIds = [...new Set((comments || []).map((c) => c.user_id))];
+      const { data: profs } = commenterIds.length
+        ? await supabase.from('profiles').select('id, full_name, avatar_url').in('id', commenterIds)
+        : { data: [] as CommentProfile[] };
+      const profById = Object.fromEntries(
+        ((profs || []) as CommentProfile[]).map((p) => [p.id, p])
+      );
+
+      return ((rawPosts || []) as DoctorPostRow[]).map((p): DoctorPost => ({
+        ...p,
+        media: ((media || []) as DoctorPostMediaRow[])
+          .filter((m) => m.post_id === p.id)
+          .sort((a, b) => (a.order_index ?? 0) - (b.order_index ?? 0)),
+        likes: ((likes || []) as DoctorPostLikeRow[]).filter((l) => l.post_id === p.id),
+        comments: ((comments || []) as DoctorPostCommentRow[])
+          .filter((c) => c.post_id === p.id)
+          .map((c) => ({ ...c, user: profById[c.user_id] })),
+      }));
     },
   });
 
@@ -147,25 +216,25 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast({ title: 'Публикация удалена' });
+      toast({ title: t('doctorTimeline.deleted') });
       queryClient.invalidateQueries({ queryKey: ['doctor-posts', doctorId] });
       setDeletePostId(null);
     },
-    onError: (error: any) => {
-      toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
+    onError: (error: MutationError) => {
+      toast({ title: t('doctorTimeline.deleteError'), description: error.message, variant: 'destructive' });
     },
   });
 
   const getPostTypeLabel = (type: string) => {
     const labels: Record<string, string> = {
-      post: 'опубликовал(-а) пост',
-      photo: 'добавил(-а) фото',
-      video: 'добавил(-а) видео',
-      article: 'опубликовал(-а) статью',
-      case: 'поделился(-ась) клиническим случаем',
-      certificate: 'добавил(-а) сертификат',
+      post: t('doctorTimeline.published'),
+      photo: t('doctorTimeline.uploadMedia'),
+      video: t('doctorTimeline.uploadMedia'),
+      article: t('doctorTimeline.published'),
+      case: t('doctorTimeline.published'),
+      certificate: t('doctorTimeline.published'),
     };
-    return labels[type] || 'опубликовал(-а)';
+    return labels[type] || t('doctorTimeline.published');
   };
 
   const openCreatePost = (type: string = 'post') => {
@@ -178,7 +247,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
       {/* Create Post Card - Facebook style */}
       {isOwner && (
         <Card className="shadow-sm border-border/50">
-          <CardContent className="p-4">
+          <CardContent className="p-card-x">
             <div className="flex gap-3">
               <Avatar className="w-10 h-10">
                 <AvatarImage src={doctorProfile?.profile?.avatar_url} />
@@ -186,9 +255,9 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
               </Avatar>
               <button
                 onClick={() => openCreatePost('post')}
-                className="flex-1 text-left px-4 py-2.5 bg-muted hover:bg-muted/80 rounded-full text-muted-foreground text-[15px] transition-colors"
+                className="flex-1 text-left px-4 py-2.5 bg-muted hover:bg-muted/80 rounded-full text-muted-foreground text-base transition-colors"
               >
-                Что у вас нового?
+                {t('doctorTimeline.postContentPlaceholder')}
               </button>
             </div>
             <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
@@ -198,8 +267,8 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                 onClick={() => openCreatePost('video')}
                 className="flex-1 gap-2 text-muted-foreground hover:bg-muted/50"
               >
-                <Video className="w-5 h-5 text-red-500" />
-                <span className="hidden sm:inline">Видео</span>
+                <Video className="w-5 h-5 text-status-danger" />
+                <span className="hidden sm:inline">{t('doctorTimeline.typeNews')}</span>
               </Button>
               <Button 
                 variant="ghost" 
@@ -207,8 +276,8 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                 onClick={() => openCreatePost('photo')}
                 className="flex-1 gap-2 text-muted-foreground hover:bg-muted/50"
               >
-                <ImageIcon className="w-5 h-5 text-green-500" />
-                <span className="hidden sm:inline">Фото</span>
+                <ImageIcon className="w-5 h-5 text-status-success" />
+                <span className="hidden sm:inline">{t('doctorPortfolio.beforePhotos')}</span>
               </Button>
               <Button 
                 variant="ghost" 
@@ -216,8 +285,8 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                 onClick={() => openCreatePost('case')}
                 className="flex-1 gap-2 text-muted-foreground hover:bg-muted/50"
               >
-                <Briefcase className="w-5 h-5 text-blue-500" />
-                <span className="hidden sm:inline">Кейс</span>
+                <Briefcase className="w-5 h-5 text-status-info" />
+                <span className="hidden sm:inline">{t('doctorPortfolio.workTitle')}</span>
               </Button>
               <Button 
                 variant="ghost" 
@@ -225,8 +294,8 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                 onClick={() => openCreatePost('certificate')}
                 className="flex-1 gap-2 text-muted-foreground hover:bg-muted/50"
               >
-                <Award className="w-5 h-5 text-amber-500" />
-                <span className="hidden sm:inline">Сертификат</span>
+                <Award className="w-5 h-5 text-status-warning" />
+                <span className="hidden sm:inline">{t('doctorAbout.sectionCertifications')}</span>
               </Button>
             </div>
           </CardContent>
@@ -237,7 +306,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-12 gap-3">
           <div className="w-10 h-10 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
-          <p className="text-muted-foreground text-sm">Загрузка...</p>
+          <p className="text-muted-foreground text-sm">{t('doctorTimeline.loading')}</p>
         </div>
       ) : posts?.length === 0 ? (
         <Card className="shadow-sm">
@@ -245,11 +314,11 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
             <div className="w-16 h-16 rounded-full bg-muted mx-auto mb-4 flex items-center justify-center">
               <FileText className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold mb-1">Пока нет публикаций</h3>
+            <h3 className="text-base font-bold mb-1">{t('doctorTimeline.noPosts')}</h3>
             <p className="text-muted-foreground text-sm">
-              {isOwner 
-                ? 'Поделитесь своими работами и клиническими случаями'
-                : 'Врач ещё не опубликовал материалы'
+              {isOwner
+                ? t('doctorTimeline.postContentPlaceholder')
+                : t('doctorTimeline.noPosts')
               }
             </p>
           </CardContent>
@@ -257,7 +326,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
       ) : (
         <div className="space-y-4">
           {posts?.map((post) => {
-            const isLiked = post.likes?.some((l: any) => l.user_id === user?.id);
+            const isLiked = post.likes?.some((l) => l.user_id === user?.id);
             const likesCount = post.likes?.length || 0;
             const commentsCount = post.comments?.length || 0;
             const hasMedia = post.media && post.media.length > 0;
@@ -274,14 +343,14 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                       </Avatar>
                       <div>
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-semibold text-[15px] text-foreground hover:underline cursor-pointer">
+                          <span className="font-semibold text-base text-foreground hover:underline cursor-pointer">
                             {doctorProfile?.profile?.full_name}
                           </span>
-                          <span className="text-muted-foreground text-[15px]">
+                          <span className="text-muted-foreground text-base">
                             {getPostTypeLabel(post.post_type)}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+                        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                           <span>
                             {formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: ru })}
                           </span>
@@ -292,14 +361,14 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" aria-label={a11yLabel("more")}>
                           <MoreHorizontal className="w-5 h-5" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem>
                           <Share2 className="w-4 h-4 mr-2" />
-                          Поделиться
+                          {t('doctorProfileHeader.shareProfile')}
                         </DropdownMenuItem>
                         {isOwner && (
                           <DropdownMenuItem
@@ -307,7 +376,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                             onClick={() => setDeletePostId(post.id)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
-                            Удалить
+                            {t('doctorTimeline.removeMedia')}
                           </DropdownMenuItem>
                         )}
                       </DropdownMenuContent>
@@ -319,11 +388,11 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                 {post.content && (
                   <div className="px-4 py-2">
                     {post.content.length > MAX_CONTENT_LENGTH && !expandedContent.has(post.id) ? (
-                      <p className="text-[15px] whitespace-pre-wrap leading-relaxed">
+                      <p className="text-base whitespace-pre-wrap leading-relaxed">
                         {post.content.slice(0, MAX_CONTENT_LENGTH)}...
                       </p>
                     ) : (
-                      <p className="text-[15px] whitespace-pre-wrap leading-relaxed">
+                      <p className="text-base whitespace-pre-wrap leading-relaxed">
                         {post.content}
                       </p>
                     )}
@@ -340,7 +409,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                   return (
                     <div className="relative">
                       <div className={`${mediaToShow.length === 1 ? '' : 'grid gap-0.5'} ${mediaToShow.length === 2 ? 'grid-cols-2' : ''} ${mediaToShow.length >= 3 ? 'grid-cols-2' : ''}`}>
-                        {mediaToShow.map((m: any, idx: number) => (
+                        {mediaToShow.map((m: DoctorPostMediaRow, idx: number) => (
                           <div 
                             key={m.id} 
                             className={`relative bg-muted ${
@@ -370,7 +439,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                           onClick={() => setExpandedContent((prev) => new Set(prev).add(post.id))}
                           className="absolute bottom-2 right-2 bg-black/70 hover:bg-black/80 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
                         >
-                          Ещё {hiddenCount > 0 && `+${hiddenCount} фото`}
+                          {t('doctorTimeline.loadMore')} {hiddenCount > 0 && `+${hiddenCount}`}
                         </button>
                       )}
                     </div>
@@ -388,19 +457,19 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                       })}
                       className="text-muted-foreground hover:underline text-sm font-medium"
                     >
-                      Скрыть
+                      {t('doctorTimeline.removeMedia')}
                     </button>
                   </div>
                 )}
 
                 {/* Reactions Summary */}
                 {(likesCount > 0 || commentsCount > 0) && (
-                  <div className="px-4 py-2 flex items-center justify-between text-[13px] text-muted-foreground">
+                  <div className="px-4 py-2 flex items-center justify-between text-sm text-muted-foreground">
                     <div className="flex items-center gap-1.5">
                       {likesCount > 0 && (
                         <>
                           <div className="flex items-center justify-center w-[18px] h-[18px] rounded-full bg-primary">
-                            <ThumbsUp className="w-3 h-3 text-white" />
+                            <ThumbsUp className="w-3 h-3 text-primary-foreground" />
                           </div>
                           <span>{likesCount}</span>
                         </>
@@ -416,7 +485,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                         })}
                         className="hover:underline"
                       >
-                        {commentsCount} комментари{commentsCount === 1 ? 'й' : commentsCount < 5 ? 'я' : 'ев'}
+                        {commentsCount} {t('doctorTimeline.comments')}
                       </button>
                     )}
                   </div>
@@ -429,10 +498,10 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                       variant="ghost"
                       size="sm"
                       onClick={() => user && toggleLike.mutate(post.id)}
-                      className={`flex-1 gap-2 h-10 text-[15px] font-semibold ${isLiked ? 'text-primary' : 'text-muted-foreground'} hover:bg-muted/50`}
+                      className={`flex-1 gap-2 h-10 text-base font-semibold ${isLiked ? 'text-primary' : 'text-muted-foreground'} hover:bg-muted/50`}
                     >
                       <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
-                      Нравится
+                      {t('doctorTimeline.likes')}
                     </Button>
                     <Button
                       variant="ghost"
@@ -443,18 +512,18 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                         else next.add(post.id);
                         return next;
                       })}
-                      className="flex-1 gap-2 h-10 text-[15px] font-semibold text-muted-foreground hover:bg-muted/50"
+                      className="flex-1 gap-2 h-10 text-base font-semibold text-muted-foreground hover:bg-muted/50"
                     >
                       <MessageCircle className="w-5 h-5" />
-                      Комментировать
+                      {t('doctorTimeline.addComment')}
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="flex-1 gap-2 h-10 text-[15px] font-semibold text-muted-foreground hover:bg-muted/50"
+                      className="flex-1 gap-2 h-10 text-base font-semibold text-muted-foreground hover:bg-muted/50"
                     >
                       <Share2 className="w-5 h-5" />
-                      Поделиться
+                      {t('doctorProfileHeader.shareProfile')}
                     </Button>
                   </div>
                 </div>
@@ -471,7 +540,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                         <div className="flex-1 relative">
                           <input
                             type="text"
-                            placeholder="Написать комментарий..."
+                            placeholder={t('doctorTimeline.commentPlaceholder')}
                             value={commentContent[post.id] || ''}
                             onChange={(e) => setCommentContent(prev => ({ ...prev, [post.id]: e.target.value }))}
                             onKeyDown={(e) => {
@@ -479,7 +548,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                                 addComment.mutate(post.id);
                               }
                             }}
-                            className="w-full px-3 py-2 pr-10 bg-muted rounded-full text-[15px] placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full px-3 py-2 pr-10 bg-muted rounded-full text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                           />
                           <Button
                             size="icon"
@@ -496,7 +565,7 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
 
                     {/* Comments List */}
                     <div className="space-y-2">
-                      {post.comments?.map((comment: any) => (
+                      {post.comments?.map((comment: DoctorPostComment) => (
                         <div key={comment.id} className="flex gap-2">
                           <Avatar className="w-8 h-8">
                             <AvatarImage src={comment.user?.avatar_url} />
@@ -506,14 +575,14 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
                           </Avatar>
                           <div>
                             <div className="bg-muted rounded-2xl px-3 py-2">
-                              <p className="text-[13px] font-semibold">
-                                {comment.user?.full_name || 'Пользователь'}
+                              <p className="text-sm font-semibold">
+                                {comment.user?.full_name || t('doctorTimeline.authorFallback')}
                               </p>
-                              <p className="text-[15px]">{comment.content}</p>
+                              <p className="text-base">{comment.content}</p>
                             </div>
-                            <div className="flex items-center gap-3 mt-1 ml-3 text-[12px] text-muted-foreground">
-                              <button className="font-semibold hover:underline">Нравится</button>
-                              <button className="font-semibold hover:underline">Ответить</button>
+                            <div className="flex items-center gap-3 mt-1 ml-3 text-xs text-muted-foreground">
+                              <button className="font-semibold hover:underline">{t('doctorTimeline.likes')}</button>
+                              <button className="font-semibold hover:underline">{t('doctorTimeline.sendComment')}</button>
                               <span>{formatDistanceToNow(new Date(comment.created_at), { addSuffix: false, locale: ru })}</span>
                             </div>
                           </div>
@@ -539,18 +608,18 @@ export function DoctorTimeline({ doctorId, isOwner }: DoctorTimelineProps) {
       <AlertDialog open={!!deletePostId} onOpenChange={() => setDeletePostId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить публикацию?</AlertDialogTitle>
+            <AlertDialogTitle>{t('doctorTimeline.deletePost')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Это действие нельзя отменить. Публикация будет удалена навсегда.
+              {t('doctorTimeline.deleteConfirm')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t('doctorTimeline.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deletePostId && deletePost.mutate(deletePostId)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Удалить
+              {t('doctorTimeline.removeMedia')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

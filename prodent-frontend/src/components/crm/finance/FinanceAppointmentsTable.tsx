@@ -21,22 +21,23 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
-import { 
-  Search, 
-  Download, 
-  CalendarCheck, 
-  ChevronLeft, 
+import {
+  Search,
+  Download,
+  CalendarCheck,
+  ChevronLeft,
   ChevronRight,
   Filter,
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Appointment {
   id: string;
   appointment_date: string;
   service: string;
-  price: number | null;
+  total_price: number | null;
   status: string;
   notes: string | null;
   doctor_id: string;
@@ -65,8 +66,9 @@ interface FinanceAppointmentsTableProps {
 const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
 export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppointmentsTableProps) {
+  const { t } = useLanguage();
   const currencyLabel = currency === "USD" ? "$" : "сум";
-  
+
   const [search, setSearch] = useState("");
   const [doctorFilter, setDoctorFilter] = useState<string>("all");
   const [serviceFilter, setServiceFilter] = useState<string>("all");
@@ -79,9 +81,9 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
     const servicesSet = new Set<string>();
 
     appointments.forEach(a => {
-      const doctorName = a.doctor?.profiles 
+      const doctorName = a.doctor?.profiles
         ? `${a.doctor.profiles.first_name || ''} ${a.doctor.profiles.last_name || ''}`.trim()
-        : "Врач";
+        : t('crmFinanceAppts.doctorFallback');
       doctorsMap.set(a.doctor_id, doctorName);
       if (a.service) servicesSet.add(a.service);
     });
@@ -90,7 +92,7 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
       doctors: Array.from(doctorsMap.entries()).map(([id, name]) => ({ id, name })),
       services: Array.from(servicesSet),
     };
-  }, [appointments]);
+  }, [appointments, t]);
 
   // Filter appointments
   const filteredAppointments = useMemo(() => {
@@ -119,7 +121,7 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
     currentPage * itemsPerPage
   );
 
-  const totalRevenue = filteredAppointments.reduce((sum, a) => sum + (a.price || 0), 0);
+  const totalRevenue = filteredAppointments.reduce((sum, a) => sum + (a.total_price || 0), 0);
 
   const hasFilters = search || doctorFilter !== "all" || serviceFilter !== "all";
 
@@ -131,14 +133,14 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
   };
 
   const exportToCsv = () => {
-    const headers = ["Дата", "Пациент", "Телефон", "Врач", "Услуга", "Сумма"];
+    const headers = [t('crmFinanceAppts.headerDate'), t('crmFinanceAppts.headerPatient'), t('crmFinanceAppts.headerPhone'), t('crmFinanceAppts.headerDoctor'), t('crmFinanceAppts.headerService'), t('crmFinanceAppts.headerSum')];
     const rows = filteredAppointments.map(a => [
       format(parseISO(a.appointment_date), "dd.MM.yyyy HH:mm"),
       `${a.patient?.first_name || ''} ${a.patient?.last_name || ''}`.trim(),
       a.patient?.phone || "",
       `${a.doctor?.profiles?.first_name || ''} ${a.doctor?.profiles?.last_name || ''}`.trim(),
       a.service || "",
-      a.price?.toString() || "0",
+      a.total_price?.toString() || "0",
     ]);
 
     const csvContent = [
@@ -159,41 +161,41 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
             <CalendarCheck className="w-4 h-4 text-violet-500" />
-            Завершённые приёмы
+            {t('crmFinanceAppts.completedAppts')}
             <Badge variant="secondary" className="ml-2 font-normal">
               {filteredAppointments.length}
             </Badge>
           </CardTitle>
-          
+
           <div className="flex items-center gap-2 flex-wrap">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Поиск..."
+                placeholder={t('crmFinanceAppts.searchPlaceholder')}
                 value={search}
                 onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
                 className="pl-9 w-[180px] h-9 bg-background/50"
               />
             </div>
-            
+
             <Select value={doctorFilter} onValueChange={v => { setDoctorFilter(v); setCurrentPage(1); }}>
               <SelectTrigger className="w-[160px] h-9 bg-background/50">
-                <SelectValue placeholder="Все врачи" />
+                <SelectValue placeholder={t('crmFinanceAppts.allDoctors')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все врачи</SelectItem>
+                <SelectItem value="all">{t('crmFinanceAppts.allDoctors')}</SelectItem>
                 {doctors.map(d => (
                   <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            
+
             <Select value={serviceFilter} onValueChange={v => { setServiceFilter(v); setCurrentPage(1); }}>
               <SelectTrigger className="w-[160px] h-9 bg-background/50">
-                <SelectValue placeholder="Все услуги" />
+                <SelectValue placeholder={t('crmFinanceAppts.allServices')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все услуги</SelectItem>
+                <SelectItem value="all">{t('crmFinanceAppts.allServices')}</SelectItem>
                 {services.map(s => (
                   <SelectItem key={s} value={s}>{s}</SelectItem>
                 ))}
@@ -201,25 +203,25 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
             </Select>
 
             {hasFilters && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={clearFilters}
                 className="h-9 px-2 text-muted-foreground hover:text-foreground"
               >
                 <X className="w-4 h-4 mr-1" />
-                Сброс
+                {t('crmFinanceAppts.reset')}
               </Button>
             )}
-            
-            <Button 
-              variant="outline" 
-              size="sm" 
+
+            <Button
+              variant="outline"
+              size="sm"
               onClick={exportToCsv}
               className="h-9 gap-1.5"
             >
               <Download className="w-4 h-4" />
-              Экспорт
+              {t('crmFinanceAppts.export')}
             </Button>
           </div>
         </div>
@@ -229,7 +231,7 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
         {filteredAppointments.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <CalendarCheck className="w-12 h-12 mx-auto mb-3 opacity-30" />
-            <p>Нет завершённых приёмов за выбранный период</p>
+            <p>{t('crmFinanceAppts.noCompletedAppts')}</p>
           </div>
         ) : (
           <>
@@ -237,11 +239,11 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30 hover:bg-muted/30">
-                    <TableHead className="font-semibold">Дата</TableHead>
-                    <TableHead className="font-semibold">Пациент</TableHead>
-                    <TableHead className="font-semibold">Врач</TableHead>
-                    <TableHead className="font-semibold">Услуга</TableHead>
-                    <TableHead className="font-semibold text-right">Сумма</TableHead>
+                    <TableHead className="font-semibold">{t('crmFinanceAppts.tableDate')}</TableHead>
+                    <TableHead className="font-semibold">{t('crmFinanceAppts.tablePatient')}</TableHead>
+                    <TableHead className="font-semibold">{t('crmFinanceAppts.tableDoctor')}</TableHead>
+                    <TableHead className="font-semibold">{t('crmFinanceAppts.tableService')}</TableHead>
+                    <TableHead className="font-semibold text-right">{t('crmFinanceAppts.tableSum')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -277,7 +279,7 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-semibold">
-                        {formatPrice(appointment.price, currencyLabel, false)}
+                        {formatPrice(appointment.total_price, currencyLabel, false)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -289,7 +291,7 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 pt-4 border-t border-border/50">
               <div className="flex items-center gap-4">
                 <span className="text-sm text-muted-foreground">
-                  Показано {((currentPage - 1) * itemsPerPage) + 1}–{Math.min(currentPage * itemsPerPage, filteredAppointments.length)} из {filteredAppointments.length}
+                  {t('crmFinanceAppts.shown')} {((currentPage - 1) * itemsPerPage) + 1}–{Math.min(currentPage * itemsPerPage, filteredAppointments.length)} {t('crmFinanceAppts.ofTotal')} {filteredAppointments.length}
                 </span>
                 <Select 
                   value={itemsPerPage.toString()} 
@@ -308,7 +310,7 @@ export function FinanceAppointmentsTable({ appointments, currency }: FinanceAppo
 
               <div className="flex items-center gap-4">
                 <span className="text-sm font-medium">
-                  Итого: <span className="text-foreground">{formatPrice(totalRevenue, currencyLabel, false)}</span>
+                  {t('crmFinanceAppts.total')}: <span className="text-foreground">{formatPrice(totalRevenue, currencyLabel, false)}</span>
                 </span>
                 
                 <div className="flex items-center gap-1">

@@ -14,6 +14,9 @@ import { differenceInYears } from "date-fns";
 
 type FormulaType = 'child' | 'adult' | 'mixed';
 
+const isToothStatus = (value: unknown): value is ToothStatus =>
+  typeof value === 'string' && value in STATUS_CONFIG;
+
 // Tooth type mapping for adult teeth
 const getToothType = (num: number): 'molar' | 'premolar' | 'canine' | 'incisor' => {
   const lastDigit = num % 10;
@@ -79,7 +82,9 @@ export function RealisticDentalChart({ patientId, birthDate, readOnly = true }: 
   });
 
   const teethMap = useMemo(() => {
-    const map = new Map<number, any>();
+    type ToothRow = NonNullable<typeof teethData>[number];
+    type ToothWithDoctor = ToothRow & { doctor_name?: string | null };
+    const map = new Map<number, ToothWithDoctor>();
     teethData?.forEach(tooth => {
       map.set(tooth.tooth_number, {
         ...tooth,
@@ -90,14 +95,15 @@ export function RealisticDentalChart({ patientId, birthDate, readOnly = true }: 
   }, [teethData]);
 
   const getToothStatus = (number: number): ToothStatus => {
-    return teethMap.get(number)?.status || 'healthy';
+    const status = teethMap.get(number)?.status;
+    return isToothStatus(status) ? status : 'healthy';
   };
 
   const getToothData = (number: number) => {
     const data = teethMap.get(number);
     return {
       tooth_number: number,
-      status: data?.status || 'healthy',
+      status: isToothStatus(data?.status) ? data.status : 'healthy',
       notes: data?.notes,
       images: data?.images,
       materials: data?.materials,

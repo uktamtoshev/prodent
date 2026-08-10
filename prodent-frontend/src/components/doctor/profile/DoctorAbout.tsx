@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,24 +16,68 @@ import {
   Plus,
   Video,
   Globe,
-  Heart,
-  Sparkles,
-  CheckCircle2
+  Heart
 } from 'lucide-react';
-import {
-  EditBioDialog,
-  EditEducationDialog,
-  EditCertificationsDialog,
-  EditExperienceDialog,
-  EditWorkingHoursDialog,
-  EditContactDialog,
-  EditVideoDialog,
-  EditLocationDialog,
-} from './InlineEditDialogs';
 import { DoctorLocationMap } from './DoctorLocationMap';
+import { useLanguage } from '@/contexts/LanguageContext';
+import type { DoctorPublicData } from './doctor-profile-types';
+
+const EditBioDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditBioDialog })),
+);
+const EditEducationDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditEducationDialog })),
+);
+const EditCertificationsDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditCertificationsDialog })),
+);
+const EditExperienceDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditExperienceDialog })),
+);
+const EditWorkingHoursDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditWorkingHoursDialog })),
+);
+const EditContactDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditContactDialog })),
+);
+const EditVideoDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditVideoDialog })),
+);
+const EditLocationDialog = lazy(() =>
+  import("./InlineEditDialogs").then((module) => ({ default: module.EditLocationDialog })),
+);
 
 interface DoctorAboutProps {
-  doctor: any;
+  doctor: {
+    id: string;
+    user_id: string;
+    bio?: string | null;
+    cooperation_type?: string | null;
+    clinic_id?: string | null;
+    education?: string | null;
+    certifications?: string[] | null;
+    working_hours?: Record<string, { start: string; end: string }> | null;
+    video_url?: string | null;
+    experience_years?: number | null;
+    specialty?: string | null;
+    category?: string | null;
+    address?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    profile?: {
+      phone?: string | null;
+      email?: string | null;
+      full_name?: string | null;
+    } | null;
+    clinic?: {
+      name: string;
+      address: string;
+      city: string;
+      phone?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
+    } | null;
+  };
   isOwner?: boolean;
 }
 
@@ -56,6 +100,7 @@ const isYouTubeUrl = (url: string): boolean => {
 };
 
 export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
+  const { t } = useLanguage();
   const [editBioOpen, setEditBioOpen] = useState(false);
   const [editEducationOpen, setEditEducationOpen] = useState(false);
   const [editCertificationsOpen, setEditCertificationsOpen] = useState(false);
@@ -68,32 +113,38 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
   const workingHours = doctor.working_hours as Record<string, { start: string; end: string }> | null;
 
   const daysMap: Record<string, string> = {
-    monday: 'Понедельник',
-    tuesday: 'Вторник',
-    wednesday: 'Среда',
-    thursday: 'Четверг',
-    friday: 'Пятница',
-    saturday: 'Суббота',
-    sunday: 'Воскресенье',
+    monday: t('doctorAbout.monday'),
+    tuesday: t('doctorAbout.tuesday'),
+    wednesday: t('doctorAbout.wednesday'),
+    thursday: t('doctorAbout.thursday'),
+    friday: t('doctorAbout.friday'),
+    saturday: t('doctorAbout.saturday'),
+    sunday: t('doctorAbout.sunday'),
   };
+  const editSectionLabel = (section: string) =>
+    `${t('doctorProfileHeader.editProfile')}: ${section}`;
+  const addSectionLabel = (section: string) =>
+    `${t('doctorAbout.add')}: ${section}`;
 
-  const EditButton = ({ onClick }: { onClick: () => void }) => (
+  const EditButton = ({ onClick, ariaLabel }: { onClick: () => void; ariaLabel: string }) => (
     <Button 
       variant="ghost" 
       size="icon" 
-      className="h-9 w-9 rounded-full hover:bg-primary/10 hover:text-primary transition-colors" 
+      className="h-11 w-11 shrink-0 rounded-full transition-colors hover:bg-primary/10 hover:text-primary focus-visible:ring-2 focus-visible:ring-ring"
       onClick={onClick}
+      aria-label={ariaLabel}
     >
       <Pencil className="w-4 h-4" />
     </Button>
   );
 
-  const AddButton = ({ onClick, label }: { onClick: () => void; label: string }) => (
+  const AddButton = ({ onClick, label, ariaLabel }: { onClick: () => void; label: string; ariaLabel: string }) => (
     <Button 
       variant="outline" 
       size="sm" 
-      className="gap-2 border-dashed hover:border-primary hover:bg-primary/5" 
+      className="min-h-11 gap-2 border-dashed hover:border-primary hover:bg-primary/5 focus-visible:ring-2 focus-visible:ring-ring"
       onClick={onClick}
+      aria-label={ariaLabel}
     >
       <Plus className="w-4 h-4" />
       {label}
@@ -110,22 +161,31 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
               <Heart className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <CardTitle className="text-xl">О враче</CardTitle>
-              <p className="text-sm text-muted-foreground">Профессиональная информация</p>
+              <CardTitle className="text-xl">{t('doctorAbout.sectionAbout')}</CardTitle>
+              <p className="text-sm text-muted-foreground">{t('doctorAbout.specialtyLabel')}</p>
             </div>
           </div>
-          {isOwner && <EditButton onClick={() => setEditBioOpen(true)} />}
+          {isOwner && (
+            <EditButton
+              onClick={() => setEditBioOpen(true)}
+              ariaLabel={editSectionLabel(t('doctorAbout.sectionAbout'))}
+            />
+          )}
         </CardHeader>
         <CardContent>
           {doctor.bio ? (
             <p className="whitespace-pre-wrap text-foreground text-base leading-relaxed">{doctor.bio}</p>
           ) : isOwner ? (
             <div className="py-8 text-center">
-              <p className="text-muted-foreground mb-4">Расскажите о себе, своём опыте и подходе к лечению</p>
-              <AddButton onClick={() => setEditBioOpen(true)} label="Добавить описание" />
+              <p className="text-muted-foreground mb-4">{t('doctorInlineEdit.bioPlaceholder')}</p>
+              <AddButton
+                onClick={() => setEditBioOpen(true)}
+                label={t('doctorAbout.add')}
+                ariaLabel={addSectionLabel(t('doctorAbout.sectionAbout'))}
+              />
             </div>
           ) : (
-            <p className="text-muted-foreground text-base">Информация не указана</p>
+            <p className="text-muted-foreground text-base">{t('doctorAbout.noBio')}</p>
           )}
         </CardContent>
       </Card>
@@ -133,111 +193,90 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
       {/* Cooperation Type Badge - only show if doctor has clinic affiliation */}
       {doctor.cooperation_type && doctor.clinic_id && (
         <Card className={`p-4 border-0 ${
-          doctor.cooperation_type === 'chair_rental' 
-            ? 'bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent' 
-            : 'bg-gradient-to-r from-primary/10 via-primary/5 to-transparent'
+          doctor.cooperation_type === 'chair_rental'
+            ? 'bg-secondary'
+            : 'bg-card'
         }`}>
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              doctor.cooperation_type === 'chair_rental' 
-                ? 'bg-amber-500/20' 
+              doctor.cooperation_type === 'chair_rental'
+                ? 'bg-secondary'
                 : 'bg-primary/20'
             }`}>
               <Briefcase className={`w-5 h-5 ${
-                doctor.cooperation_type === 'chair_rental' 
-                  ? 'text-amber-500' 
+                doctor.cooperation_type === 'chair_rental'
+                  ? 'text-status-neutral'
                   : 'text-primary'
               }`} />
             </div>
             <div>
               <Badge variant="secondary" className={`${
                 doctor.cooperation_type === 'chair_rental'
-                  ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                  ? 'bg-secondary text-secondary-foreground border-border'
                   : 'bg-primary/10 text-primary border-primary/20'
               }`}>
-                {doctor.cooperation_type === 'chair_rental' ? 'Арендатор кресла' : 'Штатный врач'}
+                {doctor.cooperation_type === 'chair_rental' ? t('doctorAbout.sectionAbout') : t('doctorAbout.sectionAbout')}
               </Badge>
               <p className="text-xs text-muted-foreground mt-1">
-                {doctor.cooperation_type === 'chair_rental' 
-                  ? 'Ведёт собственных пациентов' 
-                  : 'Принимает пациентов клиники'}
+                {doctor.cooperation_type === 'chair_rental'
+                  ? t('doctorAbout.sectionAbout')
+                  : t('doctorAbout.sectionAbout')}
               </p>
             </div>
           </div>
         </Card>
       )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="text-center p-6 border-0 bg-gradient-to-br from-primary/10 to-primary/5">
-          <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mx-auto mb-3">
-            <Briefcase className="w-7 h-7 text-primary" />
-          </div>
-          <p className="text-3xl font-bold text-foreground">{doctor.experience_years}</p>
-          <p className="text-sm text-muted-foreground">лет опыта</p>
-        </Card>
-        
-        <Card className="text-center p-6 border-0 bg-gradient-to-br from-amber-500/10 to-amber-500/5">
-          <div className="w-14 h-14 rounded-2xl bg-amber-500/20 flex items-center justify-center mx-auto mb-3">
-            <Award className="w-7 h-7 text-amber-500" />
-          </div>
-          <p className="text-3xl font-bold text-foreground">{doctor.certifications?.length || 0}</p>
-          <p className="text-sm text-muted-foreground">сертификатов</p>
-        </Card>
-        
-        <Card className="text-center p-6 border-0 bg-gradient-to-br from-green-500/10 to-green-500/5">
-          <div className="w-14 h-14 rounded-2xl bg-green-500/20 flex items-center justify-center mx-auto mb-3">
-            <CheckCircle2 className="w-7 h-7 text-green-500" />
-          </div>
-          <p className="text-3xl font-bold text-foreground">{doctor.reviews_count || 0}</p>
-          <p className="text-sm text-muted-foreground">отзывов</p>
-        </Card>
-        
-        <Card className="text-center p-6 border-0 bg-gradient-to-br from-purple-500/10 to-purple-500/5">
-          <div className="w-14 h-14 rounded-2xl bg-purple-500/20 flex items-center justify-center mx-auto mb-3">
-            <Sparkles className="w-7 h-7 text-purple-500" />
-          </div>
-          <p className="text-3xl font-bold text-foreground">{doctor.rating || '—'}</p>
-          <p className="text-sm text-muted-foreground">рейтинг</p>
-        </Card>
-      </div>
-
       {/* Two Column Layout */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Education */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-primary/5 to-transparent rounded-bl-full" />
-          <CardHeader className="flex flex-row items-center justify-between">
+          <div className="absolute top-0 right-0 w-32 h-32  rounded-bl-full" />
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                <GraduationCap className="w-5 h-5 text-blue-500" />
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <GraduationCap className="w-5 h-5 text-primary" />
               </div>
-              <CardTitle className="text-lg">Образование</CardTitle>
+              <CardTitle className="text-base font-bold">{t('doctorAbout.sectionEducation')}</CardTitle>
             </div>
-            {isOwner && <EditButton onClick={() => setEditEducationOpen(true)} />}
+            {isOwner && (
+              <EditButton
+                onClick={() => setEditEducationOpen(true)}
+                ariaLabel={editSectionLabel(t('doctorAbout.sectionEducation'))}
+              />
+            )}
           </CardHeader>
           <CardContent>
             {doctor.education ? (
               <p className="whitespace-pre-wrap text-muted-foreground leading-relaxed">{doctor.education}</p>
             ) : isOwner ? (
-              <AddButton onClick={() => setEditEducationOpen(true)} label="Добавить образование" />
+              <AddButton
+                onClick={() => setEditEducationOpen(true)}
+                label={t('doctorAbout.add')}
+                ariaLabel={addSectionLabel(t('doctorAbout.sectionEducation'))}
+              />
             ) : (
-              <p className="text-muted-foreground">Информация не указана</p>
+              <p className="text-muted-foreground">{t('doctorAbout.noEducation')}</p>
             )}
           </CardContent>
         </Card>
 
         {/* Certifications */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-amber-500/5 to-transparent rounded-bl-full" />
-          <CardHeader className="flex flex-row items-center justify-between">
+          <div className="absolute top-0 right-0 w-32 h-32  rounded-bl-full" />
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                <Award className="w-5 h-5 text-amber-500" />
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Award className="w-5 h-5 text-primary" />
               </div>
-              <CardTitle className="text-lg">Сертификаты</CardTitle>
+              <CardTitle className="text-base font-bold">{t('doctorAbout.sectionCertifications')}</CardTitle>
             </div>
-            {isOwner && <EditButton onClick={() => setEditCertificationsOpen(true)} />}
+            {isOwner && (
+              <EditButton
+                onClick={() => setEditCertificationsOpen(true)}
+                ariaLabel={editSectionLabel(t('doctorAbout.sectionCertifications'))}
+              />
+            )}
           </CardHeader>
           <CardContent>
             {doctor.certifications && doctor.certifications.length > 0 ? (
@@ -246,31 +285,40 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
                   <Badge 
                     key={i} 
                     variant="secondary" 
-                    className="text-sm py-1.5 px-4 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20"
+                    className="text-sm py-1.5 px-4 bg-primary/10 text-primary border-primary/20"
                   >
                     {cert}
                   </Badge>
                 ))}
               </div>
             ) : isOwner ? (
-              <AddButton onClick={() => setEditCertificationsOpen(true)} label="Добавить сертификаты" />
+              <AddButton
+                onClick={() => setEditCertificationsOpen(true)}
+                label={t('doctorAbout.add')}
+                ariaLabel={addSectionLabel(t('doctorAbout.sectionCertifications'))}
+              />
             ) : (
-              <p className="text-muted-foreground">Сертификаты не указаны</p>
+              <p className="text-muted-foreground">{t('doctorAbout.noCerts')}</p>
             )}
           </CardContent>
         </Card>
 
         {/* Working Hours */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-green-500/5 to-transparent rounded-bl-full" />
-          <CardHeader className="flex flex-row items-center justify-between">
+          <div className="absolute top-0 right-0 w-32 h-32  rounded-bl-full" />
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <Clock className="w-5 h-5 text-green-500" />
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-primary" />
               </div>
-              <CardTitle className="text-lg">График работы</CardTitle>
+              <CardTitle className="text-base font-bold">{t('doctorAbout.sectionWorkingHours')}</CardTitle>
             </div>
-            {isOwner && <EditButton onClick={() => setEditWorkingHoursOpen(true)} />}
+            {isOwner && (
+              <EditButton
+                onClick={() => setEditWorkingHoursOpen(true)}
+                ariaLabel={editSectionLabel(t('doctorAbout.sectionWorkingHours'))}
+              />
+            )}
           </CardHeader>
           <CardContent>
             {workingHours && Object.keys(workingHours).length > 0 ? (
@@ -282,35 +330,44 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
                     <div 
                       key={key} 
                       className={`flex justify-between items-center py-2 px-3 rounded-lg transition-colors
-                        ${isWorkday ? 'bg-green-500/5' : 'bg-muted/30'}`}
+                        ${isWorkday ? 'bg-status-success/5' : 'bg-muted/30'}`}
                     >
                       <span className={isWorkday ? 'text-foreground' : 'text-muted-foreground'}>{label}</span>
-                      <span className={`font-medium ${isWorkday ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
-                        {hours ? `${hours.start} – ${hours.end}` : 'Выходной'}
+                      <span className={`font-medium ${isWorkday ? 'text-status-success' : 'text-muted-foreground'}`}>
+                        {hours ? `${hours.start} – ${hours.end}` : t('doctorAbout.closedDay')}
                       </span>
                     </div>
                   );
                 })}
               </div>
             ) : isOwner ? (
-              <AddButton onClick={() => setEditWorkingHoursOpen(true)} label="Настроить график" />
+              <AddButton
+                onClick={() => setEditWorkingHoursOpen(true)}
+                label={t('doctorAbout.add')}
+                ariaLabel={addSectionLabel(t('doctorAbout.sectionWorkingHours'))}
+              />
             ) : (
-              <p className="text-muted-foreground">График не указан</p>
+              <p className="text-muted-foreground">{t('doctorAbout.noHours')}</p>
             )}
           </CardContent>
         </Card>
 
         {/* Contact */}
         <Card className="group relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-500/5 to-transparent rounded-bl-full" />
-          <CardHeader className="flex flex-row items-center justify-between">
+          <div className="absolute top-0 right-0 w-32 h-32  rounded-bl-full" />
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                <Globe className="w-5 h-5 text-purple-500" />
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Globe className="w-5 h-5 text-primary" />
               </div>
-              <CardTitle className="text-lg">Контакты</CardTitle>
+              <CardTitle className="text-base font-bold">{t('doctorAbout.sectionContacts')}</CardTitle>
             </div>
-            {isOwner && <EditButton onClick={() => setEditContactOpen(true)} />}
+            {isOwner && (
+              <EditButton
+                onClick={() => setEditContactOpen(true)}
+                ariaLabel={editSectionLabel(t('doctorAbout.sectionContacts'))}
+              />
+            )}
           </CardHeader>
           <CardContent className="space-y-3">
             {doctor.profile?.phone && (
@@ -340,10 +397,14 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
               </a>
             )}
             {!doctor.profile?.phone && !doctor.profile?.email && !isOwner && (
-              <p className="text-muted-foreground">Контакты не указаны</p>
+              <p className="text-muted-foreground">{t('doctorAbout.noContacts')}</p>
             )}
             {!doctor.profile?.phone && !doctor.profile?.email && isOwner && (
-              <AddButton onClick={() => setEditContactOpen(true)} label="Добавить контакты" />
+              <AddButton
+                onClick={() => setEditContactOpen(true)}
+                label={t('doctorAbout.add')}
+                ariaLabel={addSectionLabel(t('doctorAbout.sectionContacts'))}
+              />
             )}
           </CardContent>
         </Card>
@@ -395,14 +456,19 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
       {/* Video Presentation */}
       {(doctor.video_url || isOwner) && (
         <Card className="overflow-hidden">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border/50 px-card-x py-card-y">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center">
-                <Video className="w-5 h-5 text-red-500" />
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Video className="w-5 h-5 text-primary" />
               </div>
-              <CardTitle className="text-lg">Видео-презентация</CardTitle>
+              <CardTitle className="text-base font-bold">{t('doctorAbout.sectionVideo')}</CardTitle>
             </div>
-            {isOwner && <EditButton onClick={() => setEditVideoOpen(true)} />}
+            {isOwner && (
+              <EditButton
+                onClick={() => setEditVideoOpen(true)}
+                ariaLabel={editSectionLabel(t('doctorAbout.sectionVideo'))}
+              />
+            )}
           </CardHeader>
           <CardContent>
             {doctor.video_url ? (
@@ -410,7 +476,7 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
                 {isYouTubeUrl(doctor.video_url) ? (
                   <iframe
                     src={`https://www.youtube.com/embed/${getYouTubeVideoId(doctor.video_url)}`}
-                    title="Видео-презентация врача"
+                    title={t('doctorAbout.sectionVideo')}
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     allowFullScreen
                     className="w-full h-full"
@@ -425,74 +491,96 @@ export function DoctorAbout({ doctor, isOwner = false }: DoctorAboutProps) {
               </div>
             ) : isOwner ? (
               <div className="py-12 text-center">
-                <p className="text-muted-foreground mb-4">Добавьте видео-презентацию для привлечения пациентов</p>
-                <AddButton onClick={() => setEditVideoOpen(true)} label="Добавить видео" />
+                <p className="text-muted-foreground mb-4">{t('doctorAbout.noVideo')}</p>
+                <AddButton
+                  onClick={() => setEditVideoOpen(true)}
+                  label={t('doctorAbout.add')}
+                  ariaLabel={addSectionLabel(t('doctorAbout.sectionVideo'))}
+                />
               </div>
             ) : null}
           </CardContent>
         </Card>
       )}
 
-      {/* Edit Dialogs */}
-      <EditBioDialog
-        open={editBioOpen}
-        onOpenChange={setEditBioOpen}
-        doctorId={doctor.id}
-        currentBio={doctor.bio || ''}
-      />
-      <EditEducationDialog
-        open={editEducationOpen}
-        onOpenChange={setEditEducationOpen}
-        doctorId={doctor.id}
-        currentEducation={doctor.education || ''}
-      />
-      <EditCertificationsDialog
-        open={editCertificationsOpen}
-        onOpenChange={setEditCertificationsOpen}
-        doctorId={doctor.id}
-        currentCertifications={doctor.certifications || []}
-      />
-      <EditExperienceDialog
-        open={editExperienceOpen}
-        onOpenChange={setEditExperienceOpen}
-        doctorId={doctor.id}
-        currentData={{
-          experience_years: doctor.experience_years,
-          specialty: doctor.specialty,
-          category: doctor.category,
-        }}
-      />
-      <EditWorkingHoursDialog
-        open={editWorkingHoursOpen}
-        onOpenChange={setEditWorkingHoursOpen}
-        doctorId={doctor.id}
-        currentHours={workingHours}
-      />
-      <EditContactDialog
-        open={editContactOpen}
-        onOpenChange={setEditContactOpen}
-        profileId={doctor.user_id}
-        currentData={{
-          phone: doctor.profile?.phone || '',
-          email: doctor.profile?.email || '',
-        }}
-      />
-      <EditVideoDialog
-        open={editVideoOpen}
-        onOpenChange={setEditVideoOpen}
-        doctorId={doctor.id}
-        currentVideoUrl={doctor.video_url || ''}
-      />
-      <EditLocationDialog
-        open={editLocationOpen}
-        onOpenChange={setEditLocationOpen}
-        doctorId={doctor.id}
-        currentData={{
-          address: doctor.address || null,
-          latitude: doctor.latitude || null,
-          longitude: doctor.longitude || null,
-        }}
-      />
+      {/* Editors are loaded only after the owner opens one. */}
+      <Suspense fallback={null}>
+        {editBioOpen && (
+          <EditBioDialog
+            open
+            onOpenChange={setEditBioOpen}
+            doctorId={doctor.id}
+            currentBio={doctor.bio || ''}
+          />
+        )}
+        {editEducationOpen && (
+          <EditEducationDialog
+            open
+            onOpenChange={setEditEducationOpen}
+            doctorId={doctor.id}
+            currentEducation={doctor.education || ''}
+          />
+        )}
+        {editCertificationsOpen && (
+          <EditCertificationsDialog
+            open
+            onOpenChange={setEditCertificationsOpen}
+            doctorId={doctor.id}
+            currentCertifications={doctor.certifications || []}
+          />
+        )}
+        {editExperienceOpen && (
+          <EditExperienceDialog
+            open
+            onOpenChange={setEditExperienceOpen}
+            doctorId={doctor.id}
+            currentData={{
+              experience_years: doctor.experience_years,
+              specialty: doctor.specialty,
+              category: doctor.category,
+            }}
+          />
+        )}
+        {editWorkingHoursOpen && (
+          <EditWorkingHoursDialog
+            open
+            onOpenChange={setEditWorkingHoursOpen}
+            doctorId={doctor.id}
+            currentHours={workingHours}
+          />
+        )}
+        {editContactOpen && (
+          <EditContactDialog
+            open
+            onOpenChange={setEditContactOpen}
+            profileId={doctor.user_id}
+            currentData={{
+              phone: doctor.profile?.phone || '',
+              email: doctor.profile?.email || '',
+            }}
+          />
+        )}
+        {editVideoOpen && (
+          <EditVideoDialog
+            open
+            onOpenChange={setEditVideoOpen}
+            doctorId={doctor.id}
+            currentVideoUrl={doctor.video_url || ''}
+          />
+        )}
+        {editLocationOpen && (
+          <EditLocationDialog
+            open
+            onOpenChange={setEditLocationOpen}
+            doctorId={doctor.id}
+            currentData={{
+              address: doctor.address || null,
+              latitude: doctor.latitude || null,
+              longitude: doctor.longitude || null,
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

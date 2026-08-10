@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Media {
   id: string;
@@ -23,6 +24,7 @@ interface MediaGalleryProps {
 }
 
 const MediaGallery = ({ media }: MediaGalleryProps) => {
+  const { t } = useLanguage();
   const [selectedMedia, setSelectedMedia] = useState<Media | null>(null);
 
   return (
@@ -48,13 +50,13 @@ const MediaGallery = ({ media }: MediaGalleryProps) => {
               ) : (
                 <img
                   src={item.url}
-                  alt={item.title || "Работа врача"}
+                  alt={item.title || t('doctorMediaGallery.doctorWork')}
                   className="w-full h-full object-cover"
                 />
               )}
 
               {/* Overlay */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300">
                 <div className="absolute bottom-0 left-0 right-0 p-6">
                   {item.title && (
                     <h3 className="text-white font-bold text-lg mb-2">{item.title}</h3>
@@ -68,13 +70,13 @@ const MediaGallery = ({ media }: MediaGalleryProps) => {
               {/* Badges */}
               <div className="absolute top-4 right-4 flex gap-2">
                 {item.before_after && (
-                  <Badge className="bg-accent text-white border-0">До/После</Badge>
+                  <Badge className="border-0 bg-primary text-primary-foreground">{t('doctorMediaGallery.beforeAfter')}</Badge>
                 )}
                 <Badge variant="secondary" className="bg-black/50 text-white border-0">
                   {item.type === "video" ? (
-                    <><Video className="w-3 h-3 mr-1" />Видео</>
+                    <><Video className="w-3 h-3 mr-1" />{t('doctorMediaGallery.video')}</>
                   ) : (
-                    <><ImageIcon className="w-3 h-3 mr-1" />Фото</>
+                    <><ImageIcon className="w-3 h-3 mr-1" />{t('doctorMediaGallery.photo')}</>
                   )}
                 </Badge>
               </div>
@@ -89,7 +91,7 @@ const MediaGallery = ({ media }: MediaGalleryProps) => {
           {selectedMedia && (
             <>
               <DialogHeader>
-                <DialogTitle>{selectedMedia.title || "Работа врача"}</DialogTitle>
+                <DialogTitle>{selectedMedia.title || t('doctorMediaGallery.doctorWork')}</DialogTitle>
               </DialogHeader>
               <div className="relative">
                 {selectedMedia.type === "video" ? (

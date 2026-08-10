@@ -2,13 +2,24 @@ import { createContext, useContext, useEffect, useState } from "react";
 import type { User, Session } from "@/integrations/supabase/client";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { buildAuthCallbackUrl } from "@/lib/authFlow";
+
+type AuthActionError = { message?: string } | Error | unknown;
+type AuthActionResult = Promise<{ error: AuthActionError | null }>;
+type AuthUserWithMetadata = User & {
+  user_metadata?: {
+    first_name?: string;
+    full_name?: string;
+  };
+  firstName?: string;
+};
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
-  signUp: (email: string, password: string, fullName?: string, phone?: string, role?: string) => Promise<{ error: any }>;
-  signIn: (email: string, password: string) => Promise<{ error: any }>;
-  signInWithGoogle: () => Promise<{ error: any }>;
+  signUp: (email: string, password: string, fullName?: string, phone?: string, role?: string) => AuthActionResult;
+  signIn: (email: string, password: string) => AuthActionResult;
+  signInWithGoogle: (returnTo?: string | null) => AuthActionResult;
   signOut: () => Promise<void>;
   loading: boolean;
 }
@@ -29,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // If user didn't check "remember me" and browser was closed (no activeSession)
       if (rememberMe === "false" && !activeSession) {
-        await supabase.auth.signOut({ scope: 'local' });
+        await supabase.auth.signOut();
         localStorage.removeItem("rememberMe");
         return true; // Session should be cleared
       }
@@ -48,10 +59,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Check for existing session
     checkRememberMe().then((cleared) => {
       if (!cleared) {
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        supabase.auth.getSession().then(async ({ data: { session } }) => {
           setSession(session);
           setUser(session?.user ?? null);
           setLoading(false);
+
+          // If we have a session but the cached profile doesn't yet contain
+          // a real first/last name (e.g. legacy localStorage from before this
+          // shim cached profiles), hydrate from /users/me and re-emit user.
+          if (session?.user) {
+            const hydratedUser = session.user as AuthUserWithMetadata;
+            const meta = hydratedUser.user_metadata ?? {};
+            const hasName = meta.first_name || meta.full_name || hydratedUser.firstName;
+            if (!hasName) {
+              try {
+                await supabase.auth.getUser();
+                const { data: { session: refreshed } } = await supabase.auth.getSession();
+                if (refreshed?.user) setUser(refreshed.user);
+              } catch {
+                /* non-fatal */
+              }
+            }
+          }
         });
       } else {
         setLoading(false);
@@ -92,7 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       return { error };
-    } catch (error: any) {
+    } catch (error: AuthActionError) {
       return { error };
     }
   };
@@ -118,17 +147,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       return { error };
-    } catch (error: any) {
+    } catch (error: AuthActionError) {
       return { error };
     }
   };
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (returnTo?: string | null) => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/`,
+          redirectTo: buildAuthCallbackUrl(window.location.origin, returnTo),
         }
       });
 
@@ -141,7 +170,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       return { error };
-    } catch (error: any) {
+    } catch (error: AuthActionError) {
       return { error };
     }
   };
@@ -157,10 +186,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     // Then sign out from Supabase (ignore errors for stale sessions)
     try {
-      await supabase.auth.signOut({ scope: 'local' });
-    } catch (error) {
+      await supabase.auth.signOut();
+    } catch {
       // Ignore errors - session might already be invalid
-      console.log('Sign out completed');
     }
     
     toast({

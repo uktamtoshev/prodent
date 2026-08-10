@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Country {
   id: string;
@@ -58,7 +59,7 @@ const countryFlags: Record<string, string> = {
 const MapPickerLazy = lazy(() => import("./MapPicker").then(m => ({ default: m.MapPicker })));
 
 export function LocationSelector({
-  country = "Узбекистан",
+  country,
   region,
   district,
   address,
@@ -75,6 +76,8 @@ export function LocationSelector({
   showMap = true,
   required = true,
 }: LocationSelectorProps) {
+  const { t } = useLanguage();
+  const effectiveCountry = country ?? t("auth.uzbekistan");
   const [countries, setCountries] = useState<Country[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [districts, setDistricts] = useState<District[]>([]);
@@ -95,10 +98,10 @@ export function LocationSelector({
       if (!error && data) {
         setCountries(data);
         // Find country by name or default to Uzbekistan
-        const found = data.find(c => c.name === country) || data.find(c => c.code === "UZ");
+        const found = data.find(c => c.name === effectiveCountry) || data.find(c => c.code === "UZ");
         if (found) {
           setSelectedCountryId(found.id);
-          if (onCountryChange && found.name !== country) {
+          if (onCountryChange && found.name !== effectiveCountry) {
             onCountryChange(found.name);
           }
         }
@@ -106,7 +109,7 @@ export function LocationSelector({
       setLoading(prev => ({ ...prev, countries: false }));
     };
     fetchCountries();
-  }, []);
+  }, [effectiveCountry, onCountryChange]);
 
   // Fetch regions when country changes
   useEffect(() => {
@@ -137,7 +140,7 @@ export function LocationSelector({
       setLoading(prev => ({ ...prev, regions: false }));
     };
     fetchRegions();
-  }, [selectedCountryId]);
+  }, [region, selectedCountryId]);
 
   // Fetch districts when region changes
   useEffect(() => {
@@ -198,14 +201,14 @@ export function LocationSelector({
     <div className="space-y-4">
       {/* Country */}
       <div className="space-y-2">
-        <Label>Страна {required && "*"}</Label>
+        <Label>{t("auth.country")} {required && "*"}</Label>
         <Select
           value={selectedCountryId}
           onValueChange={handleCountryChange}
           disabled={disabled || loading.countries}
         >
           <SelectTrigger className={errors.country ? "border-destructive" : ""}>
-            <SelectValue placeholder={loading.countries ? "Загрузка..." : "Выберите страну"}>
+            <SelectValue placeholder={loading.countries ? t("auth.loadingPlaceholder") : t("auth.selectCountry")}>
               {selectedCountryId && countries.find(c => c.id === selectedCountryId) && (
                 <>
                   {getCountryFlag(countries.find(c => c.id === selectedCountryId)!.code)}{" "}
@@ -227,7 +230,7 @@ export function LocationSelector({
 
       {/* Region/City */}
       <div className="space-y-2">
-        <Label>Область / Город {required && "*"}</Label>
+        <Label>{t("auth.regionCity")} {required && "*"}</Label>
         <Select
           value={selectedRegionId}
           onValueChange={handleRegionChange}
@@ -235,9 +238,9 @@ export function LocationSelector({
         >
           <SelectTrigger className={errors.region ? "border-destructive" : ""}>
             <SelectValue placeholder={
-              loading.regions ? "Загрузка..." : 
-              !selectedCountryId ? "Сначала выберите страну" : 
-              "Выберите область или город"
+              loading.regions ? t("auth.loadingPlaceholder") :
+              !selectedCountryId ? t("auth.selectCountryFirst") :
+              t("auth.selectRegion")
             } />
           </SelectTrigger>
           <SelectContent>
@@ -253,7 +256,7 @@ export function LocationSelector({
 
       {/* District */}
       <div className="space-y-2">
-        <Label>Район</Label>
+        <Label>{t("auth.district")}</Label>
         <Select
           value={districts.find(d => d.name === district)?.id || ""}
           onValueChange={handleDistrictChange}
@@ -261,10 +264,10 @@ export function LocationSelector({
         >
           <SelectTrigger className={errors.district ? "border-destructive" : ""}>
             <SelectValue placeholder={
-              loading.districts ? "Загрузка..." :
-              !selectedRegionId ? "Сначала выберите область" :
-              districts.length === 0 ? "Районы не найдены" :
-              "Выберите район"
+              loading.districts ? t("auth.loadingPlaceholder") :
+              !selectedRegionId ? t("auth.selectRegionFirst") :
+              districts.length === 0 ? t("auth.noDistricts") :
+              t("auth.selectDistrict")
             } />
           </SelectTrigger>
           <SelectContent>
@@ -281,10 +284,10 @@ export function LocationSelector({
       {/* Address */}
       {showAddress && (
         <div className="space-y-2">
-          <Label htmlFor="address">Адрес {required && "*"}</Label>
+          <Label htmlFor="address">{t("auth.address")} {required && "*"}</Label>
           <Input
             id="address"
-            placeholder="ул. Навои, д. 10, кв. 5"
+            placeholder=""
             value={address}
             onChange={(e) => onAddressChange(e.target.value)}
             disabled={disabled}

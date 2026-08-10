@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { SingleImageUploader } from './MediaUploader';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface AddAwardDialogProps {
   open: boolean;
@@ -25,6 +26,7 @@ export function AddAwardDialog({
   onOpenChange,
   doctorId,
 }: AddAwardDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [issuer, setIssuer] = useState('');
@@ -47,16 +49,16 @@ export function AddAwardDialog({
     },
     onSuccess: () => {
       toast({
-        title: 'Награда добавлена',
-        description: 'Награда успешно добавлена в ваш профиль',
+        title: t('doctorAddAward.added'),
+        description: t('doctorAddAward.added'),
       });
       queryClient.invalidateQueries({ queryKey: ['doctor-awards', doctorId] });
       handleClose();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
-        title: 'Ошибка',
-        description: error.message || 'Не удалось добавить награду',
+        title: t('doctorCreatePost.error'),
+        description: error instanceof Error ? error.message : t('doctorAddAward.saveError'),
         variant: 'destructive',
       });
     },
@@ -75,15 +77,15 @@ export function AddAwardDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Добавить награду</DialogTitle>
+          <DialogTitle>{t('doctorAddAward.title')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Title */}
           <div className="space-y-2">
-            <Label>Название награды *</Label>
-            <Input
-              placeholder="Например: Лучший стоматолог года"
+            <Label htmlFor="add-award-dialog-field-1">{t('doctorAddAward.awardName')}</Label>
+            <Input id="add-award-dialog-field-1"
+              placeholder={t('doctorAddAward.awardNamePlaceholder')}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
             />
@@ -91,9 +93,9 @@ export function AddAwardDialog({
 
           {/* Issuer */}
           <div className="space-y-2">
-            <Label>Организация</Label>
-            <Input
-              placeholder="Кто выдал награду"
+            <Label htmlFor="add-award-dialog-field-2">{t('doctorAddAward.awardOrg')}</Label>
+            <Input id="add-award-dialog-field-2"
+              placeholder={t('doctorAddAward.awardOrgPlaceholder')}
               value={issuer}
               onChange={(e) => setIssuer(e.target.value)}
             />
@@ -101,8 +103,8 @@ export function AddAwardDialog({
 
           {/* Issue Date */}
           <div className="space-y-2">
-            <Label>Дата получения</Label>
-            <Input
+            <Label htmlFor="add-award-dialog-field-3">{t('doctorAddAward.awardYear')}</Label>
+            <Input id="add-award-dialog-field-3"
               type="date"
               value={issueDate}
               onChange={(e) => setIssueDate(e.target.value)}
@@ -111,9 +113,9 @@ export function AddAwardDialog({
 
           {/* Description */}
           <div className="space-y-2">
-            <Label>Описание</Label>
-            <Textarea
-              placeholder="Дополнительная информация о награде..."
+            <Label htmlFor="add-award-dialog-field-4">{t('doctorAddAward.awardDesc')}</Label>
+            <Textarea id="add-award-dialog-field-4"
+              placeholder={t('doctorAddAward.awardDescPlaceholder')}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="min-h-[80px]"
@@ -125,20 +127,20 @@ export function AddAwardDialog({
             doctorId={doctorId}
             value={imageUrl}
             onChange={setImageUrl}
-            label="Изображение награды"
+            label={t('doctorAddAward.certImage')}
             aspectRatio="aspect-video"
           />
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="outline" onClick={handleClose}>
-              Отмена
+              {t('doctorAddAward.cancel')}
             </Button>
             <Button
               onClick={() => addAward.mutate()}
               disabled={!title.trim() || addAward.isPending}
             >
-              {addAward.isPending ? 'Сохранение...' : 'Добавить'}
+              {addAward.isPending ? t('doctorAddAward.saving') : t('doctorAddAward.add')}
             </Button>
           </div>
         </div>

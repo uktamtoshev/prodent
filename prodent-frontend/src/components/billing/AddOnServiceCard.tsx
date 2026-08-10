@@ -1,11 +1,11 @@
 import { Check, Clock } from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import type { AddOnService, ActiveAddOn } from '@/hooks/useAddOnServices';
+import { resolveBillingIcon } from './billingIconMap';
 
 interface AddOnServiceCardProps {
   service: AddOnService;
@@ -22,18 +22,16 @@ export function AddOnServiceCard({
   onClick,
   disabled,
 }: AddOnServiceCardProps) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const isActive = !!activeAddOn;
 
   const getName = () => {
     if (language === 'uz' && service.name_uz) return service.name_uz;
-    if (language === 'en' && service.name_en) return service.name_en;
     return service.name;
   };
 
   const getDescription = () => {
     if (language === 'uz' && service.description_uz) return service.description_uz;
-    if (language === 'en' && service.description_en) return service.description_en;
     return service.description;
   };
 
@@ -42,18 +40,18 @@ export function AddOnServiceCard({
   };
 
   const renderIcon = () => {
-    const IconComponent = (LucideIcons as any)[service.icon] || LucideIcons.Award;
+    const IconComponent = resolveBillingIcon(service.icon);
     return <IconComponent className="w-6 h-6" style={{ color: service.color }} />;
   };
 
   const getServiceTypeLabel = () => {
     switch (service.service_type) {
       case 'badge':
-        return 'Бейдж';
+        return t('billingDialogs.typeBadge');
       case 'search_promotion':
-        return 'Продвижение';
+        return t('billingDialogs.typePromotion');
       case 'profile_frame':
-        return 'Рамка профиля';
+        return t('billingDialogs.typeFrame');
       default:
         return '';
     }
@@ -70,17 +68,17 @@ export function AddOnServiceCard({
         <div className="absolute top-2 right-2">
           <Badge variant="default" className="gap-1 bg-primary">
             <Check className="w-3 h-3" />
-            Активен
+            {t('billingDialogs.activeBtn')}
           </Badge>
         </div>
       )}
-      
+
       <div className="absolute top-2 left-2">
         <Badge variant="outline" className="text-xs">
           {getServiceTypeLabel()}
         </Badge>
       </div>
-      
+
       <CardHeader className="pb-2 pt-10">
         <div
           className="w-12 h-12 rounded-lg flex items-center justify-center mb-2"
@@ -97,16 +95,16 @@ export function AddOnServiceCard({
           </CardDescription>
         )}
       </CardHeader>
-      
+
       <CardContent>
         {isActive ? (
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
             <Clock className="w-3 h-3" />
-            <span>до {format(new Date(activeAddOn.end_date), 'd MMM yyyy', { locale: ru })}</span>
+            <span>{t('billingDialogs.until')} {format(new Date(activeAddOn.end_date), 'd MMM yyyy', { locale: ru })}</span>
           </div>
         ) : (
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">от</span>
+            <span className="text-sm text-muted-foreground">{t('billingDialogs.from')}</span>
             <span className="font-bold text-primary">
               {formatAmount(minPrice)} UZS
             </span>

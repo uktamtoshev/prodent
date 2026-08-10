@@ -1,8 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Star, MapPin, Award, ChevronRight, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useActiveBannerCampaigns, useTrackAdEvent, AdCampaign } from "@/hooks/useAdCampaigns";
+
+type CampaignClinic = NonNullable<AdCampaign["clinic"]> & {
+  cover_image?: string;
+};
 
 // Fallback data when no campaigns
 const fallbackDoctors = [
@@ -32,7 +36,10 @@ export const DoctorAdBanner = () => {
   const { data: campaigns } = useActiveBannerCampaigns('doctor');
   const trackEvent = useTrackAdEvent();
 
-  const bannerCampaigns = campaigns?.filter(c => c.package?.package_type === 'banner') || [];
+  // The new /banners endpoint already returns only banner-type active
+  // campaigns, so we no longer need to filter by package.package_type
+  // (which isn't joined into the REST response).
+  const bannerCampaigns = useMemo(() => campaigns || [], [campaigns]);
   const hasCampaigns = bannerCampaigns.length > 0;
 
   useEffect(() => {
@@ -51,7 +58,7 @@ export const DoctorAdBanner = () => {
         event_type: 'impression',
       });
     }
-  }, [currentIndex, hasCampaigns]);
+  }, [bannerCampaigns, currentIndex, hasCampaigns, trackEvent]);
 
   const handleClick = (campaign: AdCampaign) => {
     trackEvent.mutate({
@@ -63,12 +70,15 @@ export const DoctorAdBanner = () => {
   const currentCampaign = hasCampaigns ? bannerCampaigns[currentIndex] : null;
   const currentDoctor = currentCampaign?.doctor;
   const fallback = fallbackDoctors[0];
-  
-  const doctorName = currentDoctor?.profiles?.full_name || fallback.name;
-  const doctorImage = currentDoctor?.profiles?.avatar_url || fallback.image;
+
+  // The new REST campaign payload doesn't embed `doctor` joined data. Prefer
+  // values from the joined object when present, fall back to the campaign's
+  // own creative fields (title/image_url) and finally to the demo fallback.
+  const doctorName = currentDoctor?.profiles?.full_name || currentCampaign?.title || fallback.name;
+  const doctorImage = currentDoctor?.profiles?.avatar_url || currentCampaign?.image_url || fallback.image;
   const doctorRating = currentDoctor?.rating || fallback.rating;
   const doctorExperience = currentDoctor?.experience_years || fallback.experience;
-  const doctorId = currentDoctor?.id || fallback.id;
+  const doctorId = currentDoctor?.id || currentCampaign?.doctor_id || fallback.id;
   const doctorSpecialty = currentDoctor?.specialty || fallback.specialty;
 
   return (
@@ -169,7 +179,10 @@ export const ClinicAdBanner = () => {
   const { data: campaigns } = useActiveBannerCampaigns('clinic');
   const trackEvent = useTrackAdEvent();
 
-  const bannerCampaigns = campaigns?.filter(c => c.package?.package_type === 'banner') || [];
+  // The new /banners endpoint already returns only banner-type active
+  // campaigns, so we no longer need to filter by package.package_type
+  // (which isn't joined into the REST response).
+  const bannerCampaigns = useMemo(() => campaigns || [], [campaigns]);
   const hasCampaigns = bannerCampaigns.length > 0;
 
   useEffect(() => {
@@ -188,7 +201,7 @@ export const ClinicAdBanner = () => {
         event_type: 'impression',
       });
     }
-  }, [currentIndex, hasCampaigns]);
+  }, [bannerCampaigns, currentIndex, hasCampaigns, trackEvent]);
 
   const handleClick = (campaign: AdCampaign) => {
     trackEvent.mutate({
@@ -198,13 +211,18 @@ export const ClinicAdBanner = () => {
   };
 
   const currentCampaign = hasCampaigns ? bannerCampaigns[currentIndex] : null;
-  const currentClinic = currentCampaign?.clinic;
+  const currentClinic = currentCampaign?.clinic as CampaignClinic | undefined;
   const fallback = fallbackClinics[0];
-  const clinicName = currentClinic?.name || fallback.name;
+  // New REST payload doesn't embed `clinic` data — fall back through
+  // campaign creative fields (title/image_url) to demo content.
+  const clinicName = currentClinic?.name || currentCampaign?.title || fallback.name;
   const clinicCity = currentClinic?.city || fallback.city;
   const clinicAddress = currentClinic?.address || fallback.address;
-  const clinicId = currentClinic?.id || fallback.id;
-  const clinicImage = (currentClinic as any)?.cover_image || "https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=400&h=225&fit=crop";
+  const clinicId = currentClinic?.id || currentCampaign?.clinic_id || fallback.id;
+  const clinicImage =
+    currentClinic?.cover_image ||
+    currentCampaign?.image_url ||
+    "https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=400&h=225&fit=crop";
 
   return (
     <div className="relative rounded-2xl overflow-hidden shadow-lg">

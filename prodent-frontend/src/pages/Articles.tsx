@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { uzLatinToCyrl } from "@/lib/uzbek-transliterate";
 import { Link } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, Calendar, Clock, ArrowRight, BookOpen, Newspaper, TrendingUp } from "lucide-react";
+import { Search, Calendar, Clock, ArrowRight, BookOpen, Newspaper, TrendingUp, Eye, Heart, Share2 } from "lucide-react";
+import { formatCount } from "@/lib/engagement";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { PageMeta } from "@/components/PageMeta";
 
 import dentalGeneral from "@/assets/articles/dental-general.jpg";
 import dentalWhitening from "@/assets/articles/dental-whitening.jpg";
@@ -71,22 +73,56 @@ const defaultCovers = [
   dentalBraces,
 ];
 
+interface BlogPostResponse {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt?: string | null;
+  content?: string | null;
+  coverUrl?: string | null;
+  publishedAt?: string | null;
+  tags?: string[];
+  viewCount?: number;
+  likesCount?: number;
+  sharesCount?: number;
+}
+
 const Articles = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  const { data: articles, isLoading } = useQuery({
-    queryKey: ["public-articles"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("blog_posts")
-        .select("*")
-        .eq("published", true)
-        .order("published_at", { ascending: false });
+  // DB has articles in ru/uz/en; the LanguageContext also has uz_cyrl/kz/kg/tj.
+  // For uz_cyrl we load uz (latin) and transliterate on the fly. For other
+  // languages without content (kz/kg/tj) we fall back to ru.
+  const articleLang =
+    language === 'uz' || language === 'uz_cyrl' ? 'uz'
+    : language === 'ru' ? 'ru'
+    : 'ru';
+  const needCyrl = language === 'uz_cyrl';
 
-      if (error) throw error;
-      return data;
+  const { data: articles, isLoading } = useQuery({
+    queryKey: ["public-articles", articleLang, needCyrl],
+    queryFn: async () => {
+      const res = await fetch(`/api/v1/public/blog?lang=${articleLang}&size=50`);
+      if (!res.ok) throw new Error(`Failed to load articles: ${res.status}`);
+      const json = await res.json();
+      const rows = (json.content ?? []) as BlogPostResponse[];
+      return rows.map((p) => ({
+        id: p.id,
+        title: needCyrl ? uzLatinToCyrl(p.title) : p.title,
+        slug: p.slug,
+        excerpt: needCyrl ? uzLatinToCyrl(p.excerpt ?? "") : p.excerpt,
+        content: needCyrl ? uzLatinToCyrl(p.content ?? "") : p.content,
+        cover_url: p.coverUrl,
+        published_at: p.publishedAt,
+        meta_keywords: needCyrl
+          ? (p.tags ?? []).map((t: string) => uzLatinToCyrl(t))
+          : p.tags ?? [],
+        view_count: p.viewCount ?? 0,
+        likes_count: p.likesCount ?? 0,
+        shares_count: p.sharesCount ?? 0,
+      }));
     },
   });
 
@@ -121,8 +157,11 @@ const Articles = () => {
     return Math.max(3, Math.ceil(words / 200));
   };
 
-  const getArticleCover = (slug: string, index: number) => {
-    return articleCovers[slug] || defaultCovers[index % defaultCovers.length];
+  const getArticleCover = (article: { slug: string; cover_url?: string | null }, index: number) => {
+    // Prefer the cover_url stored on the row (e.g. /blog-covers/<slug>.svg
+    // served by the backend). Fall back to the legacy bundled JPGs.
+    if (article.cover_url) return article.cover_url;
+    return articleCovers[article.slug] || defaultCovers[index % defaultCovers.length];
   };
 
   const featuredArticle = filteredArticles?.[0];
@@ -130,8 +169,13 @@ const Articles = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      <PageMeta
+        title="Блог о стоматологии — PRODENT"
+        description="Полезные статьи о стоматологии: лечение, гигиена, имплантация, детская стоматология и здоровье зубов. Советы экспертов PRODENT."
+        canonical="https://prodent.uz/articles"
+      />
       <Header />
-      
+
       <main>
         <section className="relative overflow-hidden bg-gradient-to-br from-primary/10 via-background to-secondary/10 py-16 md:py-24">
           <div className="absolute inset-0 overflow-hidden">
@@ -226,7 +270,7 @@ const Articles = () => {
                     <div className="grid md:grid-cols-2 gap-0">
                       <div className="relative h-64 md:h-auto md:min-h-[400px] overflow-hidden">
                         <img
-                          src={getArticleCover(featuredArticle.slug, 0)}
+                          src={getArticleCover(featuredArticle, 0)}
                           alt={featuredArticle.title}
                           className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                         />
@@ -239,7 +283,7 @@ const Articles = () => {
                         </div>
                       </div>
                       <div className="p-8 md:p-12 flex flex-col justify-center">
-                        <div className="flex items-center gap-3 text-sm text-muted-foreground mb-4">
+                        <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-4">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-4 w-4" />
                             <span>
@@ -252,6 +296,19 @@ const Articles = () => {
                           <div className="flex items-center gap-1">
                             <Clock className="h-4 w-4" />
                             <span>{estimateReadTime(featuredArticle.content)} {t('articles.readTime')}</span>
+                          </div>
+                          <span className="w-1 h-1 rounded-full bg-muted-foreground" />
+                          <div className="flex items-center gap-1" title="Просмотры">
+                            <Eye className="h-4 w-4" />
+                            <span>{formatCount(featuredArticle.view_count)}</span>
+                          </div>
+                          <div className="flex items-center gap-1" title="Лайки">
+                            <Heart className="h-4 w-4" />
+                            <span>{formatCount(featuredArticle.likes_count)}</span>
+                          </div>
+                          <div className="flex items-center gap-1" title="Поделились">
+                            <Share2 className="h-4 w-4" />
+                            <span>{formatCount(featuredArticle.shares_count)}</span>
                           </div>
                         </div>
                         <h2 className="text-2xl md:text-3xl lg:text-4xl font-bold text-foreground mb-4 group-hover:text-primary transition-colors leading-tight">
@@ -285,7 +342,7 @@ const Articles = () => {
                     <Card className="h-full group overflow-hidden border-0 shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-2 bg-card">
                       <div className="relative h-56 overflow-hidden">
                         <img
-                          src={getArticleCover(article.slug, index + 1)}
+                          src={getArticleCover(article, index + 1)}
                           alt={article.title}
                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
                         />
@@ -320,9 +377,25 @@ const Articles = () => {
                             ))}
                           </div>
                         )}
-                        <div className="flex items-center text-primary text-sm font-medium">
-                          <span>{t('articles.readMore')}</span>
-                          <ArrowRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                        <div className="flex items-center justify-between gap-3 pt-3 border-t border-border/40">
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1" title="Просмотры">
+                              <Eye className="h-3.5 w-3.5" />
+                              {formatCount(article.view_count)}
+                            </span>
+                            <span className="flex items-center gap-1" title="Лайки">
+                              <Heart className="h-3.5 w-3.5" />
+                              {formatCount(article.likes_count)}
+                            </span>
+                            <span className="flex items-center gap-1" title="Поделились">
+                              <Share2 className="h-3.5 w-3.5" />
+                              {formatCount(article.shares_count)}
+                            </span>
+                          </div>
+                          <div className="flex items-center text-primary text-sm font-medium">
+                            <span>{t('articles.readMore')}</span>
+                            <ArrowRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                          </div>
                         </div>
                       </CardContent>
                     </Card>

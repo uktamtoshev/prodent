@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { lazy, Suspense, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,17 +10,31 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Loader2, CheckCircle, ImagePlus, Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { AvatarCropper } from "@/components/ui/avatar-cropper";
 import { LocationSelector } from "./LocationSelector";
+import { useLanguage } from "@/contexts/LanguageContext";
+
+const AvatarCropper = lazy(() =>
+  import("@/components/ui/avatar-cropper").then((module) => ({ default: module.AvatarCropper })),
+);
 
 export function ClinicApplicationForm() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const clearError = (field: string) =>
+    setErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
   const [formData, setFormData] = useState({
     name: "",
     description: "",
     address: "",
-    country: "Узбекистан",
+    country: t("auth.uzbekistan"),
     region: "",
     district: "",
     website: "",
@@ -54,9 +68,10 @@ export function ClinicApplicationForm() {
     setLogoFile(file);
     setLogoPreview(URL.createObjectURL(croppedBlob));
     setTempImageSrc(null);
+    clearError("logo");
   };
 
-  const handleFileUpload = async (file: File, folder: string) => {
+  const handleFileUpload = async (file: File, bucket: string, folder: string) => {
     const user = (await supabase.auth.getUser()).data.user;
     if (!user) throw new Error("User not authenticated");
 
@@ -64,33 +79,50 @@ export function ClinicApplicationForm() {
     const fileName = `${user.id}/${folder}/${Date.now()}.${fileExt}`;
 
     const { error: uploadError } = await supabase.storage
-      .from("application-documents")
+      .from(bucket)
       .upload(fileName, file);
 
     if (uploadError) throw uploadError;
 
     const { data } = supabase.storage
-      .from("application-documents")
+      .from(bucket)
       .getPublicUrl(fileName);
 
     return data.publicUrl;
   };
 
+  const validate = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.name.trim() || formData.name.trim().length < 2) newErrors.name = t("auth.errClinicName");
+    if (!formData.region) newErrors.region = t("auth.errRegion");
+    if (!formData.address.trim()) newErrors.address = t("auth.errAddress");
+    // The map point is collected only here — the CRM no longer re-asks for it,
+    // so an application without coordinates would leave the clinic off the map.
+    if (formData.latitude == null || formData.longitude == null) {
+      newErrors.location = t("auth.errLocation");
+    }
+    if (!formData.directorName.trim()) newErrors.directorName = t("auth.fieldRequired");
+    if (!formData.licenseNumber.trim()) newErrors.licenseNumber = t("auth.fieldRequired");
+    if (!logoFile) newErrors.logo = t("auth.uploadClinicLogo");
+    if (!licenseFile) newErrors.license = t("auth.fieldRequired");
+    if (!registrationFile) newErrors.registration = t("auth.fieldRequired");
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!validate()) {
+      toast.error(t("auth.fillRequiredFields"));
+      return;
+    }
+
     setLoading(true);
 
     try {
-      if (!logoFile) {
-        toast.error("Загрузите логотип клиники");
-        return;
-      }
-
-      if (!licenseFile || !registrationFile) {
-        toast.error("Загрузите все обязательные документы");
-        return;
-      }
-
       const user = (await supabase.auth.getUser()).data.user;
       const profile = await supabase
         .from("profiles")
@@ -99,14 +131,14 @@ export function ClinicApplicationForm() {
         .single();
 
       if (!user || !profile.data) {
-        toast.error("Ошибка получения данных пользователя");
+        toast.error(t("auth.getUserDataError"));
         return;
       }
 
-      // Upload documents and logo
-      const licenseUrl = await handleFileUpload(licenseFile, "clinic-licenses");
-      const registrationUrl = await handleFileUpload(registrationFile, "clinic-registration");
-      const logoUrl = await handleFileUpload(logoFile!, "clinic-logos");
+      // Upload documents (private) and logo (public so it renders on clinic listings)
+      const licenseUrl = await handleFileUpload(licenseFile, "documents", "clinic-licenses");
+      const registrationUrl = await handleFileUpload(registrationFile, "documents", "clinic-registration");
+      const logoUrl = await handleFileUpload(logoFile!, "clinic-photos", "clinic-logos");
 
       // Update profile with logo as avatar
       await supabase
@@ -122,6 +154,8 @@ export function ClinicApplicationForm() {
         address: formData.address,
         city: formData.region, // Using region as city for compatibility
         district: formData.district,
+        latitude: formData.latitude,
+        longitude: formData.longitude,
         phone: profile.data.phone,
         email: user.email,
         website: formData.website,
@@ -135,14 +169,14 @@ export function ClinicApplicationForm() {
 
       if (error) throw error;
 
-      toast.success("Заявка отправлена на проверку!", {
-        description: "Мы проверим ваши документы в течение 1-2 рабочих дней",
+      toast.success(t("auth.applicationSent"), {
+        description: t("auth.applicationSentDesc"),
       });
 
       setTimeout(() => navigate("/"), 2000);
-    } catch (error: any) {
-      toast.error("Ошибка отправки заявки", {
-        description: error.message,
+    } catch (error: unknown) {
+      toast.error(t("auth.applicationError"), {
+        description: error instanceof Error ? error.message : t("auth.applicationError"),
       });
     } finally {
       setLoading(false);
@@ -150,7 +184,7 @@ export function ClinicApplicationForm() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="min-h-screen flex flex-col bg-background" data-testid="application-form-clinic">
       <Header />
       
       <main className="flex-1 container mx-auto px-4 py-12">
@@ -158,17 +192,17 @@ export function ClinicApplicationForm() {
           <CardHeader>
             <CardTitle className="text-2xl flex items-center gap-2">
               <CheckCircle className="h-6 w-6 text-primary" />
-              Заявка на регистрацию клиники
+              {t("auth.clinicAppTitle")}
             </CardTitle>
             <CardDescription>
-              Заполните все поля и загрузите необходимые документы. Ваша заявка будет проверена администратором в течение 1-2 рабочих дней.
+              {t("auth.clinicAppDesc")}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
               {/* Logo upload section */}
               <div className="space-y-3">
-                <Label>Логотип клиники *</Label>
+                <Label>{t("auth.clinicLogoLabel")}</Label>
                 <div className="flex items-center gap-4">
                   <div className="relative group">
                     <div className="h-24 w-24 rounded-lg border-2 border-dashed border-muted-foreground/50 flex items-center justify-center bg-muted overflow-hidden">
@@ -193,50 +227,54 @@ export function ClinicApplicationForm() {
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-muted-foreground">
-                      Загрузите логотип вашей клиники. Это будет первое, что увидят пациенты.
+                      {t("auth.clinicLogoHint")}
                     </p>
                     {logoFile && (
                       <p className="text-sm text-green-600 flex items-center gap-1 mt-1">
-                        <CheckCircle className="h-4 w-4" /> Логотип выбран
+                        <CheckCircle className="h-4 w-4" /> {t("auth.logoSelected")}
                       </p>
                     )}
+                    {errors.logo && <p className="text-sm text-destructive mt-1">{errors.logo}</p>}
                   </div>
                 </div>
               </div>
 
               {/* Logo Cropper Dialog */}
               {tempImageSrc && (
-                <AvatarCropper
-                  open={cropperOpen}
-                  onClose={() => {
-                    setCropperOpen(false);
-                    setTempImageSrc(null);
-                    if (fileInputRef.current) {
-                      fileInputRef.current.value = "";
-                    }
-                  }}
-                  imageSrc={tempImageSrc}
-                  onCropComplete={handleCropComplete}
-                  circularCrop={false}
-                />
+                <Suspense fallback={null}>
+                  <AvatarCropper
+                    open={cropperOpen}
+                    onClose={() => {
+                      setCropperOpen(false);
+                      setTempImageSrc(null);
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = "";
+                      }
+                    }}
+                    imageSrc={tempImageSrc}
+                    onCropComplete={handleCropComplete}
+                    circularCrop={false}
+                  />
+                </Suspense>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="name">Название клиники *</Label>
+                <Label htmlFor="name">{t("auth.clinicNameLbl")}</Label>
                 <Input
                   id="name"
-                  placeholder="Например: DentalPro Clinic"
+                  placeholder={t("auth.clinicNameExample")}
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  required
+                  onChange={(e) => { setFormData({ ...formData, name: e.target.value }); if (e.target.value.trim().length >= 2) clearError("name"); }}
+                  className={errors.name ? "border-destructive" : ""}
                 />
+                {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Описание клиники</Label>
+                <Label htmlFor="description">{t("auth.clinicDescLbl")}</Label>
                 <Textarea
                   id="description"
-                  placeholder="Расскажите о вашей клинике, услугах и преимуществах"
+                  placeholder={t("auth.clinicDescPlaceholder")}
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   rows={4}
@@ -251,16 +289,17 @@ export function ClinicApplicationForm() {
                 address={formData.address}
                 latitude={formData.latitude}
                 longitude={formData.longitude}
-                onCountryChange={(value) => setFormData({ ...formData, country: value, region: "", district: "" })}
-                onRegionChange={(value) => setFormData({ ...formData, region: value, district: "" })}
-                onDistrictChange={(value) => setFormData({ ...formData, district: value })}
-                onAddressChange={(value) => setFormData({ ...formData, address: value })}
-                onLocationChange={(lat, lng) => setFormData({ ...formData, latitude: lat, longitude: lng })}
+                onCountryChange={(value) => { setFormData((p) => ({ ...p, country: value, region: "", district: "" })); clearError("country"); clearError("region"); }}
+                onRegionChange={(value) => { setFormData((p) => ({ ...p, region: value, district: "" })); clearError("region"); }}
+                onDistrictChange={(value) => setFormData((p) => ({ ...p, district: value }))}
+                onAddressChange={(value) => { setFormData((p) => ({ ...p, address: value })); if (value.trim()) clearError("address"); }}
+                onLocationChange={(lat, lng) => { setFormData((p) => ({ ...p, latitude: lat, longitude: lng })); clearError("location"); }}
                 disabled={loading}
+                errors={{ region: errors.region, address: errors.address, location: errors.location }}
               />
 
               <div className="space-y-2">
-                <Label htmlFor="website">Веб-сайт</Label>
+                <Label htmlFor="website">{t("auth.websiteLbl")}</Label>
                 <Input
                   id="website"
                   type="url"
@@ -271,62 +310,66 @@ export function ClinicApplicationForm() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="director">ФИО директора *</Label>
+                <Label htmlFor="director">{t("auth.directorNameLbl")}</Label>
                 <Input
                   id="director"
-                  placeholder="Иванов Иван Иванович"
+                  placeholder={t("auth.directorNamePh")}
                   value={formData.directorName}
-                  onChange={(e) => setFormData({ ...formData, directorName: e.target.value })}
-                  required
+                  onChange={(e) => { setFormData({ ...formData, directorName: e.target.value }); if (e.target.value.trim()) clearError("directorName"); }}
+                  className={errors.directorName ? "border-destructive" : ""}
                 />
+                {errors.directorName && <p className="text-sm text-destructive">{errors.directorName}</p>}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="license">Номер лицензии *</Label>
+                <Label htmlFor="license">{t("auth.licenseNumberLbl")}</Label>
                 <Input
                   id="license"
-                  placeholder="Введите номер медицинской лицензии"
+                  placeholder={t("auth.licenseNumberPh")}
                   value={formData.licenseNumber}
-                  onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })}
-                  required
+                  onChange={(e) => { setFormData({ ...formData, licenseNumber: e.target.value }); if (e.target.value.trim()) clearError("licenseNumber"); }}
+                  className={errors.licenseNumber ? "border-destructive" : ""}
                 />
+                {errors.licenseNumber && <p className="text-sm text-destructive">{errors.licenseNumber}</p>}
               </div>
 
               <div className="space-y-4 pt-4 border-t">
-                <h3 className="font-semibold">Загрузка документов</h3>
-                
+                <h3 className="font-semibold">{t("auth.docsUploadHeading")}</h3>
+
                 <div className="space-y-2">
-                  <Label htmlFor="license-file">Медицинская лицензия (скан) *</Label>
+                  <Label htmlFor="license-file">{t("auth.medicalLicenseLbl")}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="license-file"
                       type="file"
                       accept="image/*,application/pdf"
-                      onChange={(e) => setLicenseFile(e.target.files?.[0] || null)}
-                      required
+                      onChange={(e) => { setLicenseFile(e.target.files?.[0] || null); if (e.target.files?.[0]) clearError("license"); }}
+                      className={errors.license ? "border-destructive" : ""}
                     />
                     {licenseFile && <CheckCircle className="h-5 w-5 text-green-500" />}
                   </div>
+                  {errors.license && <p className="text-sm text-destructive">{errors.license}</p>}
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="registration-file">Свидетельство о регистрации (скан) *</Label>
+                  <Label htmlFor="registration-file">{t("auth.registrationCertLbl")}</Label>
                   <div className="flex items-center gap-2">
                     <Input
                       id="registration-file"
                       type="file"
                       accept="image/*,application/pdf"
-                      onChange={(e) => setRegistrationFile(e.target.files?.[0] || null)}
-                      required
+                      onChange={(e) => { setRegistrationFile(e.target.files?.[0] || null); if (e.target.files?.[0]) clearError("registration"); }}
+                      className={errors.registration ? "border-destructive" : ""}
                     />
                     {registrationFile && <CheckCircle className="h-5 w-5 text-green-500" />}
                   </div>
+                  {errors.registration && <p className="text-sm text-destructive">{errors.registration}</p>}
                 </div>
               </div>
 
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Отправить заявку
+                {t("auth.submitApp")}
               </Button>
             </form>
           </CardContent>

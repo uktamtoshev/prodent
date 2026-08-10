@@ -1,12 +1,10 @@
-import { AccountantLayout } from '@/components/accountant/AccountantLayout';
+import { AccountantLayout } from "@/components/accountant/AccountantLayout";
+import { FinanceOperations } from "@/components/staff-operations/StaffOperations";
 
 export default function AccountantPayments() {
   return (
     <AccountantLayout>
-      <div className="p-8">
-        <h1 className="font-heading text-foreground">Оплаты</h1>
-        <p className="text-muted-foreground">Учёт платежей</p>
-      </div>
+      <FinanceOperations title="Оплаты" kind="payments" />
     </AccountantLayout>
   );
 }

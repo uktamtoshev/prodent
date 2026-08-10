@@ -2,12 +2,14 @@ import { useClinic } from "@/contexts/ClinicContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Building2 } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface SidebarClinicStatusProps {
   collapsed: boolean;
 }
 
 export function SidebarClinicStatus({ collapsed }: SidebarClinicStatusProps) {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
 
   if (!currentClinic) return null;
@@ -32,8 +34,8 @@ export function SidebarClinicStatus({ collapsed }: SidebarClinicStatusProps) {
       {!collapsed && (
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium truncate">{currentClinic.name}</p>
-          <p className="text-[10px] text-muted-foreground">
-            {isOnline ? `${queueCount} в очереди` : "Офлайн"}
+          <p className="text-xs text-muted-foreground">
+            {isOnline ? `${queueCount} ${t('crmSidebarMisc.inQueue')}` : t('crmSidebarMisc.offline')}
           </p>
         </div>
       )}
@@ -46,7 +48,7 @@ export function SidebarClinicStatus({ collapsed }: SidebarClinicStatusProps) {
         <TooltipTrigger asChild>{content}</TooltipTrigger>
         <TooltipContent side="right" className="text-xs">
           <p className="font-medium">{currentClinic.name}</p>
-          <p className="text-muted-foreground">{queueCount} в очереди</p>
+          <p className="text-muted-foreground">{queueCount} {t('crmSidebarMisc.inQueue')}</p>
         </TooltipContent>
       </Tooltip>
     );

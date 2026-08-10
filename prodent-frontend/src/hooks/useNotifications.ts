@@ -1,7 +1,18 @@
-import { useState, useEffect, useCallback } from "react";
+import { useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { tGlobal } from "@/contexts/LanguageContext";
+import { notificationDeepLink } from "./notification-deep-link";
+
+// Tiny formatter for {key} placeholders in i18n strings.
+function fmt(key: string, vars: Record<string, string | number> = {}): string {
+  return Object.entries(vars).reduce(
+    (s, [k, v]) => s.replace(new RegExp(`\\{${k}\\}`, "g"), String(v)),
+    tGlobal(key),
+  );
+}
 
 export interface Notification {
   id: string;
@@ -10,12 +21,12 @@ export interface Notification {
   title: string;
   message: string;
   read: boolean;
-  metadata: Record<string, any> | null;
+  metadata: Record<string, unknown> | null;
   link: string | null;
   created_at: string;
 }
 
-export type NotificationType = 
+export type NotificationType =
   | "appointment_new"
   | "appointment_rescheduled"
   | "appointment_cancelled"
@@ -31,55 +42,104 @@ export type NotificationType =
   | "clinic_invitation"
   | "doctor_request"
   | "message_new"
+  | "job_application"
+  | "JOB_APPLICATION"
   | "general";
+
+const NOTIFICATIONS_KEY = (userId: string | undefined) => ["notifications", userId];
+
+interface NotificationWire {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  read?: boolean;
+  is_read?: boolean;
+  metadata?: Record<string, unknown> | null;
+  link?: string | null;
+  created_at: string;
+}
+
+// The real `notifications` table uses `is_read` (not `read`) and has no `link`
+// column — routing info lives in `metadata.link` (that's how backend-created
+// notifications, e.g. lab-order events, carry their destination). Normalise both
+// so every consumer can rely on `n.read` / `n.link` regardless of the source.
+function normalizeNotification(row: NotificationWire): Notification {
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    type: row.type,
+    title: row.title,
+    message: row.message,
+    read: row.read ?? row.is_read ?? false,
+    metadata: row.metadata ?? null,
+    link: notificationDeepLink(row.type, row.metadata, row.link),
+    created_at: row.created_at,
+  };
+}
+
+async function fetchNotifications(userId: string): Promise<Notification[]> {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    // Returning [] here made a backend outage or an expired token look exactly
+    // like an empty inbox: the doctor read a cheerful "no notifications" and
+    // walked away from pending medical-record access requests, clinic
+    // invitations and lab-order alerts. "Nothing to show" and "we could not
+    // load it" must never render the same.
+    console.error("Error loading notifications:", error);
+    throw error;
+  }
+  return (data || []).map(normalizeNotification);
+}
 
 export function useNotifications() {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  const loadNotifications = useCallback(async () => {
-    if (!user?.id) {
-      setLoading(false);
-      return;
-    }
-    
-    try {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(100);
+  // React Query keeps the notification list cached across navigations, so the
+  // sidebar badge doesn't flash and we don't re-hit the network on every menu
+  // click. Realtime pushes are merged into the cache below.
+  const {
+    data: notifications = [],
+    isLoading: loading,
+    isError,
+    error,
+    refetch,
+  } = useQuery<Notification[]>({
+    queryKey: NOTIFICATIONS_KEY(user?.id),
+    queryFn: () => fetchNotifications(user!.id),
+    enabled: !!user?.id,
+    staleTime: 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+  });
 
-      if (error) {
-        console.error("Error loading notifications:", error);
-        return;
-      }
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
-      if (data) {
-        setNotifications(data as Notification[]);
-        setUnreadCount(data.filter(n => !n.read).length);
-      }
-    } catch (error) {
-      console.error("Error loading notifications:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
-
+  // ── Realtime subscription ────────────────────────────────────────────────
+  // Each consumer of this hook sets up its own subscription. That's fine —
+  // the underlying WS client is shared, and the channel name is per-user, so
+  // multiple subscribers just listen to the same stream. We update the cache
+  // with `setQueryData` so all consumers re-render instantly.
   useEffect(() => {
-    if (!user?.id) {
-      setNotifications([]);
-      setUnreadCount(0);
-      setLoading(false);
-      return;
-    }
+    if (!user?.id) return;
 
-    loadNotifications();
+    // Only TOAST notifications that are genuinely new (created after we
+    // subscribed) and not already shown. The realtime shim replays the backlog
+    // on (re)connect, so every login used to flood the user with stale toasts —
+    // including old test rows and internal cancel reasons. Backlog rows are
+    // still merged into the cache (so the bell/list are correct), just silent.
+    const subscribedAt = Date.now();
+    const toastedIds = new Set<string>();
 
-    // Subscribe to realtime notifications
     const channel = supabase
       .channel(`notifications-${user.id}`)
       .on(
@@ -88,22 +148,36 @@ export function useNotifications() {
           event: "INSERT",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`
+          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          const newNotification = payload.new as Notification;
-          setNotifications(prev => [newNotification, ...prev]);
-          setUnreadCount(prev => prev + 1);
-          
-          // Show toast for new notification
+          const newNotification = normalizeNotification(payload.new);
+          queryClient.setQueryData<Notification[]>(
+            NOTIFICATIONS_KEY(user.id),
+            (prev = []) =>
+              prev.some((n) => n.id === newNotification.id)
+                ? prev
+                : [newNotification, ...prev]
+          );
+
+          const createdMs = newNotification.created_at
+            ? new Date(newNotification.created_at).getTime()
+            : Date.now();
+          if (toastedIds.has(newNotification.id) || createdMs < subscribedAt - 5000) {
+            return; // backlog replay or duplicate — update cache only, no toast
+          }
+          toastedIds.add(newNotification.id);
+
           toast(newNotification.title, {
             description: newNotification.message,
-            action: newNotification.link ? {
-              label: "Открыть",
-              onClick: () => {
-                window.location.href = newNotification.link!;
-              }
-            } : undefined
+            action: newNotification.link
+              ? {
+                  label: tGlobal("apiMessages.open"),
+                  onClick: () => {
+                    window.location.href = newNotification.link!;
+                  },
+                }
+              : undefined,
           });
         }
       )
@@ -113,18 +187,14 @@ export function useNotifications() {
           event: "UPDATE",
           schema: "public",
           table: "notifications",
-          filter: `user_id=eq.${user.id}`
+          filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          const updatedNotification = payload.new as Notification;
-          setNotifications(prev =>
-            prev.map(n => n.id === updatedNotification.id ? updatedNotification : n)
+          const updated = normalizeNotification(payload.new);
+          queryClient.setQueryData<Notification[]>(
+            NOTIFICATIONS_KEY(user.id),
+            (prev = []) => prev.map((n) => (n.id === updated.id ? updated : n))
           );
-          // Recalculate unread count
-          setNotifications(prev => {
-            setUnreadCount(prev.filter(n => !n.read).length);
-            return prev;
-          });
         }
       )
       .subscribe();
@@ -132,34 +202,36 @@ export function useNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, loadNotifications]);
+  }, [user?.id, queryClient]);
+
+  // ── Mutations ────────────────────────────────────────────────────────────
+  const setList = (updater: (prev: Notification[]) => Notification[]) =>
+    queryClient.setQueryData<Notification[]>(NOTIFICATIONS_KEY(user?.id), (prev = []) =>
+      updater(prev)
+    );
 
   const markAsRead = async (notificationId: string) => {
+    // The real column is `is_read` (the `read` alias only exists on the client type).
     const { error } = await supabase
       .from("notifications")
-      .update({ read: true })
+      .update({ is_read: true })
       .eq("id", notificationId);
-
     if (!error) {
-      setNotifications(prev =>
-        prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
+      setList((prev) =>
+        prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
       );
-      setUnreadCount(prev => Math.max(0, prev - 1));
     }
   };
 
   const markAllAsRead = async () => {
     if (!user?.id) return;
-
     const { error } = await supabase
       .from("notifications")
-      .update({ read: true })
+      .update({ is_read: true })
       .eq("user_id", user.id)
-      .eq("read", false);
-
+      .eq("is_read", false);
     if (!error) {
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-      setUnreadCount(0);
+      setList((prev) => prev.map((n) => ({ ...n, read: true })));
     }
   };
 
@@ -168,52 +240,55 @@ export function useNotifications() {
       .from("notifications")
       .delete()
       .eq("id", notificationId);
-
     if (!error) {
-      setNotifications(prev => prev.filter(n => n.id !== notificationId));
-      setUnreadCount(prev => {
-        const notification = notifications.find(n => n.id === notificationId);
-        return notification && !notification.read ? prev - 1 : prev;
-      });
+      setList((prev) => prev.filter((n) => n.id !== notificationId));
     }
   };
 
   const clearAll = async () => {
     if (!user?.id) return;
-
     const { error } = await supabase
       .from("notifications")
       .delete()
       .eq("user_id", user.id);
-
     if (!error) {
-      setNotifications([]);
-      setUnreadCount(0);
+      setList(() => []);
     }
   };
+
+  const refresh = () =>
+    queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_KEY(user?.id) });
 
   return {
     notifications,
     unreadCount,
     loading,
+    // Screens need to tell "empty" from "broken" — and offer a retry.
+    isError,
+    error,
+    retry: refetch,
     markAsRead,
     markAllAsRead,
     deleteNotification,
     clearAll,
-    refresh: loadNotifications
+    refresh,
   };
 }
 
 // Notification creation service - for use throughout the app
 export const NotificationService = {
   async create(
-    userId: string, 
-    type: NotificationType, 
-    title: string, 
-    message: string, 
-    options?: { metadata?: Record<string, any>; link?: string }
+    userId: string,
+    type: NotificationType,
+    title: string,
+    message: string,
+    options?: { metadata?: Record<string, unknown>; link?: string }
   ): Promise<boolean> {
     try {
+      const metadata = {
+        ...(options?.metadata || {}),
+        ...(options?.link ? { link: options.link } : {}),
+      };
       const { error } = await supabase
         .from("notifications")
         .insert({
@@ -221,8 +296,7 @@ export const NotificationService = {
           type,
           title,
           message,
-          metadata: options?.metadata || null,
-          link: options?.link || null
+          metadata: Object.keys(metadata).length > 0 ? metadata : null,
         });
 
       if (error) {
@@ -239,166 +313,168 @@ export const NotificationService = {
 
   // Notify doctor about new appointment
   async notifyDoctorNewAppointment(
-    doctorUserId: string, 
-    patientName: string, 
-    appointmentDate: string, 
+    doctorUserId: string,
+    patientName: string,
+    appointmentDate: string,
     service: string,
     appointmentId?: string
   ) {
     return this.create(
       doctorUserId,
       "appointment_new",
-      "Новая запись",
-      `Пациент ${patientName} записан на ${appointmentDate}. Услуга: ${service}`,
-      { 
+      tGlobal("apiMessages.newAppointment"),
+      fmt("apiMessages.newAppointmentBody", { patient: patientName, date: appointmentDate, service }),
+      {
         metadata: { appointmentId },
-        link: appointmentId ? `/crm/appointments?id=${appointmentId}` : "/crm/appointments"
+        link: appointmentId ? `/crm/appointments?id=${appointmentId}` : "/crm/appointments",
       }
     );
   },
 
   // Notify doctor about rescheduled appointment
   async notifyDoctorRescheduled(
-    doctorUserId: string, 
-    patientName: string, 
-    oldDate: string, 
+    doctorUserId: string,
+    patientName: string,
+    oldDate: string,
     newDate: string,
     appointmentId?: string
   ) {
     return this.create(
       doctorUserId,
       "appointment_rescheduled",
-      "Запись перенесена",
-      `Запись пациента ${patientName} перенесена с ${oldDate} на ${newDate}`,
+      tGlobal("apiMessages.apptRescheduled"),
+      fmt("apiMessages.apptRescheduledBody", { patient: patientName, oldDate, newDate }),
       {
         metadata: { appointmentId },
-        link: appointmentId ? `/crm/appointments?id=${appointmentId}` : "/crm/appointments"
+        link: appointmentId ? `/crm/appointments?id=${appointmentId}` : "/crm/appointments",
       }
     );
   },
 
   // Notify doctor about cancelled appointment
   async notifyDoctorCancelled(
-    doctorUserId: string, 
-    patientName: string, 
+    doctorUserId: string,
+    patientName: string,
     appointmentDate: string
   ) {
     return this.create(
       doctorUserId,
       "appointment_cancelled",
-      "Запись отменена",
-      `Пациент ${patientName} отменил запись на ${appointmentDate}`,
+      tGlobal("apiMessages.apptCancelled"),
+      fmt("apiMessages.apptCancelledBody", { patient: patientName, date: appointmentDate }),
       { link: "/crm/appointments" }
     );
   },
 
   // Notify patient - appointment confirmed
   async notifyPatientConfirmed(
-    patientId: string, 
-    doctorName: string, 
-    appointmentDate: string, 
+    patientId: string,
+    doctorName: string,
+    appointmentDate: string,
     clinicName: string,
     appointmentId?: string
   ) {
     return this.create(
       patientId,
       "appointment_confirmed",
-      "Запись подтверждена",
-      `Ваша запись к врачу ${doctorName} на ${appointmentDate} в клинике ${clinicName} подтверждена`,
-      { 
+      tGlobal("apiMessages.apptConfirmed"),
+      fmt("apiMessages.apptConfirmedBody", { doctor: doctorName, date: appointmentDate, clinic: clinicName }),
+      {
         metadata: { appointmentId },
-        link: "/patient/appointments"
+        link: "/patient/appointments",
       }
     );
   },
 
   // Notify patient - 24h reminder
   async notifyPatientReminder(
-    patientId: string, 
-    doctorName: string, 
-    appointmentDate: string, 
+    patientId: string,
+    doctorName: string,
+    appointmentDate: string,
     clinicAddress: string
   ) {
     return this.create(
       patientId,
       "appointment_reminder",
-      "Напоминание о приёме",
-      `Напоминаем: завтра ${appointmentDate} у вас приём у врача ${doctorName}. Адрес: ${clinicAddress}`,
+      tGlobal("apiMessages.apptReminder"),
+      fmt("apiMessages.apptReminderBody", { date: appointmentDate, doctor: doctorName, address: clinicAddress }),
       { link: "/patient/appointments" }
     );
   },
 
   // Notify patient - invoice ready
   async notifyPatientInvoiceReady(
-    patientId: string, 
-    invoiceNumber: string, 
+    patientId: string,
+    invoiceNumber: string,
     amount: number,
     invoiceId?: string
   ) {
     return this.create(
       patientId,
       "invoice_ready",
-      "Счёт готов",
-      `Счёт ${invoiceNumber} на сумму ${amount.toLocaleString()} UZS готов к оплате`,
-      { 
+      tGlobal("apiMessages.invoiceReady"),
+      fmt("apiMessages.invoiceReadyBody", { number: invoiceNumber, amount: amount.toLocaleString() }),
+      {
         metadata: { invoiceNumber, amount, invoiceId },
-        link: "/patient/payments"
+        link: "/patient/billing",
       }
     );
   },
 
   // Notify patient - payment received
   async notifyPatientPaymentReceived(
-    patientId: string, 
-    amount: number, 
+    patientId: string,
+    amount: number,
     invoiceNumber?: string
   ) {
     return this.create(
       patientId,
       "payment_received",
-      "Оплата получена",
-      `Оплата на сумму ${amount.toLocaleString()} UZS успешно проведена${invoiceNumber ? `. Счёт ${invoiceNumber}` : ""}`,
-      { 
+      tGlobal("apiMessages.paymentReceived"),
+      invoiceNumber
+        ? fmt("apiMessages.paymentReceivedBodyWith", { amount: amount.toLocaleString(), number: invoiceNumber })
+        : fmt("apiMessages.paymentReceivedBody", { amount: amount.toLocaleString() }),
+      {
         metadata: { amount, invoiceNumber },
-        link: "/patient/payments"
+        link: "/patient/billing",
       }
     );
   },
 
   // Notify about lab order ready
   async notifyLabOrderReady(
-    doctorUserId: string, 
-    orderNumber: string, 
+    doctorUserId: string,
+    orderNumber: string,
     patientName: string,
     orderId?: string
   ) {
     return this.create(
       doctorUserId,
       "lab_order_ready",
-      "Заказ из лаборатории готов",
-      `Заказ ${orderNumber} для пациента ${patientName} готов`,
-      { 
+      tGlobal("apiMessages.labOrderReady"),
+      fmt("apiMessages.labOrderReadyBody", { number: orderNumber, patient: patientName }),
+      {
         metadata: { orderNumber, orderId },
-        link: orderId ? `/crm/laboratory?id=${orderId}` : "/crm/laboratory"
+        link: orderId ? `/lab?id=${orderId}` : "/lab",
       }
     );
   },
 
   // Notify about low stock
   async notifyLowStock(
-    userId: string, 
-    itemName: string, 
+    userId: string,
+    itemName: string,
     currentQuantity: number,
     itemId?: string
   ) {
     return this.create(
       userId,
       "low_stock",
-      "Низкий остаток материала",
-      `Материал "${itemName}" заканчивается. Текущий остаток: ${currentQuantity}`,
-      { 
+      tGlobal("apiMessages.lowStock"),
+      fmt("apiMessages.lowStockBody", { item: itemName, qty: currentQuantity }),
+      {
         metadata: { itemName, currentQuantity, itemId },
-        link: "/crm/inventory"
+        link: "/sklad",
       }
     );
   },
@@ -413,25 +489,22 @@ export const NotificationService = {
     return this.create(
       patientId,
       "medical_access_request",
-      "Запрос на доступ к медкарте",
-      `${doctorName} из клиники ${clinicName} запрашивает доступ к вашей медицинской карте`,
-      { 
+      tGlobal("apiMessages.mrAccessRequest"),
+      fmt("apiMessages.mrAccessRequestBody", { doctor: doctorName, clinic: clinicName }),
+      {
         metadata: { requestId },
-        link: `/patient/messages`
+        link: `/patient/messages`,
       }
     );
   },
 
   // Notify doctor about medical access approval
-  async notifyMedicalAccessApproved(
-    doctorUserId: string,
-    patientName: string
-  ) {
+  async notifyMedicalAccessApproved(doctorUserId: string, patientName: string) {
     return this.create(
       doctorUserId,
       "medical_access_approved",
-      "Доступ к медкарте одобрен",
-      `Пациент ${patientName} одобрил доступ к своей медицинской карте`,
+      tGlobal("apiMessages.mrAccessApproved"),
+      fmt("apiMessages.mrAccessApprovedBody", { patient: patientName }),
       { link: "/doctor/patients" }
     );
   },
@@ -445,11 +518,11 @@ export const NotificationService = {
     return this.create(
       doctorUserId,
       "clinic_invitation",
-      "Приглашение в клинику",
-      `Клиника "${clinicName}" приглашает вас присоединиться`,
-      { 
+      tGlobal("apiMessages.clinicInvitation"),
+      fmt("apiMessages.clinicInvitationBody", { clinic: clinicName }),
+      {
         metadata: { requestId },
-        link: "/doctor/notifications"
+        link: "/doctor/notifications",
       }
     );
   },
@@ -463,11 +536,11 @@ export const NotificationService = {
     return this.create(
       clinicAdminUserId,
       "doctor_request",
-      "Запрос от врача",
-      `Врач ${doctorName} хочет присоединиться к вашей клинике`,
-      { 
+      tGlobal("apiMessages.doctorRequest"),
+      fmt("apiMessages.doctorRequestBody", { doctor: doctorName }),
+      {
         metadata: { requestId },
-        link: "/crm/doctor-requests"
+        link: "/crm/doctor-requests",
       }
     );
   },
@@ -477,44 +550,41 @@ export const NotificationService = {
     userId: string,
     senderName: string,
     messagePreview: string,
-    conversationType: 'doctor' | 'patient' | 'clinic'
+    conversationType: "doctor" | "patient" | "clinic"
   ) {
     const linkMap = {
-      doctor: '/doctor/messages',
-      patient: '/patient/messages',
-      clinic: '/crm/messages'
+      doctor: "/doctor/messages",
+      patient: "/patient/messages",
+      clinic: "/crm/messages",
     };
-    
     return this.create(
       userId,
       "message_new",
-      "Новое сообщение",
-      `${senderName}: ${messagePreview.slice(0, 100)}${messagePreview.length > 100 ? '...' : ''}`,
+      tGlobal("apiMessages.newMessage"),
+      `${senderName}: ${messagePreview.slice(0, 100)}${messagePreview.length > 100 ? "..." : ""}`,
       { link: linkMap[conversationType] }
     );
   },
 
   // Send external notification (SMS/Email/Telegram) via edge function
   async sendExternal(
-    channel: "sms" | "email" | "telegram", 
-    recipient: string, 
-    message: string, 
+    channel: "sms" | "email" | "telegram",
+    recipient: string,
+    message: string,
     subject?: string
   ): Promise<boolean> {
     try {
       const { data, error } = await supabase.functions.invoke("send-notification", {
-        body: { channel, recipient, message, subject }
+        body: { channel, recipient, message, subject },
       });
-      
       if (error) {
         console.error("External notification error:", error);
         return false;
       }
-      
       return data?.success || false;
     } catch (error) {
       console.error("External notification failed:", error);
       return false;
     }
-  }
+  },
 };

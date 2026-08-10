@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { X, Upload, Image as ImageIcon, Video, File } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface MediaFile {
   file: File;
@@ -36,6 +37,7 @@ export function MediaUploader({
   onChange,
   onUploadComplete,
 }: MediaUploaderProps) {
+  const { t } = useLanguage();
   const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -53,7 +55,7 @@ export function MediaUploader({
           file,
           preview: '',
           type: file.type.startsWith('video') ? 'video' : 'image',
-          error: `Файл слишком большой (макс ${maxSizeMB}MB)`,
+          error: `${t('doctorMediaUploader.fileTooLarge')} ${maxSizeMB}MB)`,
         });
         return;
       }
@@ -69,7 +71,7 @@ export function MediaUploader({
     });
 
     onChange([...value, ...newFiles]);
-  }, [value, maxFiles, maxSizeMB, onChange]);
+  }, [value, maxFiles, maxSizeMB, onChange, t]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -135,11 +137,11 @@ export function MediaUploader({
           url: publicUrl.publicUrl,
           type: mediaFile.type,
         });
-      } catch (error: any) {
+      } catch (error: unknown) {
         updatedFiles[i] = {
           ...mediaFile,
           uploading: false,
-          error: error.message || 'Ошибка загрузки',
+          error: error instanceof Error ? error.message : t('doctorMediaUploader.uploadError'),
         };
       }
 
@@ -178,10 +180,10 @@ export function MediaUploader({
         />
         <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
         <p className="text-sm text-muted-foreground">
-          Перетащите файлы сюда или нажмите для выбора
+          {t('doctorMediaUploader.dragOrClick')}
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Максимум {maxFiles} файлов, до {maxSizeMB}MB каждый
+          {t('doctorMediaUploader.maxFiles')} {maxFiles} {t('doctorMediaUploader.filesUpTo')} {maxSizeMB}MB {t('doctorMediaUploader.eachLabel')}
         </p>
       </div>
 
@@ -223,8 +225,8 @@ export function MediaUploader({
 
               {/* Success Indicator */}
               {mediaFile.url && !mediaFile.uploading && (
-                <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                  <span className="text-white text-xs">✓</span>
+                <div className="absolute top-1 left-1 w-5 h-5 rounded-full bg-status-success-bg flex items-center justify-center">
+                  <span className="text-status-success text-xs">✓</span>
                 </div>
               )}
 
@@ -235,7 +237,7 @@ export function MediaUploader({
                   e.stopPropagation();
                   removeFile(index);
                 }}
-                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-background/80 flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -260,7 +262,7 @@ export function MediaUploader({
           onClick={uploadFiles}
           disabled={value.some((f) => f.uploading)}
         >
-          {value.some((f) => f.uploading) ? 'Загрузка...' : 'Загрузить файлы'}
+          {value.some((f) => f.uploading) ? t('doctorMediaUploader.uploading') : t('doctorMediaUploader.uploadFiles')}
         </Button>
       )}
     </div>
@@ -283,6 +285,7 @@ export function SingleImageUploader({
   label,
   aspectRatio = 'aspect-square',
 }: SingleImageUploaderProps) {
+  const { t } = useLanguage();
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -335,7 +338,7 @@ export function SingleImageUploader({
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center">
             <Upload className="w-6 h-6 text-muted-foreground mb-1" />
-            <p className="text-xs text-muted-foreground">Загрузить</p>
+            <p className="text-xs text-muted-foreground">{t('doctorMediaUploader.uploadBtn')}</p>
           </div>
         )}
 

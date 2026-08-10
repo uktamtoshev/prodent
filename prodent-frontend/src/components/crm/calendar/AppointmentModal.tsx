@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -36,11 +35,13 @@ import {
   FileText,
   Check,
   X,
-  CheckCircle2,
-  CalendarClock
+  CalendarClock,
+  UserX
 } from "lucide-react";
-import { AppointmentData, APPOINTMENT_STATUSES, getStatusStyle, AppointmentStatus, GUEST_PATIENT_STYLE } from "./appointmentConstants";
+import { AppointmentData, APPOINTMENT_STATUSES, getAppointmentTime, getStatusStyle } from "./appointmentConstants";
 import { GuestBadge } from "../patients/GuestBadge";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { placeAppointment, setAppointmentStatus } from "@/lib/appointment-api";
 
 interface AppointmentModalProps {
   appointment: AppointmentData | null;
@@ -50,64 +51,60 @@ interface AppointmentModalProps {
 }
 
 export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: AppointmentModalProps) => {
+  const { t } = useLanguage();
   const [loading, setLoading] = useState(false);
   const [notes, setNotes] = useState(appointment?.notes || "");
-  const [status, setStatus] = useState(appointment?.status || "pending");
+  const [status, setStatus] = useState((appointment?.status || "PENDING").toUpperCase());
   const [showReschedule, setShowReschedule] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState<Date | undefined>(
     appointment ? new Date(appointment.appointment_date) : undefined
   );
   const [rescheduleTime, setRescheduleTime] = useState(
-    appointment ? format(new Date(appointment.appointment_date), "HH:mm") : "09:00"
+    appointment ? getAppointmentTime(appointment) : "09:00"
   );
 
   useEffect(() => {
     if (appointment) {
       setNotes(appointment.notes || "");
-      setStatus(appointment.status);
+      setStatus(appointment.status.toUpperCase());
       setRescheduleDate(new Date(appointment.appointment_date));
-      setRescheduleTime(format(new Date(appointment.appointment_date), "HH:mm"));
+      setRescheduleTime(
+        getAppointmentTime(appointment)
+      );
       setShowReschedule(false);
     }
   }, [appointment]);
 
   if (!appointment) return null;
 
-  const statusStyle = getStatusStyle(appointment.status);
+  const statusStyle = getStatusStyle(status);
 
   const updateAppointment = async (newStatus?: string, newNotes?: string) => {
     try {
       setLoading(true);
-      
-      const updateData: Record<string, any> = {};
-      if (newStatus !== undefined) updateData.status = newStatus;
-      if (newNotes !== undefined) updateData.notes = newNotes;
-
-      const { error } = await supabase
-        .from("appointments")
-        .update(updateData)
-        .eq("id", appointment.id);
-
-      if (error) throw error;
-
-      // Create notification for patient
-      if (newStatus) {
-        const statusLabel = APPOINTMENT_STATUSES[newStatus as AppointmentStatus]?.label || newStatus;
-        await supabase.from("notifications").insert({
-          user_id: appointment.patient_id,
-          type: "internal",
-          title: "Изменение статуса записи",
-          message: `Статус вашей записи изменён на: ${statusLabel}`,
-          metadata: { appointment_id: appointment.id },
+      if (newStatus !== undefined) {
+        await setAppointmentStatus({
+          appointmentId: appointment.id,
+          status: newStatus,
+        });
+      } else if (newNotes !== undefined) {
+        await placeAppointment({
+          appointmentId: appointment.id,
+          doctorId: appointment.doctor_id,
+          roomId: appointment.room_id ?? null,
+          appointmentDate: format(new Date(appointment.appointment_date), "yyyy-MM-dd"),
+          startTime:
+            getAppointmentTime(appointment),
+          notes: newNotes,
         });
       }
 
-      toast.success("Запись обновлена");
+      toast.success(t('crmApptModal.recordUpdated'));
       onUpdate();
-      if (newStatus) setStatus(newStatus);
+      if (newStatus) setStatus(newStatus.toUpperCase());
     } catch (error) {
       console.error("Error updating appointment:", error);
-      toast.error("Ошибка обновления записи");
+      toast.error(t('crmApptModal.updateError'));
     } finally {
       setLoading(false);
     }
@@ -124,41 +121,42 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
 
   const handleReschedule = async () => {
     if (!rescheduleDate) {
-      toast.error("Выберите дату");
+      toast.error(t('crmApptModal.selectDate'));
       return;
     }
-    
+
     try {
       setLoading(true);
-      
+
       const [hours, minutes] = rescheduleTime.split(":").map(Number);
       const newDate = new Date(rescheduleDate);
       newDate.setHours(hours, minutes, 0, 0);
 
-      const { error } = await supabase
-        .from("appointments")
-        .update({ appointment_date: newDate.toISOString() })
-        .eq("id", appointment.id);
+      await placeAppointment({
+        appointmentId: appointment.id,
+        doctorId: appointment.doctor_id,
+        roomId: appointment.room_id ?? null,
+        appointmentDate: format(newDate, "yyyy-MM-dd"),
+        startTime: rescheduleTime,
+      });
 
-      if (error) throw error;
-
-      toast.success("Запись перенесена", {
-        description: `Новое время: ${format(newDate, "d MMMM в HH:mm", { locale: ru })}`,
+      toast.success(t('crmApptModal.recordRescheduled'), {
+        description: `${t('crmApptModal.newTime')}: ${format(newDate, "d MMMM HH:mm", { locale: ru })}`,
       });
       setShowReschedule(false);
       onUpdate();
     } catch (error) {
       console.error("Error rescheduling:", error);
-      toast.error("Ошибка переноса записи");
+      toast.error(t('crmApptModal.rescheduleError'));
     } finally {
       setLoading(false);
     }
   };
 
   const quickActions = [
-    { status: "confirmed", label: "Подтвердить", icon: Check, color: "text-indigo-600" },
-    { status: "completed", label: "Завершить", icon: CheckCircle2, color: "text-green-600" },
-    { status: "cancelled", label: "Отменить", icon: X, color: "text-red-600" },
+    { status: "CONFIRMED", label: t('crmApptModal.confirm'), icon: Check, color: "text-status-info" },
+    { status: "CANCELLED", label: t('crmApptModal.cancelStatus'), icon: X, color: "text-status-danger" },
+    { status: "NO_SHOW", label: t('crmApptModal.noShow'), icon: UserX, color: "text-status-warning" },
   ];
 
   return (
@@ -167,7 +165,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5 text-primary" />
-            Детали записи
+            {t('crmApptModal.detailsTitle')}
           </DialogTitle>
         </DialogHeader>
 
@@ -189,12 +187,12 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <p className="font-medium">
-                    {appointment.guest_patients?.name || appointment.profiles?.full_name || "Неизвестный пациент"}
+                    {appointment.guest_patients?.name || appointment.profiles?.full_name || t('crmApptModal.unknownPatient')}
                   </p>
                   {appointment.guest_patient_id && <GuestBadge size="sm" />}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {appointment.guest_patient_id ? "Гость" : "Пациент"}
+                  {appointment.guest_patient_id ? t('crmApptModal.guest') : t('crmApptModal.patient')}
                 </p>
               </div>
             </div>
@@ -211,7 +209,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span className="font-medium">
-                {format(new Date(appointment.appointment_date), "HH:mm", { locale: ru })}
+                {getAppointmentTime(appointment)}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -223,7 +221,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
           {/* Doctor */}
           {appointment.doctors?.profiles?.full_name && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Врач:</span>
+              <span className="text-muted-foreground">{t('crmApptModal.doctorLabel')}:</span>
               <span className="font-medium">{appointment.doctors.profiles.full_name}</span>
             </div>
           )}
@@ -231,14 +229,14 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
           {/* Price */}
           {appointment.price && (
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Стоимость:</span>
+              <span className="text-muted-foreground">{t('crmApptModal.priceLabel')}:</span>
               <span className="font-medium">{appointment.price.toLocaleString()} UZS</span>
             </div>
           )}
 
           {/* Quick Actions */}
           <div className="space-y-2">
-            <Label>Быстрые действия</Label>
+            <Label>{t('crmApptModal.quickActions')}</Label>
             <div className="flex flex-wrap gap-2">
               {quickActions
                 .filter(action => action.status !== status)
@@ -263,23 +261,23 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
                 disabled={loading}
                 className="gap-1"
               >
-                <CalendarClock className="h-4 w-4 text-blue-600" />
-                Перенести
+                <CalendarClock className="h-4 w-4 text-muted-foreground" />
+                {t('crmApptModal.rescheduleBtn')}
               </Button>
             </div>
           </div>
 
           {/* Reschedule Panel */}
           {showReschedule && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 space-y-4 border border-blue-200 dark:border-blue-800">
-              <Label className="flex items-center gap-2 text-blue-700 dark:text-blue-300">
+            <div className="bg-status-info-bg rounded-lg p-4 space-y-4 border border-status-info/30">
+              <Label className="flex items-center gap-2 text-status-info">
                 <CalendarClock className="h-4 w-4" />
-                Перенос записи
+                {t('crmApptModal.reschedulePanelTitle')}
               </Label>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-sm">Новая дата</Label>
+                  <Label className="text-sm">{t('crmApptModal.newDate')}</Label>
                   <Popover>
                     <PopoverTrigger asChild>
                       <Button
@@ -289,7 +287,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
                         <Calendar className="mr-2 h-4 w-4" />
                         {rescheduleDate
                           ? format(rescheduleDate, "d MMM yyyy", { locale: ru })
-                          : "Выберите дату"}
+                          : t('crmApptModal.selectDate')}
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
@@ -306,8 +304,8 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
                 </div>
                 
                 <div className="space-y-2">
-                  <Label className="text-sm">Новое время</Label>
-                  <Input
+                  <Label className="text-sm" htmlFor="appointment-modal-field-1">{t('crmApptModal.newTime')}</Label>
+                  <Input id="appointment-modal-field-1"
                     type="time"
                     value={rescheduleTime}
                     onChange={(e) => setRescheduleTime(e.target.value)}
@@ -324,7 +322,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
                   className="gap-1"
                 >
                   <Check className="h-4 w-4" />
-                  Сохранить
+                  {t('common.save')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -332,7 +330,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
                   onClick={() => setShowReschedule(false)}
                   disabled={loading}
                 >
-                  Отмена
+                  {t('common.cancel')}
                 </Button>
               </div>
             </div>
@@ -340,7 +338,7 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
 
           {/* Status Select */}
           <div className="space-y-2">
-            <Label>Изменить статус</Label>
+            <Label>{t('crmApptModal.changeStatus')}</Label>
             <Select value={status} onValueChange={handleStatusChange} disabled={loading}>
               <SelectTrigger>
                 <SelectValue />
@@ -357,23 +355,23 @@ export const AppointmentModal = ({ appointment, open, onOpenChange, onUpdate }: 
 
           {/* Notes */}
           <div className="space-y-2">
-            <Label className="flex items-center gap-2">
+            <Label className="flex items-center gap-2" htmlFor="appointment-modal-field-2">
               <FileText className="h-4 w-4" />
-              Комментарий
+              {t('crmApptModal.commentLabel')}
             </Label>
-            <Textarea
+            <Textarea id="appointment-modal-field-2"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Добавьте комментарий к записи..."
+              placeholder={t('crmApptModal.commentPlaceholder')}
               rows={3}
             />
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               onClick={handleSaveNotes}
               disabled={loading || notes === appointment.notes}
             >
-              Сохранить комментарий
+              {t('crmApptModal.saveComment')}
             </Button>
           </div>
         </div>

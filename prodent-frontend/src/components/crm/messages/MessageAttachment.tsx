@@ -17,6 +17,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface MessageAttachmentProps {
   onFileSelected: (fileUrl: string, fileType: string, fileName: string) => void;
@@ -35,34 +36,30 @@ const ALLOWED_IMAGE_TYPES = [
   'image/heic',
 ];
 
-export const MessageAttachment = ({ 
-  onFileSelected, 
-  pendingFile, 
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
+
+export const MessageAttachment = ({
+  onFileSelected,
+  pendingFile,
   onClearFile,
-  disabled 
+  disabled
 }: MessageAttachmentProps) => {
+  const { t } = useLanguage();
   const [uploading, setUploading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [failedUpload, setFailedUpload] = useState<{
+    file: File;
+    type: 'image' | 'file';
+  } | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'file') => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIsOpen(false);
-
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      toast({
-        title: 'Файл слишком большой',
-        description: 'Максимальный размер файла: 30 МБ',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  const uploadFile = async (file: File, type: 'image' | 'file') => {
     setUploading(true);
+    setUploadError(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -78,24 +75,32 @@ export const MessageAttachment = ({
       if (uploadError) throw uploadError;
 
       // For private bucket, we need signed URL
-      const { data: signedUrlData } = await supabase.storage
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('message-attachments')
         .createSignedUrl(fileName, 60 * 60 * 24 * 365); // 1 year
+      if (signedUrlError) throw signedUrlError;
+      if (!signedUrlData?.signedUrl) {
+        throw new Error(t('crmMessageComposer.cantUploadFile'));
+      }
 
-      const fileUrl = signedUrlData?.signedUrl || '';
+      const fileUrl = signedUrlData.signedUrl;
       const fileType = file.type.startsWith('image/') ? 'image' : 'file';
 
       onFileSelected(fileUrl, fileType, file.name);
+      setFailedUpload(null);
 
       toast({
-        title: 'Файл загружен',
+        title: t('crmMessageComposer.fileLoaded'),
         description: file.name,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Upload error:', error);
+      const message = getErrorMessage(error) || t('crmMessageComposer.cantUploadFile');
+      setUploadError(message);
+      setFailedUpload({ file, type });
       toast({
-        title: 'Ошибка загрузки',
-        description: error.message || 'Не удалось загрузить файл',
+        title: t('crmMessageComposer.uploadError'),
+        description: message,
         variant: 'destructive',
       });
     } finally {
@@ -103,6 +108,24 @@ export const MessageAttachment = ({
       if (imageInputRef.current) imageInputRef.current.value = '';
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'file') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsOpen(false);
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      toast({
+        title: t('crmMessageComposer.fileTooLarge'),
+        description: t('crmMessageComposer.maxFileSize'),
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    await uploadFile(file, type);
   };
 
   return (
@@ -131,7 +154,8 @@ export const MessageAttachment = ({
             variant="ghost"
             size="icon"
             disabled={disabled || uploading}
-            className="h-10 w-10 rounded-full hover:bg-muted"
+            className="h-11 w-11 rounded-full hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={t('crmMessageComposer.file')}
           >
             {uploading ? (
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -148,26 +172,46 @@ export const MessageAttachment = ({
         >
           <div className="space-y-1">
             <button
+              type="button"
               onClick={() => imageInputRef.current?.click()}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left"
+              className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
                 <ImageIcon className="h-5 w-5 text-primary" />
               </div>
-              <span className="font-medium">Фото</span>
+              <span className="font-medium">{t('crmMessageComposer.photo')}</span>
             </button>
             <button
+              type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left"
+              className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <Folder className="h-5 w-5 text-blue-500" />
+              <div className="w-10 h-10 rounded-full bg-status-info/10 flex items-center justify-center">
+                <Folder className="h-5 w-5 text-status-info" />
               </div>
-              <span className="font-medium">Файл</span>
+              <span className="font-medium">{t('crmMessageComposer.file')}</span>
             </button>
           </div>
         </PopoverContent>
       </Popover>
+      {uploadError && failedUpload && (
+        <div
+          className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-destructive"
+          role="alert"
+        >
+          <span className="min-w-0 flex-1">{uploadError}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11"
+            disabled={disabled || uploading}
+            onClick={() => void uploadFile(failedUpload.file, failedUpload.type)}
+          >
+            {t('common.retry')}
+          </Button>
+        </div>
+      )}
     </>
   );
 };
@@ -178,8 +222,9 @@ interface MessageFilePreviewProps {
 }
 
 export const MessageFilePreview = ({ file, onRemove }: MessageFilePreviewProps) => {
+  const { t } = useLanguage();
   return (
-    <div className="mx-4 mb-2 p-3 bg-muted/50 rounded-xl border border-border/50 flex items-center gap-3">
+    <div className="mx-4 mb-2 p-3 bg-muted/50 rounded-panel border border-border/50 flex items-center gap-3">
       {file.type === 'image' ? (
         <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
           <img 
@@ -196,15 +241,16 @@ export const MessageFilePreview = ({ file, onRemove }: MessageFilePreviewProps) 
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{file.name}</p>
         <p className="text-xs text-muted-foreground">
-          {file.type === 'image' ? 'Изображение' : 'Документ'}
+          {file.type === 'image' ? t('crmMessageComposer.image') : t('crmMessageComposer.document')}
         </p>
       </div>
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        className="h-8 w-8 rounded-full hover:bg-destructive/10 hover:text-destructive"
+        className="h-11 w-11 rounded-full hover:bg-destructive/10 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onRemove}
+        aria-label={`${t('common.delete')}: ${file.name}`}
       >
         <X className="h-4 w-4" />
       </Button>
@@ -220,12 +266,13 @@ interface MessageFileDisplayProps {
 }
 
 export const MessageFileDisplay = ({ fileUrl, fileType, fileName, isOwn }: MessageFileDisplayProps) => {
+  const { t } = useLanguage();
   if (fileType === 'image') {
     return (
       <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="block">
         <img
           src={fileUrl}
-          alt={fileName || 'Изображение'}
+          alt={fileName || t('crmMessageComposer.image')}
           className="max-w-[280px] max-h-[280px] rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
           loading="lazy"
         />
@@ -250,9 +297,9 @@ export const MessageFileDisplay = ({ fileUrl, fileType, fileName, isOwn }: Messa
         <FileText className={`h-5 w-5 ${isOwn ? 'text-primary-foreground' : 'text-primary'}`} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{fileName || 'Файл'}</p>
+        <p className="text-sm font-medium truncate">{fileName || t('crmMessageComposer.file2')}</p>
         <p className={`text-xs ${isOwn ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
-          Документ
+          {t('crmMessageComposer.document')}
         </p>
       </div>
     </a>

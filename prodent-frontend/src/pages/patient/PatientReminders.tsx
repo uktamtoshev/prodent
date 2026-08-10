@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PatientLayout } from "@/components/patient/PatientLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Bell, Calendar, CheckCircle, Clock } from "lucide-react";
 import { format, addDays } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -17,35 +18,33 @@ interface Notification {
   type: string;
   read: boolean;
   created_at: string;
-  metadata: any;
+  metadata: unknown;
 }
 
 interface UpcomingAppointment {
   id: string;
   appointment_date: string;
+  start_time: string | null;
   service: string;
   doctor_name?: string;
 }
 
 export default function PatientReminders() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [upcomingAppointments, setUpcomingAppointments] = useState<UpcomingAppointment[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [user]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    const userId = user?.id;
+    if (!userId) return;
     setLoading(true);
 
     const { data: notificationsData } = await supabase
       .from("notifications")
       .select("*")
-      .eq("user_id", user!.id)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
     if (notificationsData) {
@@ -60,12 +59,13 @@ export default function PatientReminders() {
       .select(`
         id,
         appointment_date,
+        start_time,
         service,
         doctors (
           user_id
         )
       `)
-      .eq("patient_id", user!.id)
+      .eq("patient_id", userId)
       .gte("appointment_date", now.toISOString())
       .lte("appointment_date", weekLater.toISOString())
       .in("status", ["confirmed", "pending"])
@@ -90,7 +90,13 @@ export default function PatientReminders() {
     }
 
     setLoading(false);
-  };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (user?.id) {
+      void loadData();
+    }
+  }, [user?.id, loadData]);
 
   const markAsRead = async (id: string) => {
     await supabase
@@ -129,14 +135,14 @@ export default function PatientReminders() {
           <div>
             <h1 className="font-heading text-foreground flex items-center gap-3">
               <Bell className="w-8 h-8" />
-              Напоминания
+              {t("patientCabinet.remindersTitle")}
             </h1>
-            <p className="text-muted-foreground mt-1">Уведомления и предстоящие приёмы</p>
+            <p className="text-muted-foreground mt-1">{t("patientCabinet.remindersDesc")}</p>
           </div>
           {unreadCount > 0 && (
             <Button variant="outline" onClick={markAllAsRead}>
               <CheckCircle className="w-4 h-4 mr-2" />
-              Прочитать все ({unreadCount})
+              {t("patientCabinet.readAll")} ({unreadCount})
             </Button>
           )}
         </div>
@@ -146,7 +152,7 @@ export default function PatientReminders() {
             <CardHeader>
               <CardTitle className="text-foreground flex items-center gap-2">
                 <Clock className="w-5 h-5 text-amber-500" />
-                Ближайшие записи (7 дней)
+                {t("patientCabinet.upcomingAppointments7")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -159,16 +165,18 @@ export default function PatientReminders() {
                     <div>
                       <p className="font-medium text-foreground">{apt.service}</p>
                       <p className="text-sm text-muted-foreground">
-                        {apt.doctor_name || "Врач"}
+                        {apt.doctor_name || t("patientCabinet.doctor")}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-foreground">
                         {format(new Date(apt.appointment_date), "d MMMM", { locale: ru })}
                       </p>
-                      <p className="text-sm text-amber-500">
-                        {format(new Date(apt.appointment_date), "HH:mm")}
-                      </p>
+                      {apt.start_time && (
+                        <p className="text-sm text-amber-500">
+                          {apt.start_time.slice(0, 5)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -179,7 +187,7 @@ export default function PatientReminders() {
 
         <Card className="border-border/50 bg-card/80 backdrop-blur-sm">
           <CardHeader>
-            <CardTitle className="text-foreground">Уведомления</CardTitle>
+            <CardTitle className="text-foreground">{t("patientCabinet.notifications")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {loading ? (
@@ -206,7 +214,7 @@ export default function PatientReminders() {
                       <div className="flex items-center gap-2">
                         <h3 className="font-medium text-foreground">{notification.title}</h3>
                         {!notification.read && (
-                          <Badge variant="default" className="text-xs">Новое</Badge>
+                          <Badge variant="default" className="text-xs">{t("patientCabinet.newBadge")}</Badge>
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground mt-1">
@@ -222,8 +230,8 @@ export default function PatientReminders() {
             ) : (
               <div className="text-center py-12 text-muted-foreground">
                 <Bell className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                <p className="text-lg">Уведомлений пока нет</p>
-                <p className="text-sm">Здесь будут появляться напоминания о приёмах</p>
+                <p className="text-lg">{t("patientCabinet.noNotifications")}</p>
+                <p className="text-sm">{t("patientCabinet.noNotificationsDesc")}</p>
               </div>
             )}
           </CardContent>

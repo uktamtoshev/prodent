@@ -1,5 +1,7 @@
 import { User, Stethoscope, Building2 } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface RoleSelectorProps {
   value: string;
@@ -7,34 +9,34 @@ interface RoleSelectorProps {
   disabled?: boolean;
 }
 
-const roles = [
-  {
-    value: "patient",
-    label: "Пациент",
-    description: "Найти врача",
-    icon: User,
-    gradient: "from-blue-500 to-cyan-500",
-    bgGradient: "from-blue-500/10 to-cyan-500/10",
-  },
-  {
-    value: "doctor",
-    label: "Врач",
-    description: "Развивать практику",
-    icon: Stethoscope,
-    gradient: "from-primary to-teal-400",
-    bgGradient: "from-primary/10 to-teal-400/10",
-  },
-  {
-    value: "clinic",
-    label: "Клиника",
-    description: "Управлять клиникой",
-    icon: Building2,
-    gradient: "from-violet-500 to-purple-500",
-    bgGradient: "from-violet-500/10 to-purple-500/10",
-  },
-];
-
 export function RoleSelector({ value, onChange, disabled }: RoleSelectorProps) {
+  const { t } = useLanguage();
+  const roles = useMemo(() => [
+    {
+      value: "patient",
+      label: t("auth.rolePatient"),
+      description: t("auth.rolePatientDesc"),
+      icon: User,
+      gradient: "from-blue-500 to-cyan-500",
+      bgGradient: "from-blue-500/10 to-cyan-500/10",
+    },
+    {
+      value: "doctor",
+      label: t("auth.roleDoctor"),
+      description: t("auth.roleDoctorDesc"),
+      icon: Stethoscope,
+      gradient: "from-primary to-teal-400",
+      bgGradient: "from-primary/10 to-teal-400/10",
+    },
+    {
+      value: "clinic",
+      label: t("auth.roleClinic"),
+      description: t("auth.roleClinicDesc"),
+      icon: Building2,
+      gradient: "from-violet-500 to-purple-500",
+      bgGradient: "from-violet-500/10 to-purple-500/10",
+    },
+  ], [t]);
   return (
     <div className="grid gap-3">
       {roles.map((role) => {

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { MediaUploader } from './MediaUploader';
 import { Image as ImageIcon, Video, FileText, Award, Briefcase } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface CreatePostDialogProps {
   open: boolean;
@@ -44,6 +45,7 @@ export function CreatePostDialog({
   doctorId,
   initialType = 'post',
 }: CreatePostDialogProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [content, setContent] = useState('');
   const [postType, setPostType] = useState(initialType);
@@ -117,16 +119,16 @@ export function CreatePostDialog({
     },
     onSuccess: () => {
       toast({
-        title: 'Публикация создана',
-        description: 'Ваша публикация успешно добавлена',
+        title: t('doctorCreatePost.postCreated'),
+        description: t('doctorCreatePost.postCreatedDesc'),
       });
       queryClient.invalidateQueries({ queryKey: ['doctor-posts', doctorId] });
       handleClose();
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({
-        title: 'Ошибка',
-        description: error.message || 'Не удалось создать публикацию',
+        title: t('doctorCreatePost.error'),
+        description: error instanceof Error ? error.message : t('doctorCreatePost.createFailed'),
         variant: 'destructive',
       });
     },
@@ -165,47 +167,47 @@ export function CreatePostDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Новая публикация</DialogTitle>
+          <DialogTitle>{t('doctorCreatePost.newPost')}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           {/* Post Type */}
           <div className="space-y-2">
-            <Label>Тип публикации</Label>
+            <Label>{t('doctorCreatePost.postType')}</Label>
             <Select value={postType} onValueChange={setPostType}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="post">Публикация</SelectItem>
+                <SelectItem value="post">{t('doctorCreatePost.typePost')}</SelectItem>
                 <SelectItem value="photo">
                   <div className="flex items-center gap-2">
                     <ImageIcon className="w-4 h-4" />
-                    Фото
+                    {t('doctorCreatePost.typePhoto')}
                   </div>
                 </SelectItem>
                 <SelectItem value="video">
                   <div className="flex items-center gap-2">
                     <Video className="w-4 h-4" />
-                    Видео
+                    {t('doctorCreatePost.typeVideo')}
                   </div>
                 </SelectItem>
                 <SelectItem value="article">
                   <div className="flex items-center gap-2">
                     <FileText className="w-4 h-4" />
-                    Статья
+                    {t('doctorCreatePost.typeArticle')}
                   </div>
                 </SelectItem>
                 <SelectItem value="case">
                   <div className="flex items-center gap-2">
                     <Briefcase className="w-4 h-4" />
-                    Кейс
+                    {t('doctorCreatePost.typeCase')}
                   </div>
                 </SelectItem>
                 <SelectItem value="certificate">
                   <div className="flex items-center gap-2">
                     <Award className="w-4 h-4" />
-                    Сертификат
+                    {t('doctorCreatePost.typeCertificate')}
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -214,9 +216,9 @@ export function CreatePostDialog({
 
           {/* Content */}
           <div className="space-y-2">
-            <Label>Текст публикации</Label>
-            <Textarea
-              placeholder="Напишите что-нибудь..."
+            <Label htmlFor="create-post-dialog-field-1">{t('doctorCreatePost.postText')}</Label>
+            <Textarea id="create-post-dialog-field-1"
+              placeholder={t('doctorCreatePost.writeSomething')}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="min-h-[120px]"
@@ -225,7 +227,7 @@ export function CreatePostDialog({
 
           {/* Media Upload */}
           <div className="space-y-2">
-            <Label>Медиафайлы</Label>
+            <Label>{t('doctorCreatePost.mediaFiles')}</Label>
             <MediaUploader
               doctorId={doctorId}
               value={mediaFiles}
@@ -238,13 +240,13 @@ export function CreatePostDialog({
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="outline" onClick={handleClose}>
-              Отмена
+              {t('doctorCreatePost.cancel')}
             </Button>
             <Button
               onClick={() => createPost.mutate()}
               disabled={!canSubmit || createPost.isPending || isUploading}
             >
-              {createPost.isPending || isUploading ? 'Публикация...' : 'Опубликовать'}
+              {createPost.isPending || isUploading ? t('doctorCreatePost.publishing') : t('doctorCreatePost.publish')}
             </Button>
           </div>
         </div>

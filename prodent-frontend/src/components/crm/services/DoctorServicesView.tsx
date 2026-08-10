@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -9,14 +8,22 @@ import { Input } from '@/components/ui/input';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { formatPrice } from '@/lib/utils';
 import { User, ChevronDown, ChevronUp, Search, Clock, Stethoscope } from 'lucide-react';
+import { useLanguage } from '@/contexts/LanguageContext';
+import {
+  listClinicServiceDoctorAssignments,
+  type ClinicServiceDoctorAssignment,
+} from '@/lib/clinic-service-assignments-api';
+import type { LegacyClinicServiceView } from '@/lib/clinic-service-management-api';
+import type { ClinicDoctorOption } from '@/lib/clinic-doctor-options';
 
 interface DoctorServicesViewProps {
   clinicId?: string;
-  doctors?: any[];
-  allServices: any[];
+  doctors?: ClinicDoctorOption[];
+  allServices: LegacyClinicServiceView[];
 }
 
 export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorServicesViewProps) {
+  const { t } = useLanguage();
   const [search, setSearch] = useState('');
   const [expandedDoctors, setExpandedDoctors] = useState<Set<string>>(new Set());
 
@@ -26,25 +33,7 @@ export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorSer
     queryFn: async () => {
       if (!clinicId) return [];
       
-      const { data, error } = await supabase
-        .from('clinic_doctor_services')
-        .select(`
-          *,
-          services:service_id (
-            id,
-            name,
-            description,
-            category,
-            price,
-            duration_minutes,
-            currency
-          )
-        `)
-        .eq('clinic_id', clinicId)
-        .eq('is_active', true);
-
-      if (error) throw error;
-      return data;
+      return listClinicServiceDoctorAssignments(clinicId);
     },
     enabled: !!clinicId,
   });
@@ -62,13 +51,16 @@ export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorSer
   };
 
   // Group services by doctor
-  const servicesByDoctor = doctorServices?.reduce((acc, ds) => {
-    if (!acc[ds.doctor_id]) {
-      acc[ds.doctor_id] = [];
+  const servicesByDoctor = doctorServices
+    ?.filter((assignment) => assignment.isActive)
+    .reduce((acc, assignment) => {
+    if (!acc[assignment.doctorId]) {
+      acc[assignment.doctorId] = [];
     }
-    acc[ds.doctor_id].push(ds);
+    acc[assignment.doctorId].push(assignment);
     return acc;
-  }, {} as Record<string, typeof doctorServices>);
+  }, {} as Record<string, ClinicServiceDoctorAssignment[]>);
+  const serviceById = new Map(allServices.map((service) => [service.id, service]));
 
   // Filter doctors by search
   const filteredDoctors = doctors?.filter(doc => {
@@ -81,9 +73,9 @@ export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorSer
 
   if (isLoading) {
     return (
-      <Card>
+      <Card className="border-border/50 bg-card/80 shadow-soft">
         <CardContent className="py-8 text-center text-muted-foreground">
-          Загрузка...
+          {t('common.loading')}
         </CardContent>
       </Card>
     );
@@ -92,20 +84,20 @@ export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorSer
   return (
     <div className="space-y-4">
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Поиск врачей..."
+          placeholder={`${t('common.search')} ${t('crmServiceDialogs.doctor').toLowerCase()}...`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
+          className="h-11 border-border bg-background pl-10"
         />
       </div>
 
       {!filteredDoctors?.length ? (
-        <Card>
+        <Card className="border-dashed border-border bg-muted/20">
           <CardContent className="py-12 text-center">
-            <Stethoscope className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-            <p className="text-muted-foreground">Нет врачей в клинике</p>
+            <Stethoscope className="mx-auto mb-4 h-12 w-12 text-muted-foreground/50" />
+            <p className="text-muted-foreground">{t('crmServiceDialogs.noDoctorsInClinic')}</p>
           </CardContent>
         </Card>
       ) : (
@@ -118,36 +110,36 @@ export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorSer
             const isExpanded = expandedDoctors.has(doctorId);
 
             return (
-              <Card key={doctorId} className="border-border/50">
+              <Card key={doctorId} className="overflow-hidden border-border/50 bg-card/80 shadow-soft">
                 <Collapsible open={isExpanded} onOpenChange={() => toggleDoctor(doctorId)}>
                   <CollapsibleTrigger asChild>
-                    <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-4">
-                      <div className="flex items-center gap-4">
+                    <CardHeader className="cursor-pointer py-4 transition-colors hover:bg-muted/50">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
                         <Avatar className="h-12 w-12">
                           <AvatarImage src={profile?.avatar_url} />
                           <AvatarFallback>
-                            <User className="w-6 h-6" />
+                            <User className="h-6 w-6" />
                           </AvatarFallback>
                         </Avatar>
                         
-                        <div className="flex-1">
+                        <div className="min-w-0 flex-1">
                           <CardTitle className="text-base font-medium">
-                            {profile?.full_name || 'Врач'}
+                            {profile?.full_name || t('crmServiceDialogs.doctor')}
                           </CardTitle>
                           <p className="text-sm text-muted-foreground">
                             {doctor?.specialty}
                           </p>
                         </div>
 
-                        <Badge variant={services.length > 0 ? "default" : "secondary"}>
-                          {services.length} услуг
+                        <Badge variant={services.length > 0 ? "default" : "secondary"} className="w-fit rounded-full">
+                          {services.length} {t('crmServiceDialogs.service5plus')}
                         </Badge>
 
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" className="self-end sm:self-auto">
                           {isExpanded ? (
-                            <ChevronUp className="w-5 h-5" />
+                            <ChevronUp className="h-5 w-5" />
                           ) : (
-                            <ChevronDown className="w-5 h-5" />
+                            <ChevronDown className="h-5 w-5" />
                           )}
                         </Button>
                       </div>
@@ -157,39 +149,41 @@ export function DoctorServicesView({ clinicId, doctors, allServices }: DoctorSer
                   <CollapsibleContent>
                     <CardContent className="pt-0">
                       {services.length === 0 ? (
-                        <div className="text-center py-6 text-muted-foreground">
-                          Услуги не назначены
+                        <div className="rounded-2xl border border-dashed border-border bg-muted/20 py-6 text-center text-muted-foreground">
+                          {t('crmServiceDialogs.noServicesYet')}
                         </div>
                       ) : (
                         <div className="divide-y divide-border">
-                          {services.map((ds: any) => {
-                            const service = ds.services;
-                            const effectivePrice = ds.custom_price || service?.price;
-                            const hasCustomPrice = ds.custom_price && ds.custom_price !== service?.price;
+                          {services.map((assignment) => {
+                            const service = serviceById.get(assignment.serviceId);
+                            if (!service) return null;
+                            const effectivePrice = assignment.customPrice ?? service.price;
+                            const hasCustomPrice = assignment.customPrice !== null
+                              && assignment.customPrice !== service.price;
 
                             return (
-                              <div key={ds.id} className="py-3 flex items-center justify-between">
-                                <div className="flex-1">
+                              <div key={assignment.id} className="py-3 flex items-center justify-between">
+                                <div className="min-w-0 flex-1">
                                   <div className="font-medium">{service?.name}</div>
-                                  <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                                    <Badge variant="outline" className="text-xs">
+                                  <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                                    <Badge variant="outline" className="rounded-full text-xs">
                                       {service?.category}
                                     </Badge>
                                     {service?.duration_minutes && (
                                       <span className="flex items-center gap-1">
-                                        <Clock className="w-3 h-3" />
-                                        {service.duration_minutes} мин
+                                        <Clock className="h-3 w-3" />
+                                        {service.duration_minutes} {t('crmServiceDialogs.minutesShort')}
                                       </span>
                                     )}
                                   </div>
                                 </div>
                                 <div className="text-right">
                                   <div className="font-medium text-primary">
-                                    {formatPrice(effectivePrice, service?.currency === 'USD' ? '$' : 'сум')}
+                                    {formatPrice(effectivePrice, service?.currency === 'USD' ? '$' : t('crmServiceDialogs.currencySom'))}
                                   </div>
                                   {hasCustomPrice && (
                                     <div className="text-xs text-muted-foreground line-through">
-                                      {formatPrice(service?.price, service?.currency === 'USD' ? '$' : 'сум')}
+                                      {formatPrice(service?.price, service?.currency === 'USD' ? '$' : t('crmServiceDialogs.currencySom'))}
                                     </div>
                                   )}
                                 </div>

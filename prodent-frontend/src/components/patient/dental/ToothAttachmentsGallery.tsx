@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
@@ -8,31 +8,34 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  Image as ImageIcon, 
-  FileX2, 
-  ZoomIn, 
+import {
+  Image as ImageIcon,
+  FileX2,
+  ZoomIn,
   Download,
   X,
   ChevronLeft,
   ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface ToothAttachmentsGalleryProps {
   patientId: string;
   toothNumber: number;
 }
 
-const FILE_TYPE_LABELS: Record<string, { label: string; icon: string }> = {
-  xray: { label: 'Рентген', icon: '🩻' },
-  cbct: { label: 'CBCT', icon: '📊' },
-  photo: { label: 'Фото', icon: '📷' },
-  '3d_scan': { label: '3D скан', icon: '🔬' },
-  other: { label: 'Другое', icon: '📎' },
-};
+const buildFileTypeLabels = (t: (k: string) => string): Record<string, { label: string; icon: string }> => ({
+  xray: { label: t("patientCabinet.typeXrayLabel"), icon: '🩻' },
+  cbct: { label: t("patientCabinet.typeCbct"), icon: '📊' },
+  photo: { label: t("patientCabinet.typePhotoLabel"), icon: '📷' },
+  '3d_scan': { label: t("patientCabinet.type3dScan"), icon: '🔬' },
+  other: { label: t("patientCabinet.typeOtherLabel"), icon: '📎' },
+});
 
 export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachmentsGalleryProps) {
+  const { t } = useLanguage();
+  const FILE_TYPE_LABELS = useMemo(() => buildFileTypeLabels(t), [t]);
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
   const [isViewerOpen, setIsViewerOpen] = useState(false);
 
@@ -74,7 +77,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Снимки и фото</span>
+          <span className="text-sm font-medium">{t("patientCabinet.attachmentsTitle")}</span>
         </div>
         <div className="flex gap-3">
           {[1, 2, 3].map(i => (
@@ -90,11 +93,11 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">Снимки и фото</span>
+          <span className="text-sm font-medium">{t("patientCabinet.attachmentsTitle")}</span>
         </div>
         <div className="text-center py-6 text-muted-foreground bg-muted/30 rounded-lg">
           <FileX2 className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">Нет прикреплённых снимков</p>
+          <p className="text-sm">{t("patientCabinet.noAttachments")}</p>
         </div>
       </div>
     );
@@ -107,7 +110,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="h-4 w-4 text-primary" />
-          <span className="text-sm font-medium">Снимки и фото</span>
+          <span className="text-sm font-medium">{t("patientCabinet.attachmentsTitle")}</span>
           <Badge variant="outline" className="text-xs">{attachments.length}</Badge>
         </div>
 
@@ -130,7 +133,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
                 >
                   <img
                     src={attachment.file_url}
-                    alt={attachment.description || `Снимок ${index + 1}`}
+                    alt={attachment.description || `${t("patientCabinet.attachmentLabel")} ${index + 1}`}
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = '/placeholder.svg';
@@ -178,7 +181,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
                 {currentAttachment && (
                   <>
                     <span>{FILE_TYPE_LABELS[currentAttachment.file_type]?.icon}</span>
-                    <span>{currentAttachment.description || `Снимок зуба #${toothNumber}`}</span>
+                    <span>{currentAttachment.description || `${t("patientCabinet.toothImage")} #${toothNumber}`}</span>
                   </>
                 )}
               </DialogTitle>
@@ -190,7 +193,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
                     onClick={() => window.open(currentAttachment.file_url, '_blank')}
                   >
                     <Download className="h-4 w-4 mr-1" />
-                    Скачать
+                    {t("patientCabinet.downloadAction")}
                   </Button>
                 )}
                 <Button
@@ -231,7 +234,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
             {currentAttachment && (
               <img
                 src={currentAttachment.file_url}
-                alt={currentAttachment.description || 'Снимок'}
+                alt={currentAttachment.description || t("patientCabinet.attachmentLabel")}
                 className="max-w-full max-h-full object-contain rounded-lg"
               />
             )}
@@ -246,7 +249,7 @@ export function ToothAttachmentsGallery({ patientId, toothNumber }: ToothAttachm
                     {format(new Date(currentAttachment.created_at), 'd MMMM yyyy', { locale: ru })}
                   </span>
                   {currentAttachment.doctors?.profiles?.full_name && (
-                    <span>Врач: {currentAttachment.doctors.profiles.full_name}</span>
+                    <span>{t("patientCabinet.doctorPrefix")} {currentAttachment.doctors.profiles.full_name}</span>
                   )}
                 </div>
                 <span className="text-muted-foreground">

@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -88,6 +89,10 @@ export function RealisticTooth({
   };
   
   const size = sizes[type];
+  const animationStyle: CSSProperties & { "--delay": string } = {
+    animationDelay: `${animationDelay}ms`,
+    "--delay": `${animationDelay}ms`,
+  };
 
   return (
     <TooltipProvider>
@@ -95,10 +100,7 @@ export function RealisticTooth({
         <TooltipTrigger asChild>
           <button
             onClick={onClick}
-            style={{ 
-              animationDelay: `${animationDelay}ms`,
-              ['--delay' as any]: `${animationDelay}ms`
-            }}
+            style={animationStyle}
             className={cn(
               "realistic-tooth relative group transition-all duration-300",
               "hover:-translate-y-1 hover:scale-105",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { format, startOfWeek, addDays, endOfWeek, startOfDay, addHours, setHours, setMinutes } from "date-fns";
 import { ru } from "date-fns/locale";
 import { DndContext, DragEndEvent, DragOverlay, pointerWithin } from "@dnd-kit/core";
@@ -18,8 +18,11 @@ import {
 import { DraggableAppointmentCard } from "./DraggableAppointmentCard";
 import { DroppableTimeSlot } from "./DroppableTimeSlot";
 import { AppointmentModal } from "./AppointmentModal";
-import { AppointmentData, APPOINTMENT_STATUSES } from "./appointmentConstants";
+import { AppointmentData, APPOINTMENT_STATUSES, appointmentMatchesStatus } from "./appointmentConstants";
 import { cn } from "@/lib/utils";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { placeAppointment } from "@/lib/appointment-api";
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface WeekViewProps {
   selectedDate: Date;
@@ -35,6 +38,7 @@ interface Doctor {
 }
 
 export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
+  const { t } = useLanguage();
   const { currentClinic } = useClinic();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [selectedDoctor, setSelectedDoctor] = useState<string>("all");
@@ -45,27 +49,20 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const weekStart = startOfWeek(selectedDate, { locale: ru, weekStartsOn: 1 });
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekStart = useMemo(() => startOfWeek(selectedDate, { locale: ru, weekStartsOn: 1 }), [selectedDate]);
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
-  useEffect(() => {
-    if (currentClinic) {
-      loadDoctors();
-      loadAppointments();
-    }
-  }, [currentClinic, selectedDate]);
-
-  const loadDoctors = async () => {
+  const loadDoctors = useCallback(async () => {
     try {
       const data = await fetchClinicDoctors(currentClinic!.id);
-      setDoctors(data as any[]);
+      setDoctors(data as Doctor[]);
     } catch (error) {
       console.error("Error loading doctors:", error);
-      toast.error("Ошибка загрузки врачей");
+      toast.error(t('crmDayView.doctorsLoadError'));
     }
-  };
+  }, [currentClinic, t]);
 
-  const loadAppointments = async () => {
+  const loadAppointments = useCallback(async () => {
     try {
       setLoading(true);
       const weekEnd = endOfWeek(selectedDate, { locale: ru, weekStartsOn: 1 });
@@ -80,17 +77,19 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
       
       const personalPatientIds = new Set(personalPatients?.map(p => p.user_id) || []);
 
-      let query = supabase
+      const query = supabase
         .from("appointments")
         .select(`
           id,
           appointment_date,
+          start_time,
+          room_id,
           service,
           status,
           notes,
           doctor_id,
           patient_id,
-          price,
+          total_price,
           profiles:patient_id (
             full_name,
             phone
@@ -112,17 +111,24 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
       const appointmentsWithType = (data || []).map(apt => ({
         ...apt,
         isPersonalPatient: personalPatientIds.has(apt.patient_id) || 
-          (apt.doctors as any)?.cooperation_type === 'chair_rental'
+          apt.doctors?.cooperation_type === 'chair_rental'
       }));
       
       setAppointments(appointmentsWithType);
     } catch (error) {
       console.error("Error loading appointments:", error);
-      toast.error("Ошибка загрузки записей");
+      toast.error(t('crmDayView.apptsLoadError'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [currentClinic, selectedDate, t, weekStart]);
+
+  useEffect(() => {
+    if (currentClinic) {
+      loadDoctors();
+      loadAppointments();
+    }
+  }, [currentClinic, loadAppointments, loadDoctors]);
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -138,7 +144,10 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
     if (!appointment) return;
 
     const originalTime = new Date(appointment.appointment_date);
-    const newDate = setMinutes(setHours(targetDay, originalTime.getHours()), originalTime.getMinutes());
+    const [originalHour, originalMinute] = appointment.start_time
+      ? appointment.start_time.slice(0, 5).split(":").map(Number)
+      : [originalTime.getHours(), originalTime.getMinutes()];
+    const newDate = setMinutes(setHours(targetDay, originalHour), originalMinute);
 
     try {
       // Check availability
@@ -152,29 +161,23 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
         .eq("appointment_date", newDate.toISOString());
 
       if (conflicts && conflicts.length > 0) {
-        toast.error("Слот уже занят");
+        toast.error(t('crmWeekView.slotBusy'));
         return;
       }
 
-      const updateData: Record<string, any> = {
-        appointment_date: newDate.toISOString(),
-      };
-      if (doctorId && doctorId !== "null") {
-        updateData.doctor_id = doctorId;
-      }
+      await placeAppointment({
+        appointmentId,
+        doctorId: doctorId && doctorId !== "null" ? doctorId : undefined,
+        roomId: appointment.room_id ?? null,
+        appointmentDate: format(newDate, "yyyy-MM-dd"),
+        startTime: format(newDate, "HH:mm"),
+      });
 
-      const { error } = await supabase
-        .from("appointments")
-        .update(updateData)
-        .eq("id", appointmentId);
-
-      if (error) throw error;
-
-      toast.success("Запись перенесена");
+      toast.success(t('crmDayView.apptMoved'));
       loadAppointments();
     } catch (error) {
       console.error("Error moving appointment:", error);
-      toast.error("Ошибка переноса записи");
+      toast.error(t('crmDayView.moveApptError'));
     }
   };
 
@@ -197,7 +200,7 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
       const aptDate = new Date(apt.appointment_date);
       const matchesDay = startOfDay(aptDate).getTime() === startOfDay(day).getTime();
       const matchesDoctor = selectedDoctor === "all" || apt.doctor_id === selectedDoctor;
-      const matchesStatus = selectedStatus === "all" || apt.status === selectedStatus;
+      const matchesStatus = appointmentMatchesStatus(apt.status, selectedStatus);
       return matchesDay && matchesDoctor && matchesStatus;
     });
   };
@@ -218,36 +221,36 @@ export const WeekView = ({ selectedDate, onDateChange }: WeekViewProps) => {
       <div className="space-y-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={goToPreviousWeek}>
+            <Button variant="outline" size="sm" onClick={goToPreviousWeek} aria-label={a11yLabel("prev")}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button variant="outline" size="sm" onClick={goToCurrentWeek}>
-              Текущая неделя
+              {t('crmWeekView.currentWeek')}
             </Button>
-            <Button variant="outline" size="sm" onClick={goToNextWeek}>
+            <Button variant="outline" size="sm" onClick={goToNextWeek} aria-label={a11yLabel("next")}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
           <div className="flex items-center gap-2">
             <Select value={selectedDoctor} onValueChange={setSelectedDoctor}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Все врачи" />
+                <SelectValue placeholder={t('crmDayView.allDoctors')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все врачи</SelectItem>
+                <SelectItem value="all">{t('crmDayView.allDoctors')}</SelectItem>
                 {doctors.map((doctor) => (
                   <SelectItem key={doctor.id} value={doctor.id}>
-                    {doctor.profiles?.full_name || "Врач"}
+                    {doctor.profiles?.full_name || t('crmWeekView.doctorFallback')}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             <Select value={selectedStatus} onValueChange={setSelectedStatus}>
               <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Все статусы" />
+                <SelectValue placeholder={t('crmDayView.allStatuses')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
+                <SelectItem value="all">{t('crmDayView.allStatuses')}</SelectItem>
                 {Object.entries(APPOINTMENT_STATUSES).map(([key, value]) => (
                   <SelectItem key={key} value={key}>
                     {value.label}

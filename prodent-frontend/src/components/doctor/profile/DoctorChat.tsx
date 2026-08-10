@@ -7,8 +7,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   X, 
   Send, 
-  Paperclip,
-  Image as ImageIcon,
+
+
   Loader2,
   Check,
   CheckCheck
@@ -17,6 +17,9 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 import { PatientAccessRequestMessage } from '@/components/medical/PatientAccessRequestMessage';
+import { useLanguage } from '@/contexts/LanguageContext';
+import { usePatientAccessRequests } from '@/hooks/useMedicalAccess';
+import { a11yLabel } from "@/lib/a11y-labels";
 
 interface DoctorChatProps {
   doctorId: string; // Target doctor's ID
@@ -25,7 +28,26 @@ interface DoctorChatProps {
   senderDoctorId?: string; // If sender is also a doctor, pass their doctor ID
 }
 
+interface DoctorMessage {
+  id: string;
+  sender_id: string;
+  content: string | null;
+  created_at: string;
+  file_url?: string | null;
+  file_type?: string | null;
+  is_read?: boolean | null;
+}
+
+interface DoctorMessageInsert {
+  doctor_id: string;
+  sender_id: string;
+  content: string;
+  patient_id?: string;
+  recipient_doctor_id?: string;
+}
+
 export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: DoctorChatProps) {
+  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -59,7 +81,7 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
       const { data, error } = await query;
 
       if (error) throw error;
-      return data;
+      return (data || []) as DoctorMessage[];
     },
     refetchInterval: 3000,
   });
@@ -77,28 +99,21 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
   });
 
   // Запросы доступа к медкарте от этого врача
-  const { data: accessRequests } = useQuery({
-    queryKey: ['doctor-chat-access-requests', patientId, doctorId],
-    queryFn: async () => {
-      if (isDoctorToDoctor) return [];
-      const { data } = await supabase
-        .from('medical_record_access')
-        .select('*')
-        .eq('patient_id', patientId)
-        .eq('doctor_id', doctorId)
-        .in('status', ['pending', 'active'])
-        .order('created_at', { ascending: false });
-      return data || [];
-    },
-    enabled: !isDoctorToDoctor,
-    refetchInterval: 5000,
-  });
+  const { data: patientAccessRequests = [] } = usePatientAccessRequests();
+  const accessRequests = isDoctorToDoctor
+    ? []
+    : patientAccessRequests.filter(
+        (request) =>
+          request.patient_id === patientId &&
+          request.doctor_id === doctorId &&
+          (request.status === 'pending' || request.status === 'active'),
+      );
 
   const sendMessage = useMutation({
     mutationFn: async () => {
       if (!message.trim()) return;
 
-      const messageData: any = {
+      const messageData: DoctorMessageInsert = {
         doctor_id: doctorId,
         sender_id: patientId,
         content: message.trim(),
@@ -160,8 +175,8 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
     sendMessage.mutate();
   };
 
-  const groupMessagesByDate = (msgs: any[]) => {
-    const groups: { [key: string]: any[] } = {};
+  const groupMessagesByDate = (msgs: DoctorMessage[]) => {
+    const groups: { [key: string]: DoctorMessage[] } = {};
     msgs.forEach((msg) => {
       const date = format(new Date(msg.created_at), 'yyyy-MM-dd');
       if (!groups[date]) {
@@ -179,10 +194,10 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
     yesterday.setDate(yesterday.getDate() - 1);
 
     if (d.toDateString() === today.toDateString()) {
-      return 'Сегодня';
+      return t('doctorChat.today');
     }
     if (d.toDateString() === yesterday.toDateString()) {
-      return 'Вчера';
+      return t('doctorChat.yesterday');
     }
     return format(d, 'd MMMM yyyy', { locale: ru });
   };
@@ -200,13 +215,13 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
               <AvatarFallback>D</AvatarFallback>
             </Avatar>
             <div>
-              <p className="font-semibold text-base">{doctorProfile?.profile?.full_name || 'Врач'}</p>
+              <p className="font-semibold text-base">{doctorProfile?.profile?.full_name || t('doctorChat.doctorFallback')}</p>
               <p className="text-sm text-muted-foreground">
-                {isDoctorToDoctor ? 'Коллега' : 'Врач'}
+                {isDoctorToDoctor ? t('doctorChat.colleague') : t('doctorChat.doctorFallback')}
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={a11yLabel("close")}>
             <X className="w-5 h-5" />
           </Button>
         </div>
@@ -220,7 +235,7 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
           ) : messages?.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">
               <p className="text-base">
-                {isDoctorToDoctor ? 'Напишите сообщение коллеге' : 'Напишите сообщение врачу'}
+                {isDoctorToDoctor ? t('doctorChat.writeToColleague') : t('doctorChat.writeToDoctor')}
               </p>
             </div>
           ) : (
@@ -232,7 +247,7 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
                     <PatientAccessRequestMessage
                       key={request.id}
                       request={request}
-                      requesterName={doctorProfile?.profile?.full_name || 'Врач'}
+                      requesterName={doctorProfile?.profile?.full_name || t('doctorChat.doctorFallback')}
                     />
                   ))}
                 </div>
@@ -246,7 +261,7 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
                   </span>
                 </div>
                 <div className="space-y-2">
-                  {msgs.map((msg: any) => {
+                  {msgs.map((msg) => {
                     const isOwn = msg.sender_id === patientId;
                     return (
                       <div
@@ -279,7 +294,7 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
                                   rel="noopener noreferrer"
                                   className="text-base underline"
                                 >
-                                  Скачать файл
+                                  {t('doctorChat.downloadFile')}
                                 </a>
                               )}
                             </div>
@@ -322,16 +337,17 @@ export function DoctorChat({ doctorId, patientId, onClose, senderDoctorId }: Doc
         {/* Input */}
         <form onSubmit={handleSend} className="p-4 border-t border-border">
           <div className="flex items-center gap-2">
-            <Button type="button" variant="ghost" size="icon">
-              <Paperclip className="w-5 h-5" />
-            </Button>
-            <Button type="button" variant="ghost" size="icon">
-              <ImageIcon className="w-5 h-5" />
-            </Button>
+            {/*
+              Attach-file and attach-image had no onClick at all: two controls
+              that looked live, took focus, and did nothing. A control that
+              cannot perform its action should not claim it can — removed until
+              attachments exist here. The clinic chat (crm/Messages) already has
+              a working uploader; this is the public profile chat.
+            */}
             <Input
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="Написать сообщение..."
+              placeholder={t('doctorChat.writeMessage')}
               className="flex-1 text-base"
             />
             <Button

@@ -6,6 +6,7 @@ import { Shield, Check, X, Clock, Loader2, ChevronDown } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { ru } from "date-fns/locale";
 import { useRespondToAccess, getReasonLabel } from "@/hooks/useMedicalAccess";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,34 +25,35 @@ interface PatientAccessRequestMessageProps {
   requesterName: string;
 }
 
-const DURATION_OPTIONS = [
-  { label: "1 час", hours: 1 },
-  { label: "6 часов", hours: 6 },
-  { label: "24 часа", hours: 24 },
-  { label: "3 дня", hours: 72 },
-  { label: "7 дней", hours: 168 },
-];
-
-export function PatientAccessRequestMessage({ 
-  request, 
-  requesterName 
+export function PatientAccessRequestMessage({
+  request,
+  requesterName
 }: PatientAccessRequestMessageProps) {
+  const { t } = useLanguage();
   const respondToAccess = useRespondToAccess();
   const isPending = request.status === 'pending';
   const isActive = request.status === 'active';
-  
+
+  const DURATION_OPTIONS = [
+    { label: t('medicalAccess.hour1'), hours: 1 },
+    { label: t('medicalAccess.hours6'), hours: 6 },
+    { label: t('medicalAccess.hours24'), hours: 24 },
+    { label: t('medicalAccess.days3'), hours: 72 },
+    { label: t('medicalAccess.days7'), hours: 168 },
+  ];
+
   // Calculate requested duration in hours
   const requestedDuration = Math.round(
     (new Date(request.valid_to).getTime() - Date.now()) / (1000 * 60 * 60)
   );
-  
+
   const [selectedDuration, setSelectedDuration] = useState<number>(
     requestedDuration > 0 ? requestedDuration : 24
   );
 
   const handleApprove = (durationHours?: number) => {
-    respondToAccess.mutate({ 
-      requestId: request.id, 
+    respondToAccess.mutate({
+      requestId: request.id,
       approve: true,
       customDurationHours: durationHours
     });
@@ -61,13 +63,9 @@ export function PatientAccessRequestMessage({
     respondToAccess.mutate({ requestId: request.id, approve: false });
   };
 
-  const durationText = formatDistanceToNow(new Date(request.valid_to), { 
-    locale: ru 
-  });
-
   const getSelectedLabel = () => {
     const option = DURATION_OPTIONS.find(o => o.hours === selectedDuration);
-    return option?.label || `${selectedDuration} ч.`;
+    return option?.label || `${selectedDuration} ${t('medicalAccess.hourShort')}`;
   };
 
   if (isActive) {
@@ -76,10 +74,10 @@ export function PatientAccessRequestMessage({
         <CardContent className="py-3 px-4">
           <div className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
             <Shield className="h-4 w-4" />
-            <span>Доступ к медкарте предоставлен</span>
+            <span>{t('medicalAccess.accessGrantedText')}</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            До {format(new Date(request.valid_to), "d MMMM, HH:mm", { locale: ru })}
+            {t('medicalAccess.until')} {format(new Date(request.valid_to), "d MMMM, HH:mm", { locale: ru })}
           </p>
         </CardContent>
       </Card>
@@ -92,10 +90,10 @@ export function PatientAccessRequestMessage({
         <CardContent className="py-3 px-4">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Shield className="h-4 w-4" />
-            <span>Запрос на доступ к медкарте</span>
+            <span>{t('medicalAccess.accessRequest')}</span>
           </div>
           <Badge variant="secondary" className="mt-2 text-xs">
-            {request.status === 'revoked' ? 'Отклонён' : 'Истёк'}
+            {request.status === 'revoked' ? t('medicalAccess.rejected') : t('medicalAccess.expired')}
           </Badge>
         </CardContent>
       </Card>
@@ -110,18 +108,18 @@ export function PatientAccessRequestMessage({
             <Shield className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-medium">Запрос доступа к медкарте</p>
-            <p className="text-xs text-muted-foreground">от {requesterName}</p>
+            <p className="text-sm font-medium">{t('medicalAccess.accessRequest')}</p>
+            <p className="text-xs text-muted-foreground">{t('medicalAccess.requestFromDoctor')} {requesterName}</p>
           </div>
         </div>
 
         <div className="space-y-1 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Причина:</span>
+            <span className="text-muted-foreground">{t('medicalAccess.reason')}</span>
             <span>{getReasonLabel(request.reason)}</span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-muted-foreground">Срок:</span>
+            <span className="text-muted-foreground">{t('medicalAccess.durationLabel')}</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-7 px-2 text-sm">
@@ -132,7 +130,7 @@ export function PatientAccessRequestMessage({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {DURATION_OPTIONS.map(option => (
-                  <DropdownMenuItem 
+                  <DropdownMenuItem
                     key={option.hours}
                     onClick={() => setSelectedDuration(option.hours)}
                     className={selectedDuration === option.hours ? "bg-accent" : ""}
@@ -158,7 +156,7 @@ export function PatientAccessRequestMessage({
             ) : (
               <>
                 <X className="h-4 w-4 mr-1" />
-                Отклонить
+                {t('medicalAccess.reject')}
               </>
             )}
           </Button>
@@ -173,7 +171,7 @@ export function PatientAccessRequestMessage({
             ) : (
               <>
                 <Check className="h-4 w-4 mr-1" />
-                Одобрить
+                {t('medicalAccess.approve')}
               </>
             )}
           </Button>
